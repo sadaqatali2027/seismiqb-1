@@ -1,0 +1,6 @@
+[submodule "geolog/batchflow"]
+	path = geolog/batchflow
+	url = https://github.com/analysiscenter/batchflow.git
+[submodule "seismiqb/batchflow"]
+	path = seismiqb/batchflow
+	url = https://github.com/analysiscenter/batchflow.git
