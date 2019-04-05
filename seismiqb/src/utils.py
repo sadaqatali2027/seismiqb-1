@@ -104,7 +104,7 @@ def repair(path_cube, geometry, path_save,
         src.mmap()
         spec = segyio.spec()
         spec.sorting = int(src.sorting)
-        spec.format  = int(src.format)
+        spec.format = int(src.format)
         spec.samples = range(geometry.depth)
         spec.ilines = geometry.ilines[i_low:i_high]
         spec.xlines = geometry.xlines[x_low:x_high]
@@ -115,21 +115,19 @@ def repair(path_cube, geometry, path_save,
                 dst.text[i] = src.text[i]
 
             c = 0
-            for il in tqdm_notebook(spec.ilines):
-                for xl in spec.xlines:
-                    tr = geometry.il_xl_trace[(il, xl)]
-                    dst.header[c] = src.header[tr]
-                    dst.header[c][segyio.TraceField.FieldRecord] = il
-                    dst.header[c][segyio.TraceField.TRACE_SEQUENCE_FILE] = il
+            for il_ in tqdm_notebook(spec.ilines):
+                for xl_ in spec.xlines:
+                    tr_ = geometry.il_xl_trace[(il_, xl_)]
+                    dst.header[c] = src.header[tr_]
+                    dst.header[c][segyio.TraceField.FieldRecord] = il_
+                    dst.header[c][segyio.TraceField.TRACE_SEQUENCE_FILE] = il_
 
-                    dst.header[c][segyio.TraceField.TraceNumber] = xl - geometry.xlines_offset
-                    dst.header[c][segyio.TraceField.TRACE_SEQUENCE_LINE] = xl - geometry.xlines_offset
-
-                    dst.trace[c] = src.trace[tr]
+                    dst.header[c][segyio.TraceField.TraceNumber] = xl_ - geometry.xlines_offset
+                    dst.header[c][segyio.TraceField.TRACE_SEQUENCE_LINE] = xl_ - geometry.xlines_offset
+                    dst.trace[c] = src.trace[tr_]
                     c += 1
-
             dst.bin = src.bin
-            dst.bin = { segyio.BinField.Traces: c}
+            dst.bin = {segyio.BinField.Traces: c}
 
     with segyio.open(path_save, 'r', strict=True) as segyfile:
         segyfile.mmap()
