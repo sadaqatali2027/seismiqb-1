@@ -2,7 +2,7 @@
 import dill
 import numpy as np
 import segyio
-from tqdm import tqdm_notebook
+from tqdm import tqdm
 from ..batchflow import Sampler, HistoSampler, NumpySampler, ConstantSampler
 
 
@@ -17,6 +17,7 @@ class Geometry():
         self.x_to_xline, self.y_to_iline = {}, {}
         self.ilines, self.xlines = set(), set()
         self.possible_cdp_x, self.possible_cdp_y = set(), set()
+        self.value_min, self.value_max = np.inf, -np.inf
         self.get_geometry(path_data)
 
         if kwargs.get('verbose'):
@@ -38,7 +39,7 @@ class Geometry():
 
             self.depth = len(segyfile.trace[0])
 
-            for i in tqdm_notebook(range(len(segyfile.header))):
+            for i in tqdm(range(len(segyfile.header))):
                 header_ = segyfile.header[i]
                 iline_ = header_.get(segyio.TraceField.INLINE_3D)
                 xline_ = header_.get(segyio.TraceField.CROSSLINE_3D)
@@ -56,6 +57,13 @@ class Geometry():
                 # Map:  cdp_y -> iline
                 self.y_to_iline[cdp_y_] = iline_
                 self.x_to_xline[cdp_x_] = xline_
+
+                # trace_ = segyfile.trace[i]
+                # if np.min(trace_) < self.value_min:
+                #     self.value_min = np.min(trace_)
+
+                # if np.max(trace_) > self.value_max:
+                #     self.value_max = np.max(trace_)
 
             # More useful variables
             self.ilines = sorted(list(self.ilines))
@@ -115,7 +123,7 @@ def repair(path_cube, geometry, path_save,
                 dst.text[i] = src.text[i]
 
             c = 0
-            for il_ in tqdm_notebook(spec.ilines):
+            for il_ in tqdm(spec.ilines):
                 for xl_ in spec.xlines:
                     tr_ = geometry.il_xl_trace[(il_, xl_)]
                     dst.header[c] = src.header[tr_]
@@ -162,7 +170,7 @@ def parse_labels(path_labels_txt, cube_geometry, sample_rate=4, delay=280, save_
     for file_path in path_labels_txt:
         with open(file_path, 'r') as file:
             print('Parsing labels from' + file_path)
-            for line in tqdm_notebook(file):
+            for line in tqdm(file):
                 line = line.split()
                 line_x, line_y, line_h = np.array(line).astype(float).astype(int)
 
@@ -308,7 +316,7 @@ def make_samplers(dataset=None, mode='hist', p=None,
 def make_histosampler(input_dict, geometry, bins=100):
     """ Makes sampler from labels. """
     array_repr = []
-    for item in tqdm_notebook(input_dict.items()):
+    for item in tqdm(input_dict.items()):
         for h in item[1]:
             temp_ = [(item[0][0] - geometry.ilines_offset)/geometry.ilines_len,
                      (item[0][1] - geometry.xlines_offset)/geometry.xlines_len,

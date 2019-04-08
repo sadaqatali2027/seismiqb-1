@@ -192,6 +192,52 @@ class SeismicCropBatch(Batch):
         return self
 
 
+    @action
+    @inbatch_parallel(init='indices', target='threads')
+    def normalize(self, path_data, src=None, dst=None,
+                  src_range=None, dst_range=None):
+        """ Normalizes data element-wise to range [0, 1] by exctracting
+        min(data) and dividing by (max(data)-min(data)).
+        """
+        pos = self.get_pos(None, 'indices', path_data)
+        comp_data = getattr(self, src)[pos]
+
+        dst = dst or src
+        if not hasattr(self, dst):
+            setattr(self, dst, np.array([None] * len(self.index)))
+        if not hasattr(self, dst_range):
+            setattr(self, dst_range, np.array([None] * len(self.index)))
+
+        if src_range is not None:
+            min_value, scale_value = getattr(self, src_range)[pos]
+        else:
+            min_value, scale_value = np.min(comp_data), (np.max(comp_data) - np.min(comp_data))
+
+        new_data = (comp_data - min_value) / scale_value
+        getattr(self, dst)[pos] = new_data
+
+        if dst_range:
+            getattr(self, dst_range)[pos] = [min_value, scale_value]
+        return self
+
+
+    @action
+    @inbatch_parallel(init='indices')
+    def denormalize(self, path_data, src=None, dst=None, src_range=None):
+        """ Denormalizes component to initial range. """
+        pos = self.get_pos(None, 'indices', path_data)
+        comp_data = getattr(self, src)[pos]
+
+        dst = dst or src
+        if not hasattr(self, dst):
+            setattr(self, dst, np.array([None] * len(self.index)))
+
+        min_value, scale_value = getattr(self, src_range)[pos]
+        new_data = comp_data * scale_value + min_value
+        getattr(self, dst)[pos] = new_data
+        return self
+
+
     @staticmethod
     def salt(path):
         """ Adds random postfix of predefined length to string. """
