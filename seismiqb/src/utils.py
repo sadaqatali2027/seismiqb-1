@@ -4,7 +4,7 @@ import numpy as np
 import segyio
 from tqdm import tqdm
 from ..batchflow import Sampler, HistoSampler, NumpySampler, ConstantSampler
-
+import pandas as pd
 
 class Geometry():
     """ Class to hold information about .sgy-file. """
@@ -189,6 +189,24 @@ def parse_labels(path_labels_txt, cube_geometry, sample_rate=4, delay=280, save_
 
     return il_xl_h
 
+def read_point_cloud(paths, default=None, **kwargs):
+    """ Read point cloud of horizont-labels from files.
+    """
+    paths = (paths, ) if isinstance(paths, str) else paths
+
+    # default params of pandas-parser
+    if default is None:
+        default = dict(sep='\s+', names=['iline', 'xline', 'height'])
+
+    # read point clouds
+    point_clouds = []
+    for path in paths:
+        copy = default.copy()
+        copy.update(kwargs.get(path, dict()))
+        cloud = pd.read_csv(path, **copy)
+        point_clouds.append(cloud.loc[:, ['iline', 'xline', 'height']].values)
+
+    return np.concatenate(point_clouds)
 
 def make_geometries(dataset=None, load_from=None, save_to=None):
     """ Create Geometry for every cube in dataset and store it
