@@ -222,6 +222,24 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
 
     return points
 
+def get_linear(xs, ys):
+    """ Get linear-transformation that maps range of xs into range of ys.
+    """
+    a = (np.max(ys) - np.min(ys)) / (np.max(xs) - np.min(xs))
+    b = np.max(ys) - a * np.max(xs)
+    return lambda x: a * x + b
+
+def apply(point_cloud, transforms):
+    """ Apply coordinate-wise transforms to the point cloud.
+    """
+    result = []
+
+    # apply transforms
+    for i in range(points.shape[-1]):
+        result.append(transform[i](points[:, i]))
+
+    return np.concatenate(result, axis=-1)
+
 def make_labels_dict(point_cloud):
     """ Make labels-dict using cloud of points.
     """
