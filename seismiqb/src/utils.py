@@ -1,10 +1,17 @@
 """ Utility functions. """
 import dill
+
 import numpy as np
 import segyio
+from numba.typed import Dict
+from numba import types
+from numba import njit
 from tqdm import tqdm
-from ..batchflow import Sampler, HistoSampler, NumpySampler, ConstantSampler
 import pandas as pd
+
+from ..batchflow import Sampler, HistoSampler, NumpySampler, ConstantSampler
+
+FILL_VALUE = -999.0
 
 class Geometry():
     """ Class to hold information about .sgy-file. """
@@ -189,14 +196,14 @@ def parse_labels(path_labels_txt, cube_geometry, sample_rate=4, delay=280, save_
 
     return il_xl_h
 
-def read_point_cloud(paths, default=None, **kwargs):
+def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), transforms=None, **kwargs):
     """ Read point cloud of horizont-labels from files.
     """
     paths = (paths, ) if isinstance(paths, str) else paths
 
     # default params of pandas-parser
     if default is None:
-        default = dict(sep='\s+', names=['iline', 'xline', 'height'])
+        default = dict(sep='\s+', names=['xline', 'iline', 'height'])
 
     # read point clouds
     point_clouds = []
@@ -204,9 +211,66 @@ def read_point_cloud(paths, default=None, **kwargs):
         copy = default.copy()
         copy.update(kwargs.get(path, dict()))
         cloud = pd.read_csv(path, **copy)
-        point_clouds.append(cloud.loc[:, ['iline', 'xline', 'height']].values)
+        point_clouds.append(cloud.loc[:, order].values)
 
-    return np.concatenate(point_clouds)
+    points = np.concatenate(point_clouds)
+
+    # apply transforms
+    if transforms is not None:
+        for i in range(points.shape[-1]):
+            points[:, i] = transforms[i](points[:, i])
+
+    return points
+
+def make_labels_dict(point_cloud):
+    """ Make labels-dict using cloud of points.
+    """
+    # round and cast
+    ilines_xlines = np.round(point_cloud[:, :2]).astype(np.int64)
+
+    # make dict-types
+    key_type = types.Tuple((types.int64, types.int64))
+    value_type = types.float64[:]
+
+    # find max array-length
+    counts = Dict.empty(key_type, types.int64)
+
+    @njit
+    def fill_counts_get_max(counts, ilines_xlines):
+        max_count = 0
+        for i in range(len(ilines_xlines)):
+            il, xl = ilines_xlines[i, :2]
+            if counts.get((il, xl)) is None:
+                counts[(il, xl)] = 0
+
+            counts[(il, xl)] += 1
+            if counts[(il, xl)] > max_count:
+                max_count = counts[(il, xl)]
+
+        return max_count
+
+    max_count = fill_counts_get_max(counts, ilines_xlines)
+
+    # put key-value pairs into numba-dict
+    labels = Dict.empty(key_type, value_type)
+
+    @njit
+    def fill_labels(labels, counts, ilines_xlines, max_count):
+        # zero-out the counts
+        for k in counts.keys():
+            counts[k] = 0
+
+        # fill labels-dict
+        for i in range(len(ilines_xlines)):
+            il, xl = ilines_xlines[i, :2]
+            if labels.get((il, xl)) is None:
+                labels[(il, xl)] = np.full((max_count, ), FILL_VALUE, np.float64)
+
+            labels[(il, xl)][counts[(il, xl)]] = point_cloud[i, 2]
+            counts[(il, xl)] += 1
+
+    fill_labels(labels, counts, ilines_xlines, max_count)
+    return labels
 
 def make_geometries(dataset=None, load_from=None, save_to=None):
     """ Create Geometry for every cube in dataset and store it
