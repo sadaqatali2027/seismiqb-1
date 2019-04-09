@@ -1,16 +1,18 @@
 """ Utility functions. """
 import dill
+import logging
 import numpy as np
 import segyio
 from tqdm import tqdm
+
 from ..batchflow import Sampler, HistoSampler, NumpySampler, ConstantSampler
 
 
 class Geometry():
     """ Class to hold information about .sgy-file. """
-    # pylint: disable=R0902, W0106
-    def __init__(self, path_data, **kwargs):
-        if not isinstance(path_data, str):
+    # pylint: disable=too-many-instance-attributes
+    def __init__(self, path, **kwargs):
+        if not isinstance(path, str):
             raise ValueError('')
 
         self.il_xl_trace = {}
@@ -18,13 +20,13 @@ class Geometry():
         self.ilines, self.xlines = set(), set()
         self.possible_cdp_x, self.possible_cdp_y = set(), set()
         self.value_min, self.value_max = np.inf, -np.inf
-        self.get_geometry(path_data)
+        self.get_geometry(path)
 
-        if kwargs.get('verbose'):
-            self._quack(path_data)
+        if isinstance(kwargs.get('log'), str):
+            self._log(path, path_log=kwargs.get('log'))
 
 
-    def get_geometry(self, path_data):
+    def get_geometry(self, path):
         """ Actual parsing of .sgy-file.
         Does one full path through the file for collecting all the
         necessary information, including:
@@ -34,7 +36,7 @@ class Geometry():
             `depth` contains length of each trace
         """
         # init all the containers
-        with segyio.open(path_data, 'r', strict=False) as segyfile:
+        with segyio.open(path, 'r', strict=False) as segyfile:
             segyfile.mmap() # makes operation faster
 
             self.depth = len(segyfile.trace[0])
@@ -50,20 +52,22 @@ class Geometry():
                 self.il_xl_trace[(iline_, xline_)] = i
 
                 # Set: all possible values for ilines/xlines
-                self.ilines.add(iline_), self.xlines.add(xline_)
-                self.possible_cdp_x.add(cdp_x_), self.possible_cdp_y.add(cdp_y_)
+                self.ilines.add(iline_)
+                self.xlines.add(xline_)
+                self.possible_cdp_x.add(cdp_x_)
+                self.possible_cdp_y.add(cdp_y_)
 
                 # Map:  cdp_x -> xline
                 # Map:  cdp_y -> iline
                 self.y_to_iline[cdp_y_] = iline_
                 self.x_to_xline[cdp_x_] = xline_
 
-                # trace_ = segyfile.trace[i]
-                # if np.min(trace_) < self.value_min:
-                #     self.value_min = np.min(trace_)
+                trace_ = segyfile.trace[i]
+                if np.min(trace_) < self.value_min:
+                    self.value_min = np.min(trace_)
 
-                # if np.max(trace_) > self.value_max:
-                #     self.value_max = np.max(trace_)
+                if np.max(trace_) > self.value_max:
+                    self.value_max = np.max(trace_)
 
             # More useful variables
             self.ilines = sorted(list(self.ilines))
@@ -75,33 +79,37 @@ class Geometry():
             self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
 
 
-    def _quack(self, path_data):
+    def _log(self, path, path_log):
         """ Log some info. """
-        with segyio.open(path_data, 'r', strict=False) as segyfile:
+        logging.basicConfig(level=logging.INFO,
+                            format=' %(message)s',
+                            filename=path_log, filemode='w')
+        logger = logging.getLogger('geometry_logger')
+
+        with segyio.open(path, 'r', strict=False) as segyfile:
             header_file = segyfile.bin
             header_trace = segyfile.header[0]
-            print("File header: ", header_file)
-            print("\n\nTrace header: ", header_trace)
+            logger.info("\nFILE HEADER:")
+            _ = [logger.info('{}: {}'.format(k, v))
+                 for k, v in header_file.items()]
 
-        print('\nDepth of one trace is:', self.depth)
+            logger.info("\nTRACE HEADER:")
+            _ = [logger.info('{}: {}'.format(k, v))
+                 for k, v in header_trace.items()]
 
-        print('Number of ILINES:', self.ilines_len)
-        print('Number of XLINES:', self.xlines_len)
+        logger.info('\nSHAPES INFO:')
+        logger.info('Depth of one trace is: {}'.format(self.depth))
 
-        print('ILINES range from ' + str(min(self.ilines)) + ' to ' + str(max(self.ilines)))
-        print('XLINES range from ' + str(min(self.xlines)) + ' to ' + str(max(self.xlines)))
+        logger.info('Number of ILINES: '.format(self.ilines_len))
+        logger.info('Number of XLINES: '.format(self.xlines_len))
 
-        print('CDP_X range from ' + str(min(self.possible_cdp_x))
-              + ' to ' + str(max(self.possible_cdp_x)))
-        print('CDP_Y range from ' + str(min(self.possible_cdp_y))
-              + ' to ' + str(max(self.possible_cdp_y)))
+        logger.info('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
+        logger.info('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
 
-
-    def get(self, attr, default=None):
-        """ Get. """
-        if hasattr(self, attr):
-            return getattr(self, attr)
-        return default
+        logger.info('CDP_X range from {} to {}'.format(min(self.possible_cdp_x),
+                                                       max(self.possible_cdp_x)))
+        logger.info('CDP_X range from {} to {}'.format(min(self.possible_cdp_y),
+                                                       max(self.possible_cdp_y)))
 
 
 
@@ -137,9 +145,10 @@ def repair(path_cube, geometry, path_save,
             dst.bin = src.bin
             dst.bin = {segyio.BinField.Traces: c}
 
+    # Check that repaired cube can be opened in 'strict' mode
     with segyio.open(path_save, 'r', strict=True) as segyfile:
-        segyfile.mmap()
-        print('Cube can be opened in `strict` mode now! ')
+        pass
+
 
 
 def parse_labels(path_labels_txt, cube_geometry, sample_rate=4, delay=280, save_to=None):
