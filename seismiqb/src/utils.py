@@ -135,6 +135,7 @@ def apply(point_cloud, transforms):
     """ Apply coordinate-wise transforms to the point cloud.
     """
     result = []
+    transforms = [lambda x: x for _ in range(point_cloud.shape[-1])] if transforms is None else transforms
 
     # apply transforms
     for i in range(points.shape[-1]):

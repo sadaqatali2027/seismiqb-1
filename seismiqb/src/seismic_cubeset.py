@@ -4,7 +4,7 @@ import dill
 from ..batchflow import Dataset
 from .seismic_geometry import SeismicGeometry
 
-from .utils import read_point_cloud
+from .utils import read_point_cloud, apply, make_labels_dict
 
 class SeismicCubeset(Dataset):
     """ Stores indexing structure for dataset of seismic cubes along with additional structures.
@@ -48,5 +48,17 @@ class SeismicCubeset(Dataset):
         """
         for path in self.indices:
             self.point_cloud[path] = read_point_cloud(paths[path], **kwargs)
+
+        return self
+
+    def make_labels(self, transforms=None, src='point_cloud'):
+        """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
+        """
+        # apply transforms to point-cloud
+        point_cloud = getattr(self, src) if isinstance(src, str) else point_cloud
+        transforms = dict() if transforms is None else transforms
+
+        for path in self.indices:
+            self.labels[path] = make_labels_dict(apply(point_cloud.get(path), transforms.get(path)))
 
         return self
