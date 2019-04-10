@@ -1,7 +1,7 @@
 """ Contains container for storing dataset of seismic crops. """
 import dill
 
-from ..batchflow import Dataset
+from ..batchflow import Dataset, Batch
 from .seismic_geometry import SeismicGeometry
 
 from .utils import read_point_cloud, apply, make_labels_dict
@@ -15,14 +15,14 @@ class SeismicCubeset(Dataset):
         super().__init__(index, batch_class=Batch, preloaded=None, *args, **kwargs)
         self.geometries = {path: SeismicGeometry() for path in self.indices}
         self.samplers = {path: None for path in self.indices}
-        self.labels = {path: dict for path in self.indices}
+        self.labels = {path: dict() for path in self.indices}
         self.point_cloud = {path: np.array() for path in self.indices}
 
-    def load_geometries(self, from=None):
+    def load_geometries(self, path=None):
         """ Load geometries into dataset-attribute.
         """
-        if isinstance(from, str):
-            with open(from, 'rb') as file:
+        if isinstance(path, str):
+            with open(path, 'rb') as file:
                 self.geometries = dill.load(file)
 
         else:
