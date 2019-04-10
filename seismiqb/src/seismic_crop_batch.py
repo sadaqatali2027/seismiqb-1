@@ -47,8 +47,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape,
-             dst='slices', passdown=None):
+    def crop(self, points, shape, dst='slices', passdown=None):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components.
 
@@ -71,7 +70,7 @@ class SeismicCropBatch(Batch):
 
         Returns
         -------
-        batch : SeismicCropBatch
+        SeismicCropBatch
             Batch with positions of crops in specified component.
         """
         new_index = [self.salt(path_data) for path_data in points[:, 0]]
@@ -200,24 +199,17 @@ class SeismicCropBatch(Batch):
         min(data) and dividing by (max(data)-min(data)).
         """
         pos = self.get_pos(None, 'indices', path_data)
+        path_data = self.unsalt(path_data)
+
         comp_data = getattr(self, src)[pos]
+        geom = self.geometries[path_data]
+
+        new_data = (comp_data - geom.value_min) / (geom.value_max - geom.value_min)
 
         dst = dst or src
         if not hasattr(self, dst):
             setattr(self, dst, np.array([None] * len(self.index)))
-        if not hasattr(self, dst_range):
-            setattr(self, dst_range, np.array([None] * len(self.index)))
-
-        if src_range is not None:
-            min_value, scale_value = getattr(self, src_range)[pos]
-        else:
-            min_value, scale_value = np.min(comp_data), (np.max(comp_data) - np.min(comp_data))
-
-        new_data = (comp_data - min_value) / scale_value
         getattr(self, dst)[pos] = new_data
-
-        if dst_range:
-            getattr(self, dst_range)[pos] = [min_value, scale_value]
         return self
 
 
@@ -226,21 +218,31 @@ class SeismicCropBatch(Batch):
     def denormalize(self, path_data, src=None, dst=None, src_range=None):
         """ Denormalizes component to initial range. """
         pos = self.get_pos(None, 'indices', path_data)
+        path_data = self.unsalt(path_data)
+
         comp_data = getattr(self, src)[pos]
+        geom = self.geometries[path_data]
+
+        new_data = comp_data * (geom.value_max - geom.value_min) + geom.value_min
 
         dst = dst or src
         if not hasattr(self, dst):
             setattr(self, dst, np.array([None] * len(self.index)))
-
-        min_value, scale_value = getattr(self, src_range)[pos]
-        new_data = comp_data * scale_value + min_value
         getattr(self, dst)[pos] = new_data
         return self
 
 
     @staticmethod
     def salt(path):
-        """ Adds random postfix of predefined length to string. """
+        """ Adds random postfix of predefined length to string.
+
+        Note
+        Action `crop` makes a new instance of SeismicCropBatch with
+        different (enlarged) index. Items in that index should point to cube
+        location to cut crops from. Since we can't store multiple copies of the same
+        string in one index (due to internal usage of dictionary), we need to augment
+        those strings with random postfix (which we can remove later).
+        """
         chars = string.ascii_uppercase + string.digits
         return path + PREFIX + ''.join(random.choice(chars) for _ in range(SIZE_PREFIX))
 
