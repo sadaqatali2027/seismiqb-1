@@ -1,6 +1,8 @@
 """ Contains container for storing dataset of seismic crops. """
 import dill
 
+import numpy as np
+
 from ..batchflow import Dataset, Batch
 from .seismic_geometry import SeismicGeometry
 
@@ -16,7 +18,7 @@ class SeismicCubeset(Dataset):
         self.geometries = {path: SeismicGeometry() for path in self.indices}
         self.samplers = {path: None for path in self.indices}
         self.labels = {path: dict() for path in self.indices}
-        self.point_cloud = {path: np.array() for path in self.indices}
+        self.point_cloud = {ix: np.array([]) for ix in self.indices}
 
     def load_geometries(self, path=None):
         """ Load geometries into dataset-attribute.
@@ -26,10 +28,10 @@ class SeismicCubeset(Dataset):
                 self.geometries = dill.load(file)
 
         else:
-            for path in self.indices:
+            for ix in self.indices:
                 # not pring but logging
                 # print('Creating Geometry for file: ' + path_data)
-                self.geometries[path].load(path)
+                self.geometries[ix].load(self.index.get_fullpath(ix))
 
         return self
 
@@ -46,8 +48,8 @@ class SeismicCubeset(Dataset):
     def load_point_cloud(self, paths, **kwargs):
         """ Load point-cloud of labels for each cube in dataset.
         """
-        for path in self.indices:
-            self.point_cloud[path] = read_point_cloud(paths[path], **kwargs)
+        for ix in self.indices:
+            self.point_cloud[ix] = read_point_cloud(paths[ix], **kwargs)
 
         return self
 
@@ -58,7 +60,7 @@ class SeismicCubeset(Dataset):
         point_cloud = getattr(self, src) if isinstance(src, str) else point_cloud
         transforms = dict() if transforms is None else transforms
 
-        for path in self.indices:
-            self.labels[path] = make_labels_dict(apply(point_cloud.get(path), transforms.get(path)))
+        for ix in self.indices:
+            self.labels[ix] = make_labels_dict(apply(point_cloud.get(ix), transforms.get(ix)))
 
         return self

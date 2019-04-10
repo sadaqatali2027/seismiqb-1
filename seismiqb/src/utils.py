@@ -138,10 +138,10 @@ def apply(point_cloud, transforms):
     transforms = [lambda x: x for _ in range(point_cloud.shape[-1])] if transforms is None else transforms
 
     # apply transforms
-    for i in range(points.shape[-1]):
-        result.append(transform[i](points[:, i]))
+    for i in range(point_cloud.shape[-1]):
+        result.append(transforms[i](point_cloud[:, i]))
 
-    return np.concatenate(result, axis=-1)
+    return np.stack(result, axis=-1)
 
 def make_labels_dict(point_cloud):
     """ Make labels-dict using cloud of points.

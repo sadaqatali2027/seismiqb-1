@@ -3,6 +3,9 @@
 import numpy as np
 import segyio
 import logging
+from tqdm import tqdm_notebook
+
+from .utils import get_linear
 
 class SeismicGeometry():
     """ Class to hold information about .sgy-file. """
@@ -11,7 +14,7 @@ class SeismicGeometry():
         self.il_xl_trace = {}
         self.x_to_xline, self.y_to_iline = {}, {}
         self.ilines, self.xlines = set(), set()
-        self.possible_cdp_x, self.possible_cdp_y = set(), set()
+        self.cdp_x, self.cdp_y = set(), set()
         self.value_min, self.value_max = np.inf, -np.inf
         self.log_path = kwargs.get('log')
 
@@ -19,8 +22,22 @@ class SeismicGeometry():
         #if isinstance(kwargs.get('log'), str):
             #self._log(path, path_log=kwargs.get('log'))
 
+    def absolute_to_line(self, order=('iline', 'xline', 'h')):
+        """ Get range-transforms: absolute coordinates into xline/iline/height-coords.
+        """
+        return [self._absolute_to_line(axis) for axis in order]
 
-    def load(self, path):
+    def _absolute_to_line(self, axis):
+        if axis in ['xline', 'iline']:
+            from_attr, to_attr = ('cdp_x', 'xlines') if axis == 'xline' else ('cdp_y', 'ilines')
+            transform = get_linear(list(getattr(self, from_attr)), list(getattr(self, to_attr)))
+        elif axis == 'h':
+            transform = lambda x: ((x + 280) / 4).astype(np.int64)  # fetch coords from header rather than use fixed constants!
+        else:
+            raise ValueError('Unknown axis!')
+        return transform
+
+    def load(self, path, **kwargs):
         """ Actual parsing of .sgy-file.
         Does one full path through the file for collecting all the
         necessary information, including:
@@ -38,7 +55,7 @@ class SeismicGeometry():
 
             self.depth = len(segyfile.trace[0])
 
-            for i in tqdm(range(len(segyfile.header))):
+            for i in tqdm_notebook(range(len(segyfile.header))):
                 header_ = segyfile.header[i]
                 iline_ = header_.get(segyio.TraceField.INLINE_3D)
                 xline_ = header_.get(segyio.TraceField.CROSSLINE_3D)
@@ -51,8 +68,8 @@ class SeismicGeometry():
                 # Set: all possible values for ilines/xlines
                 self.ilines.add(iline_)
                 self.xlines.add(xline_)
-                self.possible_cdp_x.add(cdp_x_)
-                self.possible_cdp_y.add(cdp_y_)
+                self.cdp_x.add(cdp_x_)
+                self.cdp_y.add(cdp_y_)
 
                 # Map:  cdp_x -> xline
                 # Map:  cdp_y -> iline
@@ -103,7 +120,7 @@ class SeismicGeometry():
         logger.info('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
         logger.info('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
 
-        logger.info('CDP_X range from {} to {}'.format(min(self.possible_cdp_x),
-                                                       max(self.possible_cdp_x)))
-        logger.info('CDP_X range from {} to {}'.format(min(self.possible_cdp_y),
-                                                       max(self.possible_cdp_y)))
+        logger.info('CDP_X range from {} to {}'.format(min(self.cdp_x),
+                                                       max(self.cdp_x)))
+        logger.info('CDP_X range from {} to {}'.format(min(self.cdp_y),
+                                                       max(self.cdp_y)))
