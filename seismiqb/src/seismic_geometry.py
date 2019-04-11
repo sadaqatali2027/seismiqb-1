@@ -1,26 +1,29 @@
 """ SeismicGeometry-class containing geometrical info about seismic-cube."""
+import logging
 
 import numpy as np
 import segyio
-import logging
-from tqdm import tqdm_notebook
+from tqdm import tqdm
 
 from .utils import get_linear
 
 class SeismicGeometry():
     """ Class to hold information about .sgy-file. """
     # pylint: disable=too-many-instance-attributes
-    def __init__(self, **kwargs):
+    def __init__(self, path):
+        self.path = path
         self.il_xl_trace = {}
+        self.depth = None
+
         self.x_to_xline, self.y_to_iline = {}, {}
         self.ilines, self.xlines = set(), set()
+        self.ilines_offset, self.xlines_offset = None, None
+        self.ilines_len, self.xlines_len = None, None
+        self.cube_shape = None
+
         self.cdp_x, self.cdp_y = set(), set()
         self.value_min, self.value_max = np.inf, -np.inf
-        self.log_path = kwargs.get('log')
 
-        # this logging should be within load:
-        #if isinstance(kwargs.get('log'), str):
-            #self._log(path, path_log=kwargs.get('log'))
 
     def absolute_to_line(self, order=('iline', 'xline', 'h')):
         """ Get range-transforms: absolute coordinates into xline/iline/height-coords.
@@ -37,7 +40,8 @@ class SeismicGeometry():
             raise ValueError('Unknown axis!')
         return transform
 
-    def load(self, path, **kwargs):
+
+    def load(self):
         """ Actual parsing of .sgy-file.
         Does one full path through the file for collecting all the
         necessary information, including:
@@ -46,16 +50,17 @@ class SeismicGeometry():
             `ilines`, `xlines` lists with possible values of respective coordinate
             `depth` contains length of each trace
         """
-        if not isinstance(path, str):
+        if not isinstance(self.path, str):
             raise ValueError('Path to a segy-cube should be supplied!')
 
         # init all the containers
-        with segyio.open(path, 'r', strict=False) as segyfile:
+        with segyio.open(self.path, 'r', strict=False) as segyfile:
             segyfile.mmap() # makes operation faster
 
             self.depth = len(segyfile.trace[0])
 
-            for i in tqdm_notebook(range(len(segyfile.header))):
+            description = 'Working with {}'.format('/'.join(self.path.split('/')[-2:]))
+            for i in tqdm(range(len(segyfile.header)), desc=description):
                 header_ = segyfile.header[i]
                 iline_ = header_.get(segyio.TraceField.INLINE_3D)
                 xline_ = header_.get(segyio.TraceField.CROSSLINE_3D)
@@ -76,13 +81,6 @@ class SeismicGeometry():
                 self.y_to_iline[cdp_y_] = iline_
                 self.x_to_xline[cdp_x_] = xline_
 
-                trace_ = segyfile.trace[i]
-                if np.min(trace_) < self.value_min:
-                    self.value_min = np.min(trace_)
-
-                if np.max(trace_) > self.value_max:
-                    self.value_max = np.max(trace_)
-
             # More useful variables
             self.ilines = sorted(list(self.ilines))
             self.xlines = sorted(list(self.xlines))
@@ -93,14 +91,38 @@ class SeismicGeometry():
             self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
 
 
-    def _log(self, path, path_log):
-        """ Log some info. """
-        logging.basicConfig(level=logging.INFO,
-                            format=' %(message)s',
-                            filename=path_log, filemode='w')
-        logger = logging.getLogger('geometry_logger')
+    def make_scalers(self, mode):
+        """ Get scaling constants. """
+        count = len(self.il_xl_trace)
+        if mode == 'full':
+            traces = np.arange(count)
+        if mode == 'random':
+            traces = np.random.choice(count, count//10)
 
-        with segyio.open(path, 'r', strict=False) as segyfile:
+        with segyio.open(self.path, 'r', strict=False) as segyfile:
+            segyfile.mmap()
+
+            description = 'Making scalers for {}'.format('/'.join(self.path.split('/')[-2:]))
+            for i in tqdm(traces, desc=description):
+                trace_ = segyfile.trace[i]
+
+                if np.min(trace_) < self.value_min:
+                    self.value_min = np.min(trace_)
+                if np.max(trace_) > self.value_max:
+                    self.value_max = np.max(trace_)
+
+
+    def log(self, path_log):
+        """ Log some info. """
+        # pylint: disable=logging-format-interpolation
+        handler = logging.FileHandler(path_log, mode='w')
+        handler.setFormatter(logging.Formatter('%(asctime)s  %(message)s'))
+
+        logger = logging.getLogger('geometry_logger')
+        logger.setLevel(logging.INFO)
+        logger.addHandler(handler)
+
+        with segyio.open(self.path, 'r', strict=False) as segyfile:
             header_file = segyfile.bin
             header_trace = segyfile.header[0]
             logger.info("\nFILE HEADER:")
@@ -114,8 +136,8 @@ class SeismicGeometry():
         logger.info('\nSHAPES INFO:')
         logger.info('Depth of one trace is: {}'.format(self.depth))
 
-        logger.info('Number of ILINES: '.format(self.ilines_len))
-        logger.info('Number of XLINES: '.format(self.xlines_len))
+        logger.info('Number of ILINES: {}'.format(self.ilines_len))
+        logger.info('Number of XLINES: {}'.format(self.xlines_len))
 
         logger.info('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
         logger.info('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))

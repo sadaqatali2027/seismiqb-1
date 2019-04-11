@@ -193,8 +193,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='indices', target='threads')
-    def normalize(self, path_data, src=None, dst=None,
-                  src_range=None, dst_range=None):
+    def normalize(self, path_data, src=None, dst=None):
         """ Normalizes data element-wise to range [0, 1] by exctracting
         min(data) and dividing by (max(data)-min(data)).
         """
@@ -215,7 +214,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='indices')
-    def denormalize(self, path_data, src=None, dst=None, src_range=None):
+    def denormalize(self, path_data, src=None, dst=None):
         """ Denormalizes component to initial range. """
         pos = self.get_pos(None, 'indices', path_data)
         path_data = self.unsalt(path_data)
