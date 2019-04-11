@@ -8,7 +8,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 from .seismic_geometry import SeismicGeometry
 from .seismic_crop_batch import SeismicCropBatch
 
-from .utils import read_point_cloud, apply, make_labels_dict
+from .utils import read_point_cloud, make_labels_dict
 
 
 class SeismicCubeset(Dataset):
@@ -32,7 +32,7 @@ class SeismicCubeset(Dataset):
                 self.geometries = dill.load(file)
         else:
             for ix in self.indices:
-                self.geometries[ix].make()
+                self.geometries[ix].load()
                 if scalers:
                     self.geometries[ix].make_scalers(mode=mode)
         return self
@@ -83,8 +83,8 @@ class SeismicCubeset(Dataset):
             for ix in self.indices:
                 point_cloud = point_clouds.get(ix)
                 geom = getattr(self, 'geometries').get(ix)
-                transform = transforms.get(ix) or geom.absolute_to_line()
-                self.labels[ix] = make_labels_dict(apply(point_cloud, transform))
+                transform = transforms.get(ix) or geom.abs_to_lines
+                self.labels[ix] = make_labels_dict(transform(point_cloud))
         return self
 
 
@@ -99,7 +99,7 @@ class SeismicCubeset(Dataset):
 
 
     def load_samplers(self, path=None, mode='hist', p=None,
-                      transforms=None, transforms_to_cube=None, **kwargs):
+                      transforms=None, **kwargs):
         """ Create samplers for every cube and store it in `samplers`
         attribute of passed dataset. Also creates one combined sampler
         and stores it in `sampler` attribute of passed dataset.
@@ -124,7 +124,6 @@ class SeismicCubeset(Dataset):
         # pylint: disable=cell-var-from-loop
         lowcut, highcut = [0, 0, 0], [1, 1, 1]
         transforms = transforms or dict()
-        transforms_to_cube = transforms_to_cube or dict()
 
         if isinstance(path, str):
             with open(path, 'rb') as file:
@@ -146,13 +145,11 @@ class SeismicCubeset(Dataset):
                     geom = getattr(self, 'geometries')[ix]
                     offsets = np.array([geom.ilines_offset, geom.xlines_offset, 0])
                     cube_shape = np.array(geom.cube_shape)
-                    default = lambda points: (points - offsets)/cube_shape
+                    to_cube = lambda points: (points - offsets)/cube_shape
+                    default = lambda points: to_cube(geom.abs_to_lines(points))
 
-                    transform = transforms.get(ix) or geom.absolute_to_line()
-                    transform_to_cube = transforms_to_cube.get(ix) or default
-
-                    il_xl_array = apply(point_cloud, transform)
-                    cube_array = transform_to_cube(il_xl_array)
+                    transform = transforms.get(ix) or default
+                    cube_array = transform(point_cloud)
 
                     bins = kwargs.get('bins') or 100
                     sampler = HistoSampler(np.histogramdd(cube_array, bins=bins))

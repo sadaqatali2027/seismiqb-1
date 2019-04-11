@@ -1,6 +1,5 @@
 """ Utility functions. """
 import dill
-import logging
 import numpy as np
 import segyio
 from numba.typed import Dict
@@ -46,7 +45,7 @@ def repair(path_cube, geometry, path_save,
             dst.bin = {segyio.BinField.Traces: c}
 
     # Check that repaired cube can be opened in 'strict' mode
-    with segyio.open(path_save, 'r', strict=True) as segyfile:
+    with segyio.open(path_save, 'r', strict=True) as _:
         pass
 
 
@@ -124,24 +123,6 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
 
     return points
 
-def get_linear(xs, ys):
-    """ Get linear-transformation that maps range of xs into range of ys.
-    """
-    a = (np.max(ys) - np.min(ys)) / (np.max(xs) - np.min(xs))
-    b = np.max(ys) - a * np.max(xs)
-    return lambda x: a * x + b
-
-def apply(point_cloud, transforms):
-    """ Apply coordinate-wise transforms to the point cloud.
-    """
-    result = []
-    transforms = [lambda x: x for _ in range(point_cloud.shape[-1])] if transforms is None else transforms
-
-    # apply transforms
-    for i in range(point_cloud.shape[-1]):
-        result.append(transforms[i](point_cloud[:, i]))
-
-    return np.stack(result, axis=-1)
 
 def make_labels_dict(point_cloud):
     """ Make labels-dict using cloud of points.

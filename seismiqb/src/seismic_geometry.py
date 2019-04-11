@@ -5,7 +5,7 @@ import numpy as np
 import segyio
 from tqdm import tqdm
 
-from .utils import get_linear
+
 
 class SeismicGeometry():
     """ Class to hold information about .sgy-file. """
@@ -13,6 +13,8 @@ class SeismicGeometry():
     def __init__(self, path):
         self.path = path
         self.il_xl_trace = {}
+        self.delay, self.sample_rate = None, None
+        self.value_min, self.value_max = np.inf, -np.inf
         self.depth = None
 
         self.x_to_xline, self.y_to_iline = {}, {}
@@ -22,23 +24,7 @@ class SeismicGeometry():
         self.cube_shape = None
 
         self.cdp_x, self.cdp_y = set(), set()
-        self.value_min, self.value_max = np.inf, -np.inf
-
-
-    def absolute_to_line(self, order=('iline', 'xline', 'h')):
-        """ Get range-transforms: absolute coordinates into xline/iline/height-coords.
-        """
-        return [self._absolute_to_line(axis) for axis in order]
-
-    def _absolute_to_line(self, axis):
-        if axis in ['xline', 'iline']:
-            from_attr, to_attr = ('cdp_x', 'xlines') if axis == 'xline' else ('cdp_y', 'ilines')
-            transform = get_linear(list(getattr(self, from_attr)), list(getattr(self, to_attr)))
-        elif axis == 'h':
-            transform = lambda x: ((x + 280) / 4).astype(np.int64)  # fetch coords from header rather than use fixed constants!
-        else:
-            raise ValueError('Unknown axis!')
-        return transform
+        self.abs_to_lines = None
 
 
     def load(self):
@@ -81,14 +67,34 @@ class SeismicGeometry():
                 self.y_to_iline[cdp_y_] = iline_
                 self.x_to_xline[cdp_x_] = xline_
 
-            # More useful variables
-            self.ilines = sorted(list(self.ilines))
-            self.xlines = sorted(list(self.xlines))
-            self.ilines_offset = min(self.ilines)
-            self.xlines_offset = min(self.xlines)
-            self.ilines_len = len(self.ilines)
-            self.xlines_len = len(self.xlines)
-            self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
+        # More useful variables
+        self.ilines = sorted(list(self.ilines))
+        self.xlines = sorted(list(self.xlines))
+        self.ilines_offset = min(self.ilines)
+        self.xlines_offset = min(self.xlines)
+        self.ilines_len = len(self.ilines)
+        self.xlines_len = len(self.xlines)
+        self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
+
+        # Create transform from global coordinates to ilines/xlines/depth
+        self.delay = header_.get(segyio.TraceField.DelayRecordingTime)
+        self.sample_rate = header_.get(segyio.TraceField.TRACE_SAMPLE_INTERVAL) // 1000
+
+        transform_y = self._get_linear(self.cdp_y, self.ilines)
+        transform_x = self._get_linear(self.cdp_x, self.xlines)
+        transform_h = lambda h: ((h - self.delay) / self.sample_rate).astype(np.int64)
+        self.abs_to_lines = (lambda array: np.stack([transform_y(array[:, 0]),
+                                                     transform_x(array[:, 1]),
+                                                     transform_h(array[:, 2])],
+                                                    axis=-1))
+
+
+    def _get_linear(self, set_x, set_y):
+        """ Get linear-transformation that maps range of set_x into range of set_y.
+        """
+        a = (max(set_y) - min(set_y)) / (max(set_x) - min(set_x))
+        b = max(set_y) - a * max(set_x)
+        return lambda x: a * x + b
 
 
     def make_scalers(self, mode):
@@ -116,12 +122,13 @@ class SeismicGeometry():
         """ Log some info. """
         # pylint: disable=logging-format-interpolation
         handler = logging.FileHandler(path_log, mode='w')
-        handler.setFormatter(logging.Formatter('%(asctime)s  %(message)s'))
+        handler.setFormatter(logging.Formatter('%(message)s'))
 
         logger = logging.getLogger('geometry_logger')
         logger.setLevel(logging.INFO)
         logger.addHandler(handler)
 
+        logger.info('Info for cube: {}'.format(self.path))
         with segyio.open(self.path, 'r', strict=False) as segyfile:
             header_file = segyfile.bin
             header_trace = segyfile.header[0]
