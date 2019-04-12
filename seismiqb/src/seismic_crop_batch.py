@@ -16,10 +16,10 @@ SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 class SeismicCropBatch(Batch):
     """ Batch with ability to generate 3d-crops of various shapes."""
     # pylint: disable=protected-access, C0103
-    components = ('slices', )
+    components = ('slices', 'geometries', 'labels')
 
     def _init_component(self, *args, **kwargs):
-        """Create and preallocate a new attribute with the name ``dst`` if it
+        """ Create and preallocate a new attribute with the name ``dst`` if it
         does not exist and return batch indices."""
         _ = args
         dst = kwargs.get("dst")
@@ -32,6 +32,21 @@ class SeismicCropBatch(Batch):
                 setattr(self, comp, np.array([None] * len(self.index)))
         return self.indices
 
+    def typify_component(self, component):
+        """ Get type of batch-component.
+        """
+        for template in ('geometries', 'labels'):
+            if template in component:
+                return template
+
+        return 'other'
+
+    def get_pos(self, data, component, index):
+        """ Get correct slice/key of a component-item based on its type.
+        """
+        if self.typify_component(component) in ('geometries', 'labels'):
+            return self.unsalt(index)
+        return super().get_pos(data, component, index)
 
     @action
     def load_component(self, src, dst):
@@ -99,8 +114,8 @@ class SeismicCropBatch(Batch):
 
     def _make_slice(self, point, shape):
         """ Creates list of `np.arange`'s for desired location. """
-        path_data = point[0]
-        geom = self.geometries[path_data]
+        ix = point[0]
+        geom = self.get(ix, 'geometries')
         lens = [geom.ilines_len, geom.xlines_len, geom.depth]
 
         slice_point = (point[1:] * (np.array(lens) - np.array(shape))).astype(int)
@@ -131,7 +146,7 @@ class SeismicCropBatch(Batch):
         pos = self.get_pos(None, 'indices', ix)
         path_data = self.index.get_fullpath(ix)
 
-        geom = self.geometries[self.unsalt(ix)]
+        geom = self.get(ix, 'geometries')
         slice_ = getattr(self, src)[pos]
 
         with segyio.open(path_data, 'r', strict=False) as segyfile:
@@ -199,12 +214,10 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='indices', target='threads')
-    def scale(self, path_data, mode, src=None, dst=None):
+    def scale(self, ix, mode, src=None, dst=None):
         """ Scale values in crop. """
-        pos = self.get_pos(None, 'indices', path_data)
-        path_data = self.unsalt(path_data)
-        comp_data = getattr(self, src)[pos]
-        geom = self.geometries[path_data]
+        comp_data = self.get(src, ix)
+        geom = self.get('geometries', ix)
 
         if mode == 'normalize':
             new_data = geom.scaler(comp_data)
@@ -215,7 +228,8 @@ class SeismicCropBatch(Batch):
 
         dst = dst or src
         if not hasattr(self, dst):
-            setattr(self, dst, np.array([None] * len(self.index)))
+            setattr(self, dst, np.array([None] * len(self)))
+        pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = new_data
         return self
 
