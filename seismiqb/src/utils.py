@@ -10,7 +10,7 @@ import pandas as pd
 
 from ..batchflow import Sampler, HistoSampler, NumpySampler, ConstantSampler
 
-FILL_VALUE = -999.0
+FILL_VALUE = -999
 
 def repair(path_cube, geometry, path_save,
            i_low=0, i_high=-2, x_low=0, x_high=-2):
@@ -132,7 +132,7 @@ def make_labels_dict(point_cloud):
 
     # make dict-types
     key_type = types.Tuple((types.int64, types.int64))
-    value_type = types.float64[:]
+    value_type = types.int64[:]
 
     # find max array-length
     counts = Dict.empty(key_type, types.int64)
@@ -166,7 +166,7 @@ def make_labels_dict(point_cloud):
         for i in range(len(ilines_xlines)):
             il, xl = ilines_xlines[i, :2]
             if labels.get((il, xl)) is None:
-                labels[(il, xl)] = np.full((max_count, ), FILL_VALUE, np.float64)
+                labels[(il, xl)] = np.full((max_count, ), FILL_VALUE, np.int64)
 
             labels[(il, xl)][counts[(il, xl)]] = point_cloud[i, 2]
             counts[(il, xl)] += 1

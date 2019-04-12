@@ -80,7 +80,7 @@ class SeismicCropBatch(Batch):
         new_index = [self.salt(ix) for ix in points[:, 0]]
         new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
                     for ix in new_index}
-        new_batch = SeismicCropBatch(FilesIndex.from_index(new_index, new_dict))
+        new_batch = SeismicCropBatch(FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False))
 
         passdown = passdown or []
         passdown.extend(['geometries', 'labels'])
@@ -112,7 +112,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def load_cubes(self, path_data, dst, src='slices'):
+    def load_cubes(self, ix, dst, src='slices'):
         """ Load data from cube in given positions.
 
         Parameters
@@ -128,10 +128,10 @@ class SeismicCropBatch(Batch):
         batch : SeismicCropBatch
             Batch with loaded crops in desired component.
         """
-        pos = self.get_pos(None, 'indices', path_data)
-        path_data = self.unsalt(path_data)
+        pos = self.get_pos(None, 'indices', ix)
+        path_data = self.index.get_fullpath(ix)
 
-        geom = self.geometries[path_data]
+        geom = self.geometries[self.unsalt(ix)]
         slice_ = getattr(self, src)[pos]
 
         with segyio.open(path_data, 'r', strict=False) as segyfile:
@@ -151,7 +151,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def load_masks(self, path_data, dst, src='slices'):
+    def load_masks(self, ix, dst, src='slices'):
         """ Load masks from dictionary in given positions.
 
         Parameters
@@ -170,11 +170,11 @@ class SeismicCropBatch(Batch):
         batch : SeismicCropBatch
             Batch with loaded masks in desired components.
         """
-        pos = self.get_pos(None, 'indices', path_data)
-        path_data = self.unsalt(path_data)
+        pos = self.get_pos(None, 'indices', ix)
+        ix = self.unsalt(ix)
 
-        geom = self.geometries[path_data]
-        il_xl_h = self.labels[path_data]
+        geom = self.geometries[ix]
+        il_xl_h = self.labels[ix]
         slice_ = getattr(self, src)[pos]
 
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
