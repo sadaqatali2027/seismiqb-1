@@ -5,12 +5,12 @@ import random
 import numpy as np
 import segyio
 
-from ..batchflow import DatasetIndex, Batch, action, inbatch_parallel
+from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 
 
-PREFIX = '___'
-SIZE_PREFIX = 7
-SIZE_SALT = SIZE_PREFIX + len(PREFIX)
+AFFIX = '___'
+SIZE_POSTFIX = 7
+SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 
 
 class SeismicCropBatch(Batch):
@@ -51,6 +51,10 @@ class SeismicCropBatch(Batch):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components.
 
+        Note
+        ----
+        dsa
+
         Parameters
         ----------
         points : array-like
@@ -73,8 +77,10 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             Batch with positions of crops in specified component.
         """
-        new_index = [self.salt(path_data) for path_data in points[:, 0]]
-        new_batch = SeismicCropBatch(DatasetIndex(new_index))
+        new_index = [self.salt(ix) for ix in points[:, 0]]
+        new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
+                    for ix in new_index}
+        new_batch = SeismicCropBatch(FilesIndex.from_index(new_index, new_dict))
 
         passdown = passdown or []
         passdown.extend(['geometries', 'labels'])
@@ -193,36 +199,19 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='indices', target='threads')
-    def normalize(self, path_data, src=None, dst=None):
-        """ Normalizes data element-wise to range [0, 1] by exctracting
-        min(data) and dividing by (max(data)-min(data)).
-        """
+    def scale(self, path_data, mode, src=None, dst=None):
+        """ Scale values in crop. """
         pos = self.get_pos(None, 'indices', path_data)
         path_data = self.unsalt(path_data)
-
         comp_data = getattr(self, src)[pos]
         geom = self.geometries[path_data]
 
-        new_data = (comp_data - geom.value_min) / (geom.value_max - geom.value_min)
-
-        dst = dst or src
-        if not hasattr(self, dst):
-            setattr(self, dst, np.array([None] * len(self.index)))
-        getattr(self, dst)[pos] = new_data
-        return self
-
-
-    @action
-    @inbatch_parallel(init='indices')
-    def denormalize(self, path_data, src=None, dst=None):
-        """ Denormalizes component to initial range. """
-        pos = self.get_pos(None, 'indices', path_data)
-        path_data = self.unsalt(path_data)
-
-        comp_data = getattr(self, src)[pos]
-        geom = self.geometries[path_data]
-
-        new_data = comp_data * (geom.value_max - geom.value_min) + geom.value_min
+        if mode == 'normalize':
+            new_data = geom.scaler(comp_data)
+        elif mode == 'denormalize':
+            new_data = geom.descaler(comp_data)
+        else:
+            raise ValueError('Scaling mode is not recognized.')
 
         dst = dst or src
         if not hasattr(self, dst):
@@ -243,12 +232,12 @@ class SeismicCropBatch(Batch):
         those strings with random postfix (which we can remove later).
         """
         chars = string.ascii_uppercase + string.digits
-        return path + PREFIX + ''.join(random.choice(chars) for _ in range(SIZE_PREFIX))
+        return path + AFFIX + ''.join(random.choice(chars) for _ in range(SIZE_POSTFIX))
 
 
     @staticmethod
     def unsalt(path):
         """ Removes postfix that was made by `salt` method. """
-        if PREFIX in path:
+        if AFFIX in path:
             return path[:-SIZE_SALT]
         return path

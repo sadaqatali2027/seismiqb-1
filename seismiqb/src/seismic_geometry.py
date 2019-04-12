@@ -15,6 +15,7 @@ class SeismicGeometry():
         self.il_xl_trace = {}
         self.delay, self.sample_rate = None, None
         self.value_min, self.value_max = np.inf, -np.inf
+        self.scaler, self.descaler = None, None
         self.depth = None
 
         self.x_to_xline, self.y_to_iline = {}, {}
@@ -116,6 +117,11 @@ class SeismicGeometry():
                     self.value_min = np.min(trace_)
                 if np.max(trace_) > self.value_max:
                     self.value_max = np.max(trace_)
+
+        # Callable to transform cube values to [0, 1] (and vice versa)
+        scale = (self.value_max - self.value_min)
+        self.scaler = lambda array: (array - self.value_min) / scale
+        self.descaler = lambda array: array*scale + self.value_min
 
 
     def log(self, path_log):
