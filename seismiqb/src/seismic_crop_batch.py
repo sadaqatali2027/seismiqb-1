@@ -4,6 +4,7 @@ import random
 
 import numpy as np
 import segyio
+from numba import njit
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 
@@ -11,6 +12,43 @@ from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 AFFIX = '___'
 SIZE_POSTFIX = 7
 SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
+
+
+
+@njit
+def create_mask(ilines_, xlines_, hs_,
+                il_xl_h, geom_ilines, geom_xlines, geom_depth,
+                mode, width):
+    """ Jit-decorated function for fast mask creation from point cloud data stored in numba.typed.Dict.
+    This function is usually called inside SeismicCropBatch's method load_masks.
+    """
+    mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+
+    for i, iline_ in enumerate(ilines_):
+        for j, xline_ in enumerate(xlines_):
+            il_, xl_ = geom_ilines[iline_], geom_xlines[xline_]
+            if il_xl_h.get((il_, xl_)) is None:
+                continue
+            m_temp = np.zeros(geom_depth)
+            if mode == 'horizon':
+                for height_ in il_xl_h[(il_, xl_)]:
+                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] += 1
+            elif mode == 'stratum':
+                current_col = 1
+                start = 0
+                sorted_heights = sorted(il_xl_h[(il_, xl_)])
+                for height_ in sorted_heights:
+                    if start > hs_[-1]:
+                        break
+                    m_temp[start:height_ + 1] = current_col
+                    start = height_ + 1
+                    current_col += 1
+                    m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
+            else:
+                raise ValueError('Mode should be either `horizon` or `stratum`')
+            mask[i, j, :] = m_temp[hs_]
+    return mask
+
 
 
 class SeismicCropBatch(Batch):
@@ -32,21 +70,14 @@ class SeismicCropBatch(Batch):
                 setattr(self, comp, np.array([None] * len(self.index)))
         return self.indices
 
-    def typify_component(self, component):
-        """ Get type of batch-component.
-        """
-        for template in ('geometries', 'labels'):
-            if template in component:
-                return template
 
-        return 'other'
-
-    def get(self, item=None, component=None):
+    def get_pos(self, data, component, index):
         """ Get correct slice/key of a component-item based on its type.
         """
-        if self.typify_component(component) in ('geometries', 'labels'):
-            return getattr(self, component)[self.unsalt(item)]
-        return super().get(item, component)
+        if component in ('geometries', 'labels', 'segyfiles'):
+            return self.unsalt(index)
+        return super().get_pos(data, component, index)
+
 
     @action
     def load_component(self, src, dst):
@@ -98,6 +129,7 @@ class SeismicCropBatch(Batch):
         new_batch = SeismicCropBatch(FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False))
 
         passdown = passdown or []
+        passdown = [passdown] if isinstance(passdown, str) else passdown
         passdown.extend(['geometries', 'labels'])
 
         for component in passdown:
@@ -137,28 +169,29 @@ class SeismicCropBatch(Batch):
             if not hasattr(self, comp):
                 setattr(self, comp, np.array([None] * len(self.index)))
 
-        setattr(self, 'segyfiles', {})
+        segyfiles = {}
         for ix in self.indices:
             path_data = self.index.get_fullpath(ix)
-            if getattr(self, 'segyfiles').get(self.unsalt(ix)) is None:
+            if segyfiles.get(self.unsalt(ix)) is None:
                 segyfile = segyio.open(path_data, 'r', strict=False)
                 segyfile.mmap()
-                getattr(self, 'segyfiles')[self.unsalt(ix)] = segyfile
+                segyfiles[self.unsalt(ix)] = segyfile
 
-        return self.indices
+        return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
+                for ix in self.indices]
 
 
-    def _sgy_post(self, *args, **kwargs):
+    def _sgy_post(self, segyfiles, *args, **kwargs):
         """ Close opened .sgy files."""
         _, _ = args, kwargs
-        for segyfile in self.segyfiles.values():
+        for segyfile in segyfiles:
             segyfile.close()
         return self
 
 
     @action
     @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
-    def load_cubes(self, ix, dst, src='slices'):
+    def load_cubes(self, ix, segyfile, dst, src='slices'):
         """ Load data from cube in given positions.
 
         Parameters
@@ -174,67 +207,54 @@ class SeismicCropBatch(Batch):
         batch : SeismicCropBatch
             Batch with loaded crops in desired component.
         """
-        pos = self.get_pos(None, 'indices', ix)
-        slice_ = getattr(self, src)[pos]
-        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-
         geom = self.get(ix, 'geometries')
-        segyfile = self.segyfiles[self.unsalt(ix)]
+        slice_ = self.get(ix, src)
+        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
 
         crop = np.zeros((len(ilines_), len(xlines_), len(hs_)))
         for i, iline_ in enumerate(ilines_):
             for j, xline_ in enumerate(xlines_):
                 il_, xl_ = geom.ilines[iline_], geom.xlines[xline_]
                 tr_ = geom.il_xl_trace[(il_, xl_)]
-
                 crop[i, j, :] = segyfile.trace[tr_][hs_]
+
+        pos = self.get_pos(None, 'indices', ix)
         getattr(self, dst)[pos] = crop
+        return segyfile
 
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def load_masks(self, ix, dst, src='slices'):
+    def load_masks(self, ix, dst, src='slices', mode='horizon', width=3):
         """ Load masks from dictionary in given positions.
-
         Parameters
         ----------
         src : str
             Component of batch with positions of crops to load.
-
         dst : str
-            Component of batch to put loaded crops in.
-
-        dst_masks : str, optional
-            Component of batch to put additional crops in (e.g. masks).
-
+            Component of batch to put loaded masks in.
+        mode : str
+            Either `horizon` or `stratum`.
+            Type of created mask. If `horizon` then only horizons, i.e. borders
+            between geological strata will be loaded. In this case binary is created.
+            If  `stratum` then every stratum between horizons in the point-cloud
+            dictionary will be labeled with different class. Classes are in range from
+            1 to number_of_horizons + 1.
+        width : int
+            Width of horizons in the `horizon` mode.
         Returns
         -------
-        batch : SeismicCropBatch
+        batch : CropBatch
             Batch with loaded masks in desired components.
         """
-        pos = self.get_pos(None, 'indices', ix)
-        ix = self.unsalt(ix)
+        geom = self.get(ix, 'geometries')
+        il_xl_h = self.get(ix, 'labels')
 
-        geom = self.geometries[ix]
-        il_xl_h = self.labels[ix]
-        slice_ = getattr(self, src)[pos]
-
+        slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
+        mask = create_mask(ilines_, xlines_, hs_, il_xl_h, geom.ilines, geom.xlines, geom.depth, mode, width)
 
-        mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-        for i, iline_ in enumerate(ilines_):
-            for j, xline_ in enumerate(xlines_):
-                il_, xl_ = geom.ilines[iline_], geom.xlines[xline_]
-
-                m_temp = np.zeros(geom.depth)
-                if il_xl_h.get((il_, xl_)) is not None:
-                    for height_ in il_xl_h[(il_, xl_)]:
-                        try:
-                            m_temp[height_-3:height_+3] += 1
-                        except IndexError:
-                            pass
-                mask[i, j, :] = m_temp[hs_]
-
+        pos = self.get_pos(None, 'indices', ix)
         getattr(self, dst)[pos] = mask
         return self
 
@@ -243,8 +263,9 @@ class SeismicCropBatch(Batch):
     @inbatch_parallel(init='indices', target='threads')
     def scale(self, ix, mode, src=None, dst=None):
         """ Scale values in crop. """
-        comp_data = self.get(src, ix)
-        geom = self.get('geometries', ix)
+        pos = self.get_pos(None, 'indices', ix)
+        comp_data = getattr(self, src)[pos]
+        geom = self.get(ix, 'geometries')
 
         if mode == 'normalize':
             new_data = geom.scaler(comp_data)
@@ -256,7 +277,7 @@ class SeismicCropBatch(Batch):
         dst = dst or src
         if not hasattr(self, dst):
             setattr(self, dst, np.array([None] * len(self)))
-        pos = self.get_pos(None, dst, ix)
+
         getattr(self, dst)[pos] = new_data
         return self
 
