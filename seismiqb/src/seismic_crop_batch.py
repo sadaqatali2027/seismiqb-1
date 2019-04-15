@@ -41,12 +41,12 @@ class SeismicCropBatch(Batch):
 
         return 'other'
 
-    def get_pos(self, data, component, index):
+    def get(self, item=None, component=None):
         """ Get correct slice/key of a component-item based on its type.
         """
         if self.typify_component(component) in ('geometries', 'labels'):
-            return self.unsalt(index)
-        return super().get_pos(data, component, index)
+            return getattr(self, component)[self.unsalt(item)]
+        return super().get(item, component)
 
     @action
     def load_component(self, src, dst):
@@ -125,8 +125,39 @@ class SeismicCropBatch(Batch):
         return slice_
 
 
+    def _sgy_init(self, *args, **kwargs):
+        """ Create `dst` component and preemptively open all the .sgy files. """
+        _ = args
+        dst = kwargs.get("dst")
+        if dst is None:
+            raise KeyError("dst argument must be specified")
+        if isinstance(dst, str):
+            dst = (dst,)
+        for comp in dst:
+            if not hasattr(self, comp):
+                setattr(self, comp, np.array([None] * len(self.index)))
+
+        setattr(self, 'segyfiles', {})
+        for ix in self.indices:
+            path_data = self.index.get_fullpath(ix)
+            if getattr(self, 'segyfiles').get(self.unsalt(ix)) is None:
+                segyfile = segyio.open(path_data, 'r', strict=False)
+                segyfile.mmap()
+                getattr(self, 'segyfiles')[self.unsalt(ix)] = segyfile
+
+        return self.indices
+
+
+    def _sgy_post(self, *args, **kwargs):
+        """ Close opened .sgy files."""
+        _, _ = args, kwargs
+        for segyfile in self.segyfiles.values():
+            segyfile.close()
+        return self
+
+
     @action
-    @inbatch_parallel(init='_init_component', target='threads')
+    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
     def load_cubes(self, ix, dst, src='slices'):
         """ Load data from cube in given positions.
 
@@ -144,24 +175,20 @@ class SeismicCropBatch(Batch):
             Batch with loaded crops in desired component.
         """
         pos = self.get_pos(None, 'indices', ix)
-        path_data = self.index.get_fullpath(ix)
+        slice_ = getattr(self, src)[pos]
+        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
 
         geom = self.get(ix, 'geometries')
-        slice_ = getattr(self, src)[pos]
+        segyfile = self.segyfiles[self.unsalt(ix)]
 
-        with segyio.open(path_data, 'r', strict=False) as segyfile:
-            segyfile.mmap()
-            ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
+        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+        for i, iline_ in enumerate(ilines_):
+            for j, xline_ in enumerate(xlines_):
+                il_, xl_ = geom.ilines[iline_], geom.xlines[xline_]
+                tr_ = geom.il_xl_trace[(il_, xl_)]
 
-            crop = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-            for i, iline_ in enumerate(ilines_):
-                for j, xline_ in enumerate(xlines_):
-                    il_, xl_ = geom.ilines[iline_], geom.xlines[xline_]
-                    tr_ = geom.il_xl_trace[(il_, xl_)]
-
-                    crop[i, j, :] = segyfile.trace[tr_][hs_]
+                crop[i, j, :] = segyfile.trace[tr_][hs_]
         getattr(self, dst)[pos] = crop
-        return self
 
 
     @action
