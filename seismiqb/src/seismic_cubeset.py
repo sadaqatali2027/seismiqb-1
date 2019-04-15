@@ -24,7 +24,8 @@ class SeismicCubeset(Dataset):
         self.samplers = {ix: None for ix in self.indices}
         self.sampler = None
 
-    def load_geometries(self, path=None, scalers=False, mode='full'):
+
+    def load_geometries(self, path=None, scalers=False, mode='full', logs=True):
         """ Load geometries into dataset-attribute.
         """
         if isinstance(path, str):
@@ -35,6 +36,8 @@ class SeismicCubeset(Dataset):
                 self.geometries[ix].load()
                 if scalers:
                     self.geometries[ix].make_scalers(mode=mode)
+                if logs:
+                    self.geometries[ix].log()
         return self
 
 

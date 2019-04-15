@@ -71,6 +71,37 @@ class SeismicCropBatch(Batch):
         return self.indices
 
 
+    def _sgy_init(self, *args, **kwargs):
+        """ Create `dst` component and preemptively open all the .sgy files. """
+        _ = args
+        dst = kwargs.get("dst")
+        if dst is None:
+            raise KeyError("dst argument must be specified")
+        if isinstance(dst, str):
+            dst = (dst,)
+        for comp in dst:
+            if not hasattr(self, comp):
+                setattr(self, comp, np.array([None] * len(self.index)))
+
+        segyfiles = {}
+        for ix in self.indices:
+            path_data = self.index.get_fullpath(ix)
+            if segyfiles.get(self.unsalt(ix)) is None:
+                segyfile = segyio.open(path_data, 'r', strict=False)
+                segyfile.mmap()
+                segyfiles[self.unsalt(ix)] = segyfile
+        return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
+                for ix in self.indices]
+
+
+    def _sgy_post(self, segyfiles, *args, **kwargs):
+        """ Close opened .sgy files."""
+        _, _ = args, kwargs
+        for segyfile in segyfiles:
+            segyfile.close()
+        return self
+
+
     def get_pos(self, data, component, index):
         """ Get correct slice/key of a component-item based on its type.
         """
@@ -148,51 +179,24 @@ class SeismicCropBatch(Batch):
         """ Creates list of `np.arange`'s for desired location. """
         ix = point[0]
         geom = self.get(ix, 'geometries')
-        lens = [geom.ilines_len, geom.xlines_len, geom.depth]
 
-        slice_point = (point[1:] * (np.array(lens) - np.array(shape))).astype(int)
+        slice_point = (point[1:] * (np.array(geom.cube_shape) - np.array(shape))).astype(int)
         slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]),
                   np.arange(slice_point[1], slice_point[1]+shape[1]),
                   np.arange(slice_point[2], slice_point[2]+shape[2])]
         return slice_
 
 
-    def _sgy_init(self, *args, **kwargs):
-        """ Create `dst` component and preemptively open all the .sgy files. """
-        _ = args
-        dst = kwargs.get("dst")
-        if dst is None:
-            raise KeyError("dst argument must be specified")
-        if isinstance(dst, str):
-            dst = (dst,)
-        for comp in dst:
-            if not hasattr(self, comp):
-                setattr(self, comp, np.array([None] * len(self.index)))
-
-        segyfiles = {}
-        for ix in self.indices:
-            path_data = self.index.get_fullpath(ix)
-            if segyfiles.get(self.unsalt(ix)) is None:
-                segyfile = segyio.open(path_data, 'r', strict=False)
-                segyfile.mmap()
-                segyfiles[self.unsalt(ix)] = segyfile
-
-        return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
-                for ix in self.indices]
-
-
-    def _sgy_post(self, segyfiles, *args, **kwargs):
-        """ Close opened .sgy files."""
-        _, _ = args, kwargs
-        for segyfile in segyfiles:
-            segyfile.close()
-        return self
-
-
     @action
     @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
     def load_cubes(self, ix, segyfile, dst, src='slices'):
         """ Load data from cube in given positions.
+
+        Notes
+        -----
+        Init function `_sgy_init` passes both index and handler to necessary
+        .sgy file. Post function '_sgy_post' takes all of the handlers and
+        closes I/O. That is done in order to open every file only once (since it is time-consuming).
 
         Parameters
         ----------
@@ -215,8 +219,11 @@ class SeismicCropBatch(Batch):
         for i, iline_ in enumerate(ilines_):
             for j, xline_ in enumerate(xlines_):
                 il_, xl_ = geom.ilines[iline_], geom.xlines[xline_]
-                tr_ = geom.il_xl_trace[(il_, xl_)]
-                crop[i, j, :] = segyfile.trace[tr_][hs_]
+                try:
+                    tr_ = geom.il_xl_trace[(il_, xl_)]
+                    crop[i, j, :] = segyfile.trace[tr_][hs_]
+                except KeyError:
+                    pass
 
         pos = self.get_pos(None, 'indices', ix)
         getattr(self, dst)[pos] = crop

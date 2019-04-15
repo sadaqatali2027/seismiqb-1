@@ -63,8 +63,7 @@ class SeismicGeometry():
                 self.cdp_x.add(cdp_x_)
                 self.cdp_y.add(cdp_y_)
 
-                # Map:  cdp_x -> xline
-                # Map:  cdp_y -> iline
+                # Maps:  cdp_x -> xline, cdp_y -> iline
                 self.y_to_iline[cdp_y_] = iline_
                 self.x_to_xline[cdp_x_] = xline_
 
@@ -124,9 +123,10 @@ class SeismicGeometry():
         self.descaler = lambda array: array*scale + self.value_min
 
 
-    def log(self, path_log):
+    def log(self, path_log=None):
         """ Log some info. """
         # pylint: disable=logging-format-interpolation
+        path_log = path_log or ('/'.join(self.path.split('/')[:-1]) + '/CUBE_INFO.log')
         handler = logging.FileHandler(path_log, mode='w')
         handler.setFormatter(logging.Formatter('%(message)s'))
 

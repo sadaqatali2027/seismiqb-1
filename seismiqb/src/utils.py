@@ -1,16 +1,16 @@
 """ Utility functions. """
-import dill
 import numpy as np
 import segyio
+from tqdm import tqdm
+import pandas as pd
 from numba.typed import Dict
 from numba import types
 from numba import njit
-from tqdm import tqdm
-import pandas as pd
 
-from ..batchflow import Sampler, HistoSampler, NumpySampler, ConstantSampler
 
 FILL_VALUE = -999
+
+
 
 def repair(path_cube, geometry, path_save,
            i_low=0, i_high=-2, x_low=0, x_high=-2):
@@ -49,54 +49,6 @@ def repair(path_cube, geometry, path_save,
         pass
 
 
-
-def parse_labels(path_labels_txt, cube_geometry, sample_rate=4, delay=280, save_to=None):
-    """ Transform labels from .txt files to one dictionary.
-    Parameters
-    ----------
-
-    path_labels_txt : list of str
-        Paths to .txt files with labels.
-    cube_geometry : Geometry
-        Instance of Geometry for corresponding cube with data.
-    sample_rate : float, optional
-        Frequency of trace sampling in time.
-    delay : float, optional
-        Time-delay of trace sampling.
-
-    Returns
-    -------
-    il_xl_h : dict
-        Mapping from (iline, xline) to height.
-
-    Notes
-    -----
-    It can be helpful to look at .sgy-file headers. To do so, pass `verbose`
-    parameter to Geometry constructor.
-    """
-    il_xl_h = {}
-    for file_path in path_labels_txt:
-        with open(file_path, 'r') as file:
-            print('Parsing labels from' + file_path)
-            for line in tqdm(file):
-                line = line.split()
-                line_x, line_y, line_h = np.array(line).astype(float).astype(int)
-
-                iline_ = cube_geometry.y_to_iline.get(line_y) or cube_geometry.y_to_iline.get(line_y + 1)
-                xline_ = cube_geometry.x_to_xline.get(line_x) or cube_geometry.x_to_xline.get(line_x + 1)
-                k = int((line_h+delay)/sample_rate)
-
-                if il_xl_h.get((iline_, xline_)) is not None:
-                    il_xl_h[(iline_, xline_)].append(k)
-                else:
-                    il_xl_h[(iline_, xline_)] = [k]
-
-    if isinstance(save_to, str):
-        with open(save_to, 'wb') as file:
-            dill.dump(il_xl_h, file)
-
-    return il_xl_h
-
 def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), transforms=None, **kwargs):
     """ Read point cloud of horizont-labels from files.
     """
@@ -104,7 +56,7 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
 
     # default params of pandas-parser
     if default is None:
-        default = dict(sep='\s+', names=['xline', 'iline', 'height'])
+        default = dict(sep='\s+', names=['xline', 'iline', 'height']) #pylint: disable=anomalous-backslash-in-string
 
     # read point clouds
     point_clouds = []
@@ -173,113 +125,3 @@ def make_labels_dict(point_cloud):
 
     fill_labels(labels, counts, ilines_xlines, max_count)
     return labels
-
-def make_labels(dataset=None, path_to_txt=None, load_from=None, save_to=None):
-    """ Create labels for every cube and store it in `labels`
-    attribute of passed dataset.
-    """
-    if isinstance(load_from, str):
-        with open(load_from, 'rb') as file:
-            labels = dill.load(file)
-        print('Labels are loaded from ' + load_from)
-    else:
-        labels = {}
-        for path_data in dataset.indices:
-            labels_ = parse_labels(path_to_txt[path_data],
-                                   getattr(dataset, 'geometries')[path_data])
-            labels.update({path_data: labels_})
-
-    if len(labels) != len(dataset):
-        labels = {path_data:labels for path_data in dataset.indices}
-
-    setattr(dataset, 'labels', labels)
-
-    if isinstance(save_to, str):
-        with open(save_to, 'wb') as file:
-            dill.dump(labels, file)
-        print('Labels are saved to ' + save_to)
-    return labels
-
-
-def make_samplers(dataset=None, mode='hist', p=None,
-                  load_from=None, save_to=None, **kwargs):
-    """ Create samplers for every cube and store it in `samplers`
-    attribute of passed dataset. Also creates one combined sampler
-    and stores it in `sampler` attribute of passed dataset.
-
-    Parameters
-    ----------
-
-    mode : str or Sampler
-        Type of sampler to be created.
-        If 'hist', then sampler is estimated from given labels.
-        If 'numpy', then sampler is created with `kwargs` parameters.
-        If instance of Sampler is provided, it must generate points from unit cube.
-
-    p : list
-        Weights for each mixture in final sampler.
-
-    Note
-    ----
-    Passed `dataset` must have `geometries` and `labels` attributes if
-    you want to create HistoSampler.
-    """
-    lowcut, highcut = [0, 0, 0], [1, 1, 1]
-
-    if isinstance(load_from, str):
-        with open(load_from, 'rb') as file:
-            samplers = dill.load(file)
-        print('Samplers are loaded from ' + load_from)
-    else:
-        samplers = {}
-        if not isinstance(mode, dict):
-            mode = {path_data:mode for path_data in dataset.indices}
-
-        for path_data in dataset.indices:
-            if isinstance(mode[path_data], Sampler):
-                sampler = mode[path_data]
-            elif mode[path_data] == 'numpy':
-                sampler = NumpySampler(**kwargs)
-            elif mode[path_data] == 'hist':
-                _geom = getattr(dataset, 'geometries')[path_data]
-                _labels = getattr(dataset, 'labels')[path_data]
-                print('Creating histosampler for ' + path_data)
-                bins = kwargs.get('bins') or 100
-                sampler = make_histosampler(_labels, _geom, bins=bins)
-            else:
-                print('Making placeholder sampler for' + path_data)
-                sampler = NumpySampler('u', low=0, high=1, dim=3)
-
-            sampler = sampler.truncate(low=lowcut, high=highcut)
-            samplers.update({path_data: sampler})
-    setattr(dataset, 'samplers', samplers)
-
-    # One sampler to rule them all
-    p = p or [1/len(dataset) for path_data in dataset.indices]
-
-    sampler = 0 & NumpySampler('n', dim=4)
-    for i, path_data in enumerate(dataset.indices):
-        sampler_ = (ConstantSampler(path_data)
-                    & samplers[path_data].apply(lambda d: d.astype(np.object)))
-        sampler = sampler | (p[i] & sampler_)
-    sampler = sampler.truncate(low=lowcut, high=highcut, expr=lambda p: p[:, 1:])
-    setattr(dataset, 'sampler', sampler)
-
-    if isinstance(save_to, str):
-        with open(save_to, 'wb') as file:
-            dill.dump(samplers, file)
-        print('Samplers are saved to ' + save_to)
-    return samplers
-
-def make_histosampler(input_dict, geometry, bins=100):
-    """ Makes sampler from labels. """
-    array_repr = []
-    for item in tqdm(input_dict.items()):
-        for h in item[1]:
-            temp_ = [(item[0][0] - geometry.ilines_offset)/geometry.ilines_len,
-                     (item[0][1] - geometry.xlines_offset)/geometry.xlines_len,
-                     h/geometry.depth]
-            array_repr.append(temp_)
-    array_repr = np.array(array_repr)
-    sampler = HistoSampler(np.histogramdd(array_repr, bins=bins))
-    return sampler
