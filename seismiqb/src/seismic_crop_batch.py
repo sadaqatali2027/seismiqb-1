@@ -72,7 +72,15 @@ class SeismicCropBatch(Batch):
 
 
     def _sgy_init(self, *args, **kwargs):
-        """ Create `dst` component and preemptively open all the .sgy files. """
+        """ Create `dst` component and preemptively open all the .sgy files.
+        Should always be used in pair with `_sgy_post`!
+
+        Note
+        ----
+        This init function is helpful for actions that work directly with .sgy
+        files through `segyio` API: all the file handlers are created only once per batch,
+        rather than once for every item in the batch.
+        """
         _ = args
         dst = kwargs.get("dst")
         if dst is None:
@@ -126,11 +134,7 @@ class SeismicCropBatch(Batch):
     @action
     def crop(self, points, shape, dst='slices', passdown=None):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
-        with crop positions in one of the components.
-
-        Note
-        ----
-        dsa
+        with crop positions in one of the components (`slices` by default).
 
         Parameters
         ----------
@@ -148,6 +152,12 @@ class SeismicCropBatch(Batch):
 
         passdown : str of list of str
             Components of batch to keep in the new one.
+
+        Note
+        ----
+        Based on the first column of `points`, new instance of SeismicCropBatch is created.
+        In order to keep multiple references to the same .sgy cube, each index is augmented
+        with prefix of fixed length (check `salt` method for details).
 
         Returns
         -------
