@@ -269,6 +269,61 @@ class SeismicCropBatch(Batch):
         getattr(self, dst)[pos] = mask
         return self
 
+    @action
+    @inbatch_parallel(init='_init_component', target='threads')
+    def cut_out_mask(self, path_data, src=None, dst=None, mode='slice', expr=None, low=None, high=None):
+        """ Cut mask for horizont extension task.
+        src : str
+            Component of batch with mask
+        dst : str
+            Component of batch to put cut mask in.
+        mode : str
+            Either dot, slice, islice or xslice.
+            If dot, then only only one dot per horizon will be labeled.
+            If islice or xslice then single iline or xline with labeled.
+            If slice then randomly either single iline or xline will be
+            labeled.
+        expr : callable, optional.
+            Some vectorized function. Accepts points in cube, returns either float.
+            If not None, high or low should also be supplied.
+        """
+        if not (src and dst):
+            raise ValueError('Src and dst must be provided')
+
+        pos = self.get_pos(None, 'indices', path_data)
+        mask = getattr(self, src)[pos]
+        coords = np.where(mask > 0)
+        if len(coords[0]) == 0:
+            getattr(self, dst)[pos] = mask
+            return self
+        new_mask = np.zeros(mask.shape)
+        if expr is None:
+            r_dot = np.random.choice(len(coords))
+            if mode == 'dot':
+                new_mask[coords[0][r_dot], coords[1][r_dot], :] = mask[coords[0][r_dot], coords[1][r_dot], :]
+            elif mode == 'islice' or (mode == 'slice' and np.random.binomial(1, 0.5)) == 1:
+                new_mask[coords[0][r_dot], :, :] = mask[coords[0][r_dot], :, :]
+            elif mode in ['xslice', 'slice']:
+                new_mask[:, coords[1][r_dot], :] = mask[:, coords[1][r_dot], :]
+            else:
+                raise ValueError('Mode should be either `dot`, `islice`, `xslice` or `slice')
+        else:
+            coords = np.array(coords).astype(np.float).T
+            cond = np.ones(shape=coords.shape[0]).astype(bool)
+            coords[:, 0] /= mask.shape[0]
+            coords[:, 1] /= mask.shape[1]
+            coords[:, 2] /= mask.shape[2]
+            if low is not None:
+                cond &= np.greater_equal(expr(coords), low)
+            if high is not None:
+                cond &= np.less_equal(expr(coords), high)
+            coords[:, 0] *= mask.shape[0]
+            coords[:, 1] *= mask.shape[1]
+            coords[:, 2] *= mask.shape[2]
+            coords = np.round(coords).astype(np.int32)[cond]
+            new_mask[coords[:, 0], coords[:, 1], coords[:, 2]] = mask[coords[:, 0], coords[:, 1], coords[:, 2]]
+        getattr(self, dst)[pos] = new_mask
+        return self
 
     @action
     @inbatch_parallel(init='indices', target='threads')
