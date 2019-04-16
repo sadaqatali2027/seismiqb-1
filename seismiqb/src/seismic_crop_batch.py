@@ -179,9 +179,11 @@ class SeismicCropBatch(Batch):
         """ Creates list of `np.arange`'s for desired location. """
         ix = point[0]
 
-        if np.all(np.vectorize(lambda x: type(x))(point[1:]) == [float]*3):
+        if isinstance(point[1], float) or isinstance(point[2], float) or isinstance(point[3], float):
             geom = self.get(ix, 'geometries')
             slice_point = (point[1:] * (np.array(geom.cube_shape) - np.array(shape))).astype(int)
+        else:
+            slice_point = point[1:]
 
         slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]),
                   np.arange(slice_point[1], slice_point[1]+shape[1]),
