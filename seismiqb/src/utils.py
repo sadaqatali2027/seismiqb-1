@@ -125,3 +125,38 @@ def make_labels_dict(point_cloud):
 
     fill_labels(labels, counts, ilines_xlines, max_count)
     return labels
+
+
+@njit
+def create_mask(ilines_, xlines_, hs_,
+                il_xl_h, geom_ilines, geom_xlines, geom_depth,
+                mode, width):
+    """ Jit-decorated function for fast mask creation from point cloud data stored in numba.typed.Dict.
+    This function is usually called inside SeismicCropBatch's method load_masks.
+    """
+    mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+
+    for i, iline_ in enumerate(ilines_):
+        for j, xline_ in enumerate(xlines_):
+            il_, xl_ = geom_ilines[iline_], geom_xlines[xline_]
+            if il_xl_h.get((il_, xl_)) is None:
+                continue
+            m_temp = np.zeros(geom_depth)
+            if mode == 'horizon':
+                for height_ in il_xl_h[(il_, xl_)]:
+                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] += 1
+            elif mode == 'stratum':
+                current_col = 1
+                start = 0
+                sorted_heights = sorted(il_xl_h[(il_, xl_)])
+                for height_ in sorted_heights:
+                    if start > hs_[-1]:
+                        break
+                    m_temp[start:height_ + 1] = current_col
+                    start = height_ + 1
+                    current_col += 1
+                    m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
+            else:
+                raise ValueError('Mode should be either `horizon` or `stratum`')
+            mask[i, j, :] = m_temp[hs_]
+    return mask
