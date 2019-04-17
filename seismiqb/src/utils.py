@@ -50,7 +50,26 @@ def repair(path_cube, geometry, path_save,
 
 
 def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), transforms=None, **kwargs):
-    """ Read point cloud of horizont-labels from files.
+    """ Read point cloud of labels from files using pandas.
+
+    Parameters
+    ----------
+    paths : str or tuple or list
+        array-like of paths to files containing point clouds (table of floats with several columns).
+    default : dict
+        dict containing arguments of pandas parser; will be used for parsing all supplied files.
+    order : array-like
+        specifies the order of columns of the resulting array.
+    transforms : array-like
+        contains list of vectorized transforms. Each transform is applied to a column of the resulting array.
+    **kwargs
+        file-specific arguments of pandas parser in format `{paths[0]: args_0, paths[1]: args_1, ...}`.
+        Each dict updates `default`-args and then usef for parsing a specific file.
+
+    Returns
+    -------
+    ndarray
+        resulting point-cloud.
     """
     paths = (paths, ) if isinstance(paths, str) else paths
 
@@ -78,6 +97,16 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
 
 def make_labels_dict(point_cloud):
     """ Make labels-dict using cloud of points.
+
+    Parameters
+    ----------
+    point_cloud : array
+        array `(n_points, 3)`, contains point cloud of labels in format `(x, y, z)`.
+
+    Returns
+    -------
+    numba.Dict
+        dict of labels `{(x, y): [z_1, z_2, ...]}`.
     """
     # round and cast
     ilines_xlines = np.round(point_cloud[:, :2]).astype(np.int64)
