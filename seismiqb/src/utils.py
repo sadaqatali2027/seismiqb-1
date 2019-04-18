@@ -3,6 +3,8 @@ import numpy as np
 import segyio
 from tqdm import tqdm
 import pandas as pd
+
+import numba
 from numba.typed import Dict
 from numba import types
 from numba import njit
@@ -189,3 +191,140 @@ def create_mask(ilines_, xlines_, hs_,
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
     return mask
+
+
+@njit
+def _count_nonzeros(array):
+    """ Definetely not empty docstring. """
+    count = 0
+    for i in array:
+        if i != 0:
+            count += 1
+    return max(count, 1)
+
+
+@njit
+def _aggregate(array_crops, crop_shape, array_grid,
+               template, aggr_func):
+    """ Definetely not empty docstring. """
+    total = len(array_grid)
+
+    for il in range(template.shape[0]):
+        for xl in range(template.shape[1]):
+            for h in range(template.shape[2]):
+
+                temp_arr = np.zeros(total)
+                for i in range(total):
+                    il_crop = array_grid[i, 0]
+                    xl_crop = array_grid[i, 1]
+                    h_crop = array_grid[i, 2]
+
+                    if 0 <= (il - il_crop) < crop_shape[0] and \
+                       0 <= (xl - xl_crop) < crop_shape[1] and \
+                       0 <= (h - h_crop) < crop_shape[2]:
+                        dot = array_crops[i, xl-xl_crop, h-h_crop, il-il_crop] # crops are in (xl, h, il) order
+                        temp_arr[i] = dot
+
+                template[il, xl, h] = aggr_func(temp_arr)
+    return template
+
+
+def cube_predict(dataset, pipeline, model_name,
+                 crop_shape, ilines_range, xlines_range, h_range,
+                 strides=None, batch_size=16, cube_number=0,
+                 aug_pipeline=None, mode='avg'):
+    """ Definetely not empty docstring. """
+
+    ### PART ONE. GRID
+    cube_name = dataset.indices[cube_number]
+    geom = dataset.geometries[cube_name]
+
+    strides = strides or crop_shape
+
+    i_low = min(geom.ilines_len-crop_shape[0], ilines_range[0])
+    i_high = min(geom.ilines_len-crop_shape[0], ilines_range[1])
+
+    x_low = min(geom.xlines_len-crop_shape[1], xlines_range[0])
+    x_high = min(geom.xlines_len-crop_shape[1], xlines_range[1])
+
+    h_low = min(geom.depth-crop_shape[2], h_range[0])
+    h_high = min(geom.depth-crop_shape[2], h_range[1])
+
+    ilines_range = np.arange(i_low, i_high+1, strides[0])
+    xlines_range = np.arange(x_low, x_high+1, strides[1])
+    h_range = np.arange(h_low, h_high+1, strides[2])
+
+    grid = []
+    for il in ilines_range:
+        for xl in xlines_range:
+            for h in h_range:
+                point = [cube_name, il, xl, h]
+                grid.append(point)
+    grid = np.array(grid, dtype=object)
+
+
+    ### PART TWO. PREDICTION
+    aug_pipeline = aug_pipeline or Pipeline().scale(mode='normalize', src='data_crops')
+    model_pipeline = (Pipeline()
+                      .import_model(model_name, pipeline)
+                      .init_variable('result', init_on_each_run=list())
+                      .predict_model(model_name,
+                                     fetches=['cubes', 'masks', 'predictions', 'loss'],
+                                     make_data=make_data,
+                                     save_to=V('result'), mode='a'))
+
+    img_crops, mask_crops, pred_crops = [], [], []
+    for i in range(0, len(grid), batch_size):
+
+        points = grid[i:i+batch_size]
+        load_pipeline = (Pipeline()
+                         .load_component(src=[D('geometries'), D('labels')],
+                                         dst=['geometries', 'labels'])
+                         .crop(points=points, shape=crop_shape)
+                         .load_cubes(dst='data_crops')
+                         .load_masks(dst='mask_crops')
+                         )
+
+        predict_pipeline = (load_pipeline + aug_pipeline + model_pipeline) << dataset
+        predict_pipeline.next_batch(2, n_epochs=None)
+
+        img_crops.extend(predict_pipeline.get_variable('result')[0][0])
+        mask_crops.extend(predict_pipeline.get_variable('result')[0][1])
+        pred_crops.extend(predict_pipeline.get_variable('result')[0][2])
+
+
+    ### PART THREE. AGGREGATION
+    if mode == 'avg':
+        @njit
+        def _callable(array):
+            return np.sum(array) / _count_nonzeros(array)
+    elif mode == 'max':
+        @njit
+        def _callable(array):
+            return np.max(array)
+    elif isinstance(mode, numba.targets.registry.CPUDispatcher):
+        _callable = mode
+
+    template = np.zeros((i_high-i_low+crop_shape[0],
+                         x_high-x_low+crop_shape[1],
+                         h_high-h_low+crop_shape[2]))
+    array_grid = grid[:, 1:].astype(int) - [min(ilines_range), min(xlines_range), min(h_range)]
+
+
+    img_crops = np.array(img_crops)
+    img_full = _aggregate(img_crops, crop_shape, array_grid,
+                          np.zeros_like(template), aggr_func=_callable)
+    img_full = img_full[:(i_high-i_low), :(x_high-x_low), :(h_high-h_low)]
+
+
+    mask_crops = np.squeeze(np.array(mask_crops), axis=-1)
+    mask_full = _aggregate(mask_crops, crop_shape, array_grid,
+                           np.zeros_like(template), aggr_func=_callable)
+    mask_full = mask_full[:(i_high-i_low), :(x_high-x_low), :(h_high-h_low)]
+
+
+    pred_crops = np.squeeze(np.array(pred_crops), axis=-1)
+    pred_full = _aggregate(pred_crops, crop_shape, array_grid,
+                           np.zeros_like(template), aggr_func=_callable)
+    pred_full = pred_full[:(i_high-i_low), :(x_high-x_low), :(h_high-h_low)]
+    return img_full, mask_full, pred_full
