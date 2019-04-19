@@ -4,11 +4,11 @@ import random
 
 import numpy as np
 import segyio
+import numba
 from numba import njit
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
-
-from .utils import create_mask
+from .utils import create_mask, aggregate, count_nonzeros
 
 
 AFFIX = '___'
@@ -266,6 +266,37 @@ class SeismicCropBatch(Batch):
 
         getattr(self, dst)[pos] = new_data
         return self
+
+
+    @action
+    @inbatch_parallel(init='run_once')
+    def assemble_predict(self, src, dst, grid_info, mode='avg'):
+        """ Glue crops together with accordance to grid. """
+        # Do nothing until there is a crop for every point
+        if len(src) != len(grid_info['grid_array']):
+            return self
+
+        if mode == 'avg':
+            @njit
+            def _callable(array):
+                return np.sum(array) / count_nonzeros(array)
+        elif mode == 'max':
+            @njit
+            def _callable(array):
+                return np.max(array)
+        elif isinstance(mode, numba.targets.registry.CPUDispatcher):
+            _callable = mode
+
+        # Since we know that cube is 3-d entity, we can get rid of
+        # unneccessary dimensions
+        src = np.array(src)
+        src = src if len(src.shape) == 4 else np.squeeze(src, axis=-1)
+        assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
+                              grid_info['predict_shape'], aggr_func=_callable)
+
+        setattr(self, dst, assembled[grid_info['slice']])
+        return self
+
 
 
     @staticmethod
