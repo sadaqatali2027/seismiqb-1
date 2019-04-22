@@ -172,7 +172,7 @@ def create_mask(ilines_, xlines_, hs_,
             m_temp = np.zeros(geom_depth)
             if mode == 'horizon':
                 for height_ in il_xl_h[(il_, xl_)]:
-                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] += 1
+                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
             elif mode == 'stratum':
                 current_col = 1
                 start = 0
