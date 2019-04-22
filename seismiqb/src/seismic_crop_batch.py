@@ -132,7 +132,7 @@ class SeismicCropBatch(Batch):
         new_index = [self.salt(ix) for ix in points[:, 0]]
         new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
                     for ix in new_index}
-        new_batch = SeismicCropBatch(FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False))
+        new_batch = type(self)(FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False))
 
         passdown = passdown or []
         passdown = [passdown] if isinstance(passdown, str) else passdown
@@ -187,7 +187,7 @@ class SeismicCropBatch(Batch):
 
         Returns
         -------
-        batch : SeismicCropBatch
+        SeismicCropBatch
             Batch with loaded crops in desired component.
         """
         geom = self.get(ix, 'geometries')
@@ -204,7 +204,7 @@ class SeismicCropBatch(Batch):
                 except KeyError:
                     pass
 
-        pos = self.get_pos(None, 'indices', ix)
+        pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = crop
         return segyfile
 
@@ -213,6 +213,7 @@ class SeismicCropBatch(Batch):
     @inbatch_parallel(init='_init_component', target='threads')
     def load_masks(self, ix, dst, src='slices', mode='horizon', width=3):
         """ Load masks from dictionary in given positions.
+
         Parameters
         ----------
         src : str
@@ -228,9 +229,10 @@ class SeismicCropBatch(Batch):
             1 to number_of_horizons + 1.
         width : int
             Width of horizons in the `horizon` mode.
+
         Returns
         -------
-        batch : CropBatch
+        SeismicCropBatch
             Batch with loaded masks in desired components.
         """
         geom = self.get(ix, 'geometries')
@@ -240,7 +242,7 @@ class SeismicCropBatch(Batch):
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
         mask = create_mask(ilines_, xlines_, hs_, il_xl_h, geom.ilines, geom.xlines, geom.depth, mode, width)
 
-        pos = self.get_pos(None, 'indices', ix)
+        pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
         return self
 
@@ -249,7 +251,7 @@ class SeismicCropBatch(Batch):
     @inbatch_parallel(init='indices', target='threads')
     def scale(self, ix, mode, src=None, dst=None):
         """ Scale values in crop. """
-        pos = self.get_pos(None, 'indices', ix)
+        pos = self.get_pos(None, src, ix)
         comp_data = getattr(self, src)[pos]
         geom = self.get(ix, 'geometries')
 
@@ -264,6 +266,7 @@ class SeismicCropBatch(Batch):
         if not hasattr(self, dst):
             setattr(self, dst, np.array([None] * len(self)))
 
+        pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = new_data
         return self
 
@@ -303,7 +306,18 @@ class SeismicCropBatch(Batch):
     def salt(path):
         """ Adds random postfix of predefined length to string.
 
-        Note
+        Parameters
+        ----------
+        path : str
+            supplied string.
+
+        Returns
+        -------
+        str
+            supplied string with random postfix.
+
+        Notes
+        -----
         Action `crop` makes a new instance of SeismicCropBatch with
         different (enlarged) index. Items in that index should point to cube
         location to cut crops from. Since we can't store multiple copies of the same
@@ -316,7 +330,18 @@ class SeismicCropBatch(Batch):
 
     @staticmethod
     def unsalt(path):
-        """ Removes postfix that was made by `salt` method. """
+        """ Removes postfix that was made by `salt` method.
+
+        Parameters
+        ----------
+        path : str
+            supplied string.
+
+        Returns
+        -------
+        str
+            string without postfix.
+        """
         if AFFIX in path:
             return path[:-SIZE_SALT]
         return path

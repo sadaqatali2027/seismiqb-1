@@ -70,7 +70,7 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.geometries, file)
-            print('Geometries are saved to ' + save_to)
+
         return self
 
 
@@ -105,7 +105,7 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.point_clouds, file)
-            print('Point clouds are saved to ' + save_to)
+
         return self
 
 
@@ -153,7 +153,7 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.labels, file)
-            print('Labels are saved to ' + save_to)
+
         return self
 
 
@@ -194,7 +194,7 @@ class SeismicCubeset(Dataset):
         if isinstance(path, str):
             with open(path, 'rb') as file:
                 samplers = dill.load(file)
-            print('Samplers are loaded from ' + path)
+
         else:
             samplers = {}
             if not isinstance(mode, dict):
@@ -220,7 +220,6 @@ class SeismicCubeset(Dataset):
                     bins = kwargs.get('bins') or 100
                     sampler = HistoSampler(np.histogramdd(cube_array, bins=bins))
                 else:
-                    print('Making placeholder sampler for' + ix)
                     sampler = NumpySampler('u', low=0, high=1, dim=3)
 
                 sampler = sampler.truncate(low=lowcut, high=highcut)
@@ -245,7 +244,7 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.samplers, file)
-            print('Samplers are saved to ' + save_to)
+
         return self
 
 
@@ -254,7 +253,7 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(getattr(self, name), file)
-            print('{} are saved to {}'.format(name, save_to))
+
         return self
 
 

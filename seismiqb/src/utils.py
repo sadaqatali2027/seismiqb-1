@@ -8,9 +8,7 @@ from numba.typed import Dict
 from numba import types
 from numba import njit
 
-
 FILL_VALUE = -999
-
 
 
 def repair(path_cube, geometry, path_save,
