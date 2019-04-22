@@ -70,7 +70,13 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.geometries, file)
+        return self
 
+
+    def convert_to_h5py(self):
+        """ Not empty! """
+        for ix in self.indices:
+            self.geometries[ix].make_h5py()
         return self
 
 
@@ -105,7 +111,6 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.point_clouds, file)
-
         return self
 
 
@@ -153,7 +158,6 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.labels, file)
-
         return self
 
 
@@ -244,7 +248,6 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.samplers, file)
-
         return self
 
 
@@ -253,7 +256,6 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(getattr(self, name), file)
-
         return self
 
 

@@ -167,8 +167,18 @@ class SeismicCropBatch(Batch):
 
 
     @action
+    def load_cubes(self, dst, fmt='h5py', src='slices'):
+        """ Astonishing docstring! """
+        if fmt.lower() in ['sgy', 'segy']:
+            return self._load_cubes_sgy(src=src, dst=dst)
+        if fmt.lower() in ['h5py', 'h5']:
+            return self._load_cubes_h5py(src=src, dst=dst)
+
+        return self
+
+
     @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
-    def load_cubes(self, ix, segyfile, dst, src='slices'):
+    def _load_cubes_sgy(self, ix, segyfile, dst, src='slices'):
         """ Load data from cube in given positions.
 
         Notes
@@ -207,6 +217,25 @@ class SeismicCropBatch(Batch):
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = crop
         return segyfile
+
+
+    @inbatch_parallel(init='_init_component', target='threads')
+    def _load_cubes_h5py(self, ix, dst, src='slices'):
+        """ Very nice docstring. """
+        geom = self.get(ix, 'geometries')
+        h5py_cube = geom.h5py_file['cube']
+
+        slice_ = self.get(ix, src)
+        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
+
+        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+        for i, iline_ in enumerate(ilines_):
+            slide = h5py_cube[iline_, :, :]
+            crop[i, :, :] = slide[xlines_, :][:, hs_]
+
+        pos = self.get_pos(None, dst, ix)
+        getattr(self, dst)[pos] = crop
+        return self
 
 
     @action
