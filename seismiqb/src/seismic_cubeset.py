@@ -27,6 +27,27 @@ class SeismicCubeset(Dataset):
 
     def load_geometries(self, path=None, scalers=False, mode='full', logs=True):
         """ Load geometries into dataset-attribute.
+
+        Parameters
+        ----------
+        path : str
+            Path to load geometries from.
+
+        scalers : bool
+            Whether to make callables to scale initial values in .sgy cube to
+            [0, 1] range. It takes quite a lot of time.
+
+        mode : one of 'full', 'random'
+            Sampler creating mode. Determines amount of trace to check to find
+            cube minimum/maximum values.
+
+        logs : bool
+            Whether to create logs. If True, .log file is created next to .sgy-cube location.
+
+        Returns
+        -------
+        SeismicCubeset
+            Same instance with loaded geometries.
         """
         if isinstance(path, str):
             with open(path, 'rb') as file:
@@ -47,12 +68,25 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.geometries, file)
-            print('Geometries are saved to ' + save_to)
+
         return self
 
 
     def load_point_clouds(self, paths=None, path=None, **kwargs):
         """ Load point-cloud of labels for each cube in dataset.
+
+        Parameters
+        ----------
+        paths : dict
+            Mapping from indices to txt paths with labels.
+
+        path : str
+            Path to load point clouds from.
+
+        Returns
+        -------
+        SeismicCubeset
+            Same instance with loaded point clouds.
         """
         if isinstance(path, str):
             with open(path, 'rb') as file:
@@ -69,17 +103,35 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.point_clouds, file)
-            print('Point clouds are saved to ' + save_to)
+
         return self
 
 
     def load_labels(self, path=None, transforms=None, src='point_clouds'):
         """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
+
+        Parameters
+        ----------
+        path : str
+            Path to load labels from.
+
+        transforms : dict
+            Mapping from indices to callables. Each callable should define
+            way to map point from absolute coordinates (X, Y world-wise) to
+            cube specific (ILINE, XLINE) and take array of shape (N, 3) as input.
+
+        src : str
+            Attribute with saved point clouds.
+
+        Returns
+            Same instance with loaded labels.
         """
+        #pylint: disable=unreachable, no-else-raise
         point_clouds = getattr(self, src) if isinstance(src, str) else src
         transforms = transforms or dict()
 
         if isinstance(path, str):
+            raise NotImplementedError("Numba dicts are yet to support serializing")
             with open(path, 'rb') as file:
                 self.labels = dill.load(file)
         else:
@@ -94,10 +146,12 @@ class SeismicCubeset(Dataset):
     def save_labels(self, save_to):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk.
         """
+        #pylint: disable=unreachable, no-else-raise
+        raise NotImplementedError("Numba dicts are yet to support serializing")
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.labels, file)
-            print('Labels are saved to ' + save_to)
+
         return self
 
 
@@ -109,6 +163,8 @@ class SeismicCubeset(Dataset):
 
         Parameters
         ----------
+        path : str
+            Path to load samplers from.
 
         mode : str or Sampler
             Type of sampler to be created.
@@ -118,6 +174,11 @@ class SeismicCubeset(Dataset):
 
         p : list
             Weights for each mixture in final sampler.
+
+        transforms : dict
+            Mapping from indices to callables. Each callable should define
+            way to map point from absolute coordinates (X, Y world-wise) to
+            cube local specific and take array of shape (N, 3) as input.
 
         Note
         ----
@@ -131,7 +192,7 @@ class SeismicCubeset(Dataset):
         if isinstance(path, str):
             with open(path, 'rb') as file:
                 samplers = dill.load(file)
-            print('Samplers are loaded from ' + path)
+
         else:
             samplers = {}
             if not isinstance(mode, dict):
@@ -157,7 +218,6 @@ class SeismicCubeset(Dataset):
                     bins = kwargs.get('bins') or 100
                     sampler = HistoSampler(np.histogramdd(cube_array, bins=bins))
                 else:
-                    print('Making placeholder sampler for' + ix)
                     sampler = NumpySampler('u', low=0, high=1, dim=3)
 
                 sampler = sampler.truncate(low=lowcut, high=highcut)
@@ -182,7 +242,7 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.samplers, file)
-            print('Samplers are saved to ' + save_to)
+
         return self
 
 
@@ -191,5 +251,5 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(getattr(self, name), file)
-            print('{} are saved to {}'.format(name, save_to))
+
         return self

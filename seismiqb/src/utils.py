@@ -7,9 +7,7 @@ from numba.typed import Dict
 from numba import types
 from numba import njit
 
-
 FILL_VALUE = -999
-
 
 
 def repair(path_cube, geometry, path_save,
@@ -50,7 +48,26 @@ def repair(path_cube, geometry, path_save,
 
 
 def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), transforms=None, **kwargs):
-    """ Read point cloud of horizont-labels from files.
+    """ Read point cloud of labels from files using pandas.
+
+    Parameters
+    ----------
+    paths : str or tuple or list
+        array-like of paths to files containing point clouds (table of floats with several columns).
+    default : dict
+        dict containing arguments of pandas parser; will be used for parsing all supplied files.
+    order : array-like
+        specifies the order of columns of the resulting array.
+    transforms : array-like
+        contains list of vectorized transforms. Each transform is applied to a column of the resulting array.
+    **kwargs
+        file-specific arguments of pandas parser in format `{paths[0]: args_0, paths[1]: args_1, ...}`.
+        Each dict updates `default`-args and then usef for parsing a specific file.
+
+    Returns
+    -------
+    ndarray
+        resulting point-cloud.
     """
     paths = (paths, ) if isinstance(paths, str) else paths
 
@@ -78,6 +95,16 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
 
 def make_labels_dict(point_cloud):
     """ Make labels-dict using cloud of points.
+
+    Parameters
+    ----------
+    point_cloud : array
+        array `(n_points, 3)`, contains point cloud of labels in format `(x, y, z)`.
+
+    Returns
+    -------
+    numba.Dict
+        dict of labels `{(x, y): [z_1, z_2, ...]}`.
     """
     # round and cast
     ilines_xlines = np.round(point_cloud[:, :2]).astype(np.int64)
@@ -127,73 +154,36 @@ def make_labels_dict(point_cloud):
     return labels
 
 
-def cube_predict(pipeline, model_name, dataset,
-                 crop_shape, ilines_range, xlines_range, h_range,
-                 stride=None, cube_number=0, batch_size=16, aggregation_function=None):
+@njit
+def create_mask(ilines_, xlines_, hs_,
+                il_xl_h, geom_ilines, geom_xlines, geom_depth,
+                mode, width):
+    """ Jit-decorated function for fast mask creation from point cloud data stored in numba.typed.Dict.
+    This function is usually called inside SeismicCropBatch's method load_masks.
+    """
+    mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
 
-    cube_name = dataset.indices[cube_number]
-    geom = dataset.geometries[cube_name]
-
-    if stride is None:
-        stride = crop_shape
-
-    if isinstance(ilines_range, (list, tuple)):
-        i_low = min(geom.ilines_len-crop_shape[0], ilines_range[0])
-        i_high = min(geom.ilines_len-crop_shape[0], ilines_range[1])
-
-    if isinstance(xlines_range, (list, tuple)):
-        x_low = min(geom.xlines_len-crop_shape[1], xlines_range[0])
-        x_high = min(geom.xlines_len-crop_shape[1], xlines_range[1])
-
-    if isinstance(h_range, (list, tuple)):
-        h_low = min(geom.depth-crop_shape[2], h_range[0])
-        h_high = min(geom.depth-crop_shape[2], h_range[1])
-
-    ilines_range = np.arange(i_low, i_high+1, stride[0])
-    xlines_range = np.arange(x_low, x_high+1, stride[1])
-    h_range = np.arange(h_low, h_high+1, stride[2])
-
-    grid = []
-    grid_true = []
-    for il in ilines_range:
-        for xl in xlines_range:
-            for h in h_range:
-                point = [cube_name, il/2000, xl/2000, h/2000]
-                grid.append(point)
-                grid_true.append([cube_name, il, xl, h])
-    grid = np.array(grid, dtype=object)
-    print('RANGES::')
-    print(ilines_range)
-    print(xlines_range)
-    print(h_range)
-    print('Length of grid: ', len(grid))
-
-    img_crops, mask_crops = [], []
-    pred_crops = []
-    for i in range(0, len(grid), batch_size):
-        points = grid[i:i+batch_size]
-
-        predict_pipeline = (Pipeline()
-                            .load_component(src=[D('geometries'), D('labels')],
-                                            dst=['geometries', 'labels'])
-                            .crop(points=points, shape=crop_shape)
-                            .load_cubes(dst='data_crops')
-                            .load_masks(dst='mask_crops')
-                            .import_model(model_name, pipeline)
-                            .init_variable('result', init_on_each_run=list())
-                            .predict_model(model_name,
-                                           fetches=['cubes', 'masks', 'predictions', 'loss'],
-                                           make_data=make_data,
-                                           save_to=V('result'), mode='a')
-                         ) << dataset
-        predict_pipeline.next_batch(1, n_epochs=None)
-
-        img_crops.extend(predict_pipeline.get_variable('result')[0][0])
-        mask_crops.extend(predict_pipeline.get_variable('result')[0][1])
-        pred_crops.extend(predict_pipeline.get_variable('result')[0][2])
-
-    img_full = np.zeros((i_high+crop_shape[0], x_high+crop_shape[1], h_high+crop_shape[2]))
-    for i, point in enumerate(grid_true):
-        img_full[point[1]:point[1]+crop_shape[0], point[2]:point[2]+crop_shape[1], point[3]:point[3]+crop_shape[2]] += img_crops[i].T
-
-    return img_full
+    for i, iline_ in enumerate(ilines_):
+        for j, xline_ in enumerate(xlines_):
+            il_, xl_ = geom_ilines[iline_], geom_xlines[xline_]
+            if il_xl_h.get((il_, xl_)) is None:
+                continue
+            m_temp = np.zeros(geom_depth)
+            if mode == 'horizon':
+                for height_ in il_xl_h[(il_, xl_)]:
+                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
+            elif mode == 'stratum':
+                current_col = 1
+                start = 0
+                sorted_heights = sorted(il_xl_h[(il_, xl_)])
+                for height_ in sorted_heights:
+                    if start > hs_[-1]:
+                        break
+                    m_temp[start:height_ + 1] = current_col
+                    start = height_ + 1
+                    current_col += 1
+                    m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
+            else:
+                raise ValueError('Mode should be either `horizon` or `stratum`')
+            mask[i, j, :] = m_temp[hs_]
+    return mask
