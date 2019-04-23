@@ -168,27 +168,13 @@ class SeismicCropBatch(Batch):
 
     @action
     def load_cubes(self, dst, fmt='h5py', src='slices'):
-        """ Astonishing docstring! """
-        if fmt.lower() in ['sgy', 'segy']:
-            return self._load_cubes_sgy(src=src, dst=dst)
-        if fmt.lower() in ['h5py', 'h5']:
-            return self._load_cubes_h5py(src=src, dst=dst)
-
-        return self
-
-
-    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
-    def _load_cubes_sgy(self, ix, segyfile, dst, src='slices'):
         """ Load data from cube in given positions.
-
-        Notes
-        -----
-        Init function `_sgy_init` passes both index and handler to necessary
-        .sgy file. Post function '_sgy_post' takes all of the handlers and
-        closes I/O. That is done in order to open every file only once (since it is time-consuming).
 
         Parameters
         ----------
+        fmt : 'h5py' or 'sgy'
+            Cube storing format.
+
         src : str
             Component of batch with positions of crops to load.
 
@@ -200,6 +186,17 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             Batch with loaded crops in desired component.
         """
+        if fmt.lower() in ['sgy', 'segy']:
+            return self._load_cubes_sgy(src=src, dst=dst)
+        if fmt.lower() in ['h5py', 'h5']:
+            return self._load_cubes_h5py(src=src, dst=dst)
+
+        return self
+
+
+    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
+    def _load_cubes_sgy(self, ix, segyfile, dst, src='slices'):
+        """ Load data from .sgy-cube in given positions. """
         geom = self.get(ix, 'geometries')
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
@@ -221,7 +218,7 @@ class SeismicCropBatch(Batch):
 
     @inbatch_parallel(init='_init_component', target='threads')
     def _load_cubes_h5py(self, ix, dst, src='slices'):
-        """ Very nice docstring. """
+        """ Load data from .hdf5-cube in given positions. """
         geom = self.get(ix, 'geometries')
         h5py_cube = geom.h5py_file['cube']
 
@@ -303,7 +300,31 @@ class SeismicCropBatch(Batch):
     @action
     @inbatch_parallel(init='run_once')
     def assemble_predict(self, src, dst, grid_info, mode='avg'):
-        """ Glue crops together with accordance to grid. """
+        """ Glue crops together in accordance to the grid.
+
+        Note
+        ----
+        In order to use this function you must first call `make_grid` method of SeismicCubeset.
+
+        Parameters
+        ----------
+        src : array-like
+            Sequence of crops.
+
+        dst : str
+            Component of batch to put results in.
+
+        grid_info : dict
+            Dictionary with information about grid. Should be created by `make_grid` method.
+
+        mode : str or jit-decorated callable
+            Mapping from multiple values to one for areas, where multiple crops overlap.
+
+        Returns
+        -------
+        SeismicCropBatch
+            Batch with assembled subcube in desired component.
+        """
         # Do nothing until there is a crop for every point
         if len(src) != len(grid_info['grid_array']):
             return self

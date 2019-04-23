@@ -74,7 +74,7 @@ class SeismicCubeset(Dataset):
 
 
     def convert_to_h5py(self):
-        """ Not empty! """
+        """ Converts every cube in dataset from `.sgy` to `.hdf5`. """
         for ix in self.indices:
             self.geometries[ix].make_h5py()
         return self
@@ -131,6 +131,7 @@ class SeismicCubeset(Dataset):
             Attribute with saved point clouds.
 
         Returns
+        SeismicCubeset
             Same instance with loaded labels.
         """
         #pylint: disable=unreachable, no-else-raise
@@ -262,7 +263,38 @@ class SeismicCubeset(Dataset):
     def make_grid(self, cube_name, crop_shape,
                   ilines_range, xlines_range, h_range,
                   strides=None, batch_size=16):
-        """ Create regular grid of points in cube. """
+        """ Create regular grid of points in cube.
+        This method is usually used with `assemble_predict` action of SeismicCropBatch.
+
+        Parameters
+        ----------
+        cube_name : str
+            Reference to cube. Should be valid key for `geometries` attribute.
+
+        crop_shape : array-like
+            Shape of model inputs.
+
+        ilines_range : array-like of two elements
+            Location of desired prediction, iline-wise.
+
+        xlines_range : array-like of two elements
+            Location of desired prediction, xline-wise.
+
+        h_range : array-like of two elements
+            Location of desired prediction, depth-wise.
+
+        strides : array-like
+            Distance between grid points.
+
+        batch_size : int
+            Amount of returned points per generator call.
+
+        Returns
+        -------
+        SeismicCubeset
+            Same instance with grid generator and grid information in attributes.
+
+        """
         geom = self.geometries[cube_name]
         strides = strides or crop_shape
 

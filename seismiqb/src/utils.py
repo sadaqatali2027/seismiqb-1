@@ -159,8 +159,8 @@ def make_labels_dict(point_cloud):
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, geom_ilines, geom_xlines, geom_depth,
                 mode, width):
-    """ Jit-decorated function for fast mask creation from point cloud data stored in numba.typed.Dict.
-    This function is usually called inside SeismicCropBatch's method load_masks.
+    """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
+    This function is usually called inside SeismicCropBatch's method `load_masks`.
     """
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
 
@@ -192,7 +192,7 @@ def create_mask(ilines_, xlines_, hs_,
 
 @njit
 def count_nonzeros(array):
-    """ Definetely not empty docstring. """
+    """ Self-explaining. """
     count = 0
     for i in array:
         if i != 0:
@@ -202,7 +202,9 @@ def count_nonzeros(array):
 
 @njit
 def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
-    """ Definetely not empty docstring. """
+    """ Jit-accelerated function to glue together crops according to grid.
+    This function is usually called inside SeismicCropBatch's method `assemble_predict`.
+    """
     total = len(array_grid)
     background = np.zeros(predict_shape)
 

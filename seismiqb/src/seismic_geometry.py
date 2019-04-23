@@ -10,7 +10,21 @@ from tqdm import tqdm
 
 
 class SeismicGeometry():
-    """ Class to hold information about .sgy-file. """
+    """ Class to hold information about seismic cubes.
+    There are two supported formats: `.sgy` and `.hdf5`.
+    Method `make_h5py` converts from former to latter.
+
+    For either supported format method `load` allows to gather following information:
+        Time delay and sample rate of traces.
+        Both spatial-wise and depth-wise lengths of cube.
+        Sorted lists of ilines and xlines that present in the cube, their respective lengths and offsets.
+        Sorted lists of global X and Y coordinates that present in the cube.
+        Mapping from global coordinates to xlines/ilines.
+        Mapping from cube values to [0, 1] and vice versa.
+
+    If cube is in `.sgy` format, then `il_xl_trace` dictionary is inferred.
+    If cube is in `.hdf5` format, then `h5py_file` contains file handler.
+    """
     # pylint: disable=too-many-instance-attributes
     def __init__(self, path):
         self.path = path
@@ -71,15 +85,10 @@ class SeismicGeometry():
     def _load_sgy(self):
         """ Actual parsing of .sgy-file.
         Does one full path through the file for collecting all the
-        necessary information, including:
-            `il_xl_trace` dictionary for map from (iline, xline) point
-                to trace number
-            `ilines`, `xlines` lists with possible values of respective coordinate
-            `depth` contains length of each trace
+        necessary information.
         """
-        # init all the containers
         with segyio.open(self.path, 'r', strict=False) as segyfile:
-            segyfile.mmap() # makes operation faster
+            segyfile.mmap() # makes operations faster
 
             self.depth = len(segyfile.trace[0])
 
@@ -100,7 +109,6 @@ class SeismicGeometry():
                 self.cdp_x.add(cdp_x_)
                 self.cdp_y.add(cdp_y_)
 
-        # More useful variables
         self.ilines = sorted(list(self.ilines))
         self.xlines = sorted(list(self.xlines))
         self.cdp_x = sorted(list(self.cdp_x))
@@ -110,7 +118,9 @@ class SeismicGeometry():
 
 
     def _load_h5py(self):
-        """ Noice. """
+        """ Put info from `.hdf5` groups to attributes.
+        No passing through data whatsoever.
+        """
         self.h5py_file = h5py.File(self.path, "r")
 
         self.depth = self.h5py_file['/info/depth'][()]
@@ -127,8 +137,7 @@ class SeismicGeometry():
 
 
     def _get_linear(self, set_x, set_y):
-        """ Get linear-transformation that maps range of set_x into range of set_y.
-        """
+        """ Get linear-transformation that maps range of set_x into range of set_y. """
         a = (max(set_y) - min(set_y)) / (max(set_x) - min(set_x))
         b = max(set_y) - a * max(set_x)
         return lambda x: a * x + b
@@ -156,7 +165,9 @@ class SeismicGeometry():
 
 
     def make_h5py(self, path_h5py=None):
-        """ Truly incredible docstring. """
+        """ Converts `.sgy` cube to `.hdf5` format.
+        By default, new cube is stored right next to original.
+        """
         if os.path.splitext(self.path)[1][1:] not in ['sgy', 'segy']:
             raise TypeError('Format should be `sgy`')
         path_h5py = path_h5py or (os.path.splitext(self.path)[0] + '.hdf5')
