@@ -32,7 +32,7 @@ def create_mask(ilines_, xlines_, hs_,
             m_temp = np.zeros(geom_depth)
             if mode == 'horizon':
                 for height_ in il_xl_h[(il_, xl_)]:
-                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] += 1
+                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
             elif mode == 'stratum':
                 current_col = 1
                 start = 0
@@ -271,17 +271,17 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def cut_out_mask(self, path_data, src=None, dst=None, mode='slice', expr=None, low=None, high=None):
+    def cut_out(self, ix, src=None, dst=None, mode='iline', expr=None, low=None, high=None):
         """ Cut mask for horizont extension task.
         src : str
             Component of batch with mask
         dst : str
             Component of batch to put cut mask in.
         mode : str
-            Either dot, slice, islice or xslice.
-            If dot, then only only one dot per horizon will be labeled.
-            If islice or xslice then single iline or xline with labeled.
-            If slice then randomly either single iline or xline will be
+            Either point, line, iline or xline.
+            If point, then only only one point per horizon will be labeled.
+            If iline or xline then single iline or xline with labeled.
+            If line then randomly either single iline or xline will be
             labeled.
         expr : callable, optional.
             Some vectorized function. Accepts points in cube, returns either float.
@@ -290,39 +290,39 @@ class SeismicCropBatch(Batch):
         if not (src and dst):
             raise ValueError('Src and dst must be provided')
 
-        pos = self.get_pos(None, 'indices', path_data)
+        pos = self.get_pos(None, src, ix)
         mask = getattr(self, src)[pos]
         coords = np.where(mask > 0)
         if len(coords[0]) == 0:
             getattr(self, dst)[pos] = mask
             return self
-        new_mask = np.zeros(mask.shape)
+        new_mask = np.zeros_like(mask)
         if expr is None:
-            r_dot = np.random.choice(len(coords))
-            if mode == 'dot':
-                new_mask[coords[0][r_dot], coords[1][r_dot], :] = mask[coords[0][r_dot], coords[1][r_dot], :]
-            elif mode == 'islice' or (mode == 'slice' and np.random.binomial(1, 0.5)) == 1:
-                new_mask[coords[0][r_dot], :, :] = mask[coords[0][r_dot], :, :]
-            elif mode in ['xslice', 'slice']:
-                new_mask[:, coords[1][r_dot], :] = mask[:, coords[1][r_dot], :]
+            point = np.random.choice(len(coords))
+            if mode == 'point':
+                new_mask[coords[0][point], coords[1][point], :] = mask[coords[0][point], coords[1][point], :]
+            elif mode == 'iline' or (mode == 'line' and np.random.binomial(1, 0.5)) == 1:
+                new_mask[coords[0][point], :, :] = mask[coords[0][point], :, :]
+            elif mode in ['xline', 'line']:
+                new_mask[:, coords[1][point], :] = mask[:, coords[1][point], :]
             else:
-                raise ValueError('Mode should be either `dot`, `islice`, `xslice` or `slice')
+                raise ValueError('Mode should be either `point`, `iline`, `xline` or `line')
         else:
             coords = np.array(coords).astype(np.float).T
             cond = np.ones(shape=coords.shape[0]).astype(bool)
-            coords[:, 0] /= mask.shape[0]
-            coords[:, 1] /= mask.shape[1]
-            coords[:, 2] /= mask.shape[2]
+            coords /= np.reshape(mask.shape, newshape=(1, 3))
             if low is not None:
                 cond &= np.greater_equal(expr(coords), low)
             if high is not None:
                 cond &= np.less_equal(expr(coords), high)
-            coords[:, 0] *= mask.shape[0]
-            coords[:, 1] *= mask.shape[1]
-            coords[:, 2] *= mask.shape[2]
+            coords *= np.reshape(mask.shape, newshape=(1, 3))
             coords = np.round(coords).astype(np.int32)[cond]
             new_mask[coords[:, 0], coords[:, 1], coords[:, 2]] = mask[coords[:, 0], coords[:, 1], coords[:, 2]]
         getattr(self, dst)[pos] = new_mask
+        
+        pos = self.get_pos(None, dst, ix)
+        getattr(self, dst)[pos] = new_mask
+
         return self
 
     @action
