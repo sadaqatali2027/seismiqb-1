@@ -271,7 +271,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def cut_out(self, ix, src=None, dst=None, mode='iline', expr=None, low=None, high=None):
+    def cut_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None):
         """ Cut mask for horizont extension task.
         src : str
             Component of batch with mask
@@ -296,8 +296,8 @@ class SeismicCropBatch(Batch):
         if len(coords[0]) == 0:
             getattr(self, dst)[pos] = mask
             return self
-        new_mask = np.zeros_like(mask)
-        if expr is None:
+        if mode is not None:
+            new_mask = np.zeros_like(mask)
             point = np.random.choice(len(coords))
             if mode == 'point':
                 new_mask[coords[0][point], coords[1][point], :] = mask[coords[0][point], coords[1][point], :]
@@ -307,7 +307,11 @@ class SeismicCropBatch(Batch):
                 new_mask[:, coords[1][point], :] = mask[:, coords[1][point], :]
             else:
                 raise ValueError('Mode should be either `point`, `iline`, `xline` or `line')
-        else:
+            mask = new_mask
+        if expr is not None:
+            coords = np.where(mask > 0)
+            new_mask = np.zeros_like(mask)
+
             coords = np.array(coords).astype(np.float).T
             cond = np.ones(shape=coords.shape[0]).astype(bool)
             coords /= np.reshape(mask.shape, newshape=(1, 3))
@@ -318,11 +322,10 @@ class SeismicCropBatch(Batch):
             coords *= np.reshape(mask.shape, newshape=(1, 3))
             coords = np.round(coords).astype(np.int32)[cond]
             new_mask[coords[:, 0], coords[:, 1], coords[:, 2]] = mask[coords[:, 0], coords[:, 1], coords[:, 2]]
-        getattr(self, dst)[pos] = new_mask
+            mask = new_mask
         
         pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = new_mask
-
+        getattr(self, dst)[pos] = mask
         return self
 
     @action
