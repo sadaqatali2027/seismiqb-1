@@ -210,8 +210,8 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def load_masks(self, ix, dst, src='slices', mode='horizon', width=3):
-        """ Load masks from dictionary in given positions.
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3):
+        """ Create masks from labels-dictionary in given positions.
 
         Parameters
         ----------
@@ -233,6 +233,10 @@ class SeismicCropBatch(Batch):
         -------
         SeismicCropBatch
             Batch with loaded masks in desired components.
+
+        Notes
+        -----
+        Can be run only after labels-dict is loaded into labels-component.
         """
         geom = self.get(ix, 'geometries')
         il_xl_h = self.get(ix, 'labels')
