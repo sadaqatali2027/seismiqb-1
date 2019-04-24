@@ -4,7 +4,6 @@ import random
 
 import numpy as np
 import segyio
-from numba import njit
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 
