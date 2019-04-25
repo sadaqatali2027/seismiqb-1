@@ -10,10 +10,36 @@ from numba import njit
 FILL_VALUE = -999
 
 
-def repair(path_cube, geometry, path_save,
-           i_low=0, i_high=-2, x_low=0, x_high=-2):
-    """ Cuts unnecessary inlines/xlines from cube. """
-    with segyio.open(path_cube, 'r', strict=False) as src:
+def make_subcube(path, geometry, path_save, i_range, x_range):
+    """ Make subcube from .sgy cube by removing some of its first and
+    last ilines and xlines.
+
+    Notes
+    -----
+    Common use of this function is to remove not fully filled slices of .sgy cubes.
+
+    Parameters
+    ----------
+    path : str
+        Location of original .sgy cube.
+
+    geometry : SeismicGeometry
+        Infered information about original cube.
+
+    path_save : str
+        Place to save subcube.
+
+    i_range : array-like
+        Ilines to include in subcube.
+
+    x_range : array-like
+        Xlines to include in subcube.
+    """
+
+    i_low, i_high = i_range[0], i_range[-1]
+    x_low, x_high = x_range[0], x_range[-1]
+
+    with segyio.open(path, 'r', strict=False) as src:
         src.mmap()
         spec = segyio.spec()
         spec.sorting = int(src.sorting)
