@@ -119,6 +119,8 @@ def make_labels_dict(point_cloud):
 
     @njit
     def fill_counts_get_max(counts, ilines_xlines):
+        """ Fill in counts-dict.
+        """
         max_count = 0
         for i in range(len(ilines_xlines)):
             il, xl = ilines_xlines[i, :2]
@@ -138,6 +140,8 @@ def make_labels_dict(point_cloud):
 
     @njit
     def fill_labels(labels, counts, ilines_xlines, max_count):
+        """ Fill in labels-dict.
+        """
         # zero-out the counts
         for k in counts.keys():
             counts[k] = 0

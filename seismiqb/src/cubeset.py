@@ -5,8 +5,8 @@ import numpy as np
 
 from ..batchflow import Dataset, Sampler
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
-from .seismic_geometry import SeismicGeometry
-from .seismic_crop_batch import SeismicCropBatch
+from .geometry import SeismicGeometry
+from .crop_batch import SeismicCropBatch
 
 from .utils import read_point_cloud, make_labels_dict
 
