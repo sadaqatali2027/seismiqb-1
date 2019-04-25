@@ -252,7 +252,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def cut_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None):
+    def filter_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None):
         """ Cut mask for horizont extension task.
         src : str
             Component of batch with mask
@@ -279,7 +279,7 @@ class SeismicCropBatch(Batch):
             return self
         if mode is not None:
             new_mask = np.zeros_like(mask)
-            point = np.random.choice(len(coords))
+            point = np.random.randint(len(coords))
             if mode == 'point':
                 new_mask[coords[0][point], coords[1][point], :] = mask[coords[0][point], coords[1][point], :]
             elif mode == 'iline' or (mode == 'line' and np.random.binomial(1, 0.5)) == 1:
