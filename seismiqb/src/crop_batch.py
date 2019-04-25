@@ -4,6 +4,7 @@ import random
 
 import numpy as np
 import segyio
+from skimage.measure import label, regionprops
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 
@@ -73,6 +74,36 @@ class SeismicCropBatch(Batch):
             segyfile.close()
         return self
 
+    def _assemble_labels(self, all_clouds, *args, dst=None, **kwargs):
+        """ Assemble labels-dict from different crops in batch.
+        """
+        labels = dict()
+        labels_ = dict()
+
+        # init labels-dict
+        for ix in self.indices:
+            labels_[self.unsalt(ix)] = set()
+
+        for ix, cloud in zip(self.indices, all_clouds):
+            labels_[self.unsalt(ix)] |= set(cloud.keys())
+
+        for cube, ilines_xlines in labels_.items():
+            labels[cube] = dict()
+            for il_xl in ilines_xlines:
+                labels[cube][il_xl] = set()
+
+        # fill labels with sets of horizons
+        for ix, cloud in zip(self.indices, all_clouds):
+            for il_xl, heights in cloud.items():
+                labels[self.unsalt(ix)][il_xl] |= set(heights)
+
+        # transforms sets of horizons to labels
+        for cube in labels:
+            for il_xl in labels[cube]:
+                labels[cube][il_xl] = np.sort(list(labels[cube][il_xl]))
+
+        setattr(self, dst, labels)
+        return self
 
     def get_pos(self, data, component, index):
         """ Get correct slice/key of a component-item based on its type.
@@ -249,6 +280,57 @@ class SeismicCropBatch(Batch):
         getattr(self, dst)[pos] = mask
         return self
 
+    @action
+    @inbatch_parallel(init='indices', post='_assemble_labels', target='threads')
+    def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
+                        threshold=0.5, averaging='mean'):
+        """ Get labels in point-cloud format from horizons-mask.
+
+        Parameters
+        ----------
+        src_masks : str
+            component of batch that stores masks.
+        src_slices : str
+            component of batch that stores slices of crops.
+        dst : str
+            component of batch to store the resulting labels.
+        threshold : float
+            parameter of mask-thresholding.
+        averaging : str
+            method of pandas.groupby used for finding the center of a horizon.
+
+        Returns
+        -------
+        SeismicCropBatch
+            batch with fetched labels.
+        """
+        # threshold the mask
+        mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
+        mask_ = np.zeros_like(mask, np.int32)
+        mask_[mask < threshold] = 0
+        mask_[mask >= threshold] = 1
+
+        # get regions
+        labels = label(mask_)
+        regions = regionprops(labels)
+
+        # get horizons
+        horizons = dict()
+        for region in regions:
+            coords = region.coords
+            coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
+            horizon_ = getattr(coords.groupby(['iline', 'xline']), averaging)()
+            for i_x in horizon_.index.values:
+                i, x = i_x
+                i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
+                il_xl = (i + i_shift, x + x_shift)
+
+                if i_x in horizons:
+                    horizons[il_xl].append(horizon_.loc[i_x, 'height'] + h_shift)
+                else:
+                    horizons[il_xl] = [horizon_.loc[i_x, 'height'] + h_shift]
+
+        return horizons
 
     @action
     @inbatch_parallel(init='indices', target='threads')
