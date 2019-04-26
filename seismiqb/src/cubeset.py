@@ -134,14 +134,15 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with loaded labels.
         """
-        #pylint: disable=unreachable, no-else-raise
         point_clouds = getattr(self, src) if isinstance(src, str) else src
         transforms = transforms or dict()
 
         if isinstance(path, str):
-            raise NotImplementedError("Numba dicts are yet to support serializing")
-            with open(path, 'rb') as file:
-                self.labels = dill.load(file)
+            try:
+                with open(path, 'rb') as file:
+                    self.labels = dill.load(file)
+            except TypeError:
+                raise NotImplementedError("Numba dicts are yet to support serializing")
         else:
             for ix in self.indices:
                 point_cloud = point_clouds.get(ix)
@@ -152,13 +153,13 @@ class SeismicCubeset(Dataset):
 
 
     def save_labels(self, save_to):
-        """ Save dill-serialized labels for a dataset of seismic-cubes on disk.
-        """
-        #pylint: disable=unreachable, no-else-raise
-        raise NotImplementedError("Numba dicts are yet to support serializing")
+        """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
         if isinstance(save_to, str):
-            with open(save_to, 'wb') as file:
-                dill.dump(self.labels, file)
+            try:
+                with open(save_to, 'wb') as file:
+                    dill.dump(self.labels, file)
+            except TypeError:
+                raise NotImplementedError("Numba dicts are yet to support serializing")
         return self
 
 
@@ -192,7 +193,7 @@ class SeismicCubeset(Dataset):
         Passed `dataset` must have `geometries` and `labels` attributes if
         you want to create HistoSampler.
         """
-        # pylint: disable=cell-var-from-loop
+        #pylint: disable=cell-var-from-loop
         lowcut, highcut = [0, 0, 0], [1, 1, 1]
         transforms = transforms or dict()
 

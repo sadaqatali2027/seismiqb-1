@@ -25,7 +25,6 @@ class SeismicGeometry():
     If cube is in `.sgy` format, then `il_xl_trace` dictionary is inferred.
     If cube is in `.hdf5` format, then `h5py_file` contains file handler.
     """
-    # pylint: disable=too-many-instance-attributes
     def __init__(self, path):
         self.path = path
         self.h5py_file = None
@@ -213,7 +212,6 @@ class SeismicGeometry():
 
     def log(self, path_log=None):
         """ Log some info. """
-        # pylint: disable=logging-format-interpolation
         path_log = path_log or ('/'.join(self.path.split('/')[:-1]) + '/CUBE_INFO.log')
         handler = logging.FileHandler(path_log, mode='w')
         handler.setFormatter(logging.Formatter('%(message)s'))
