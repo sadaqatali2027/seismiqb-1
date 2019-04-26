@@ -361,7 +361,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='run_once')
-    def assemble_predict(self, src, dst, grid_info, mode='avg'):
+    def assemble_crops(self, src, dst, grid_info, mode='avg'):
         """ Glue crops together in accordance to the grid.
 
         Note
@@ -394,7 +394,7 @@ class SeismicCropBatch(Batch):
         if mode == 'avg':
             @njit
             def _callable(array):
-                return np.sum(array) / count_nonzeros(array)
+                return np.sum(array) / max(count_nonzeros(array), 1)
         elif mode == 'max':
             @njit
             def _callable(array):

@@ -1,12 +1,12 @@
 """ Utility functions. """
 import numpy as np
+import pandas as pd
 import segyio
 from tqdm import tqdm
-import pandas as pd
 
+from numba import njit, types
 from numba.typed import Dict
-from numba import types
-from numba import njit
+
 
 FILL_VALUE = -999
 
@@ -222,18 +222,18 @@ def create_mask(ilines_, xlines_, hs_,
 
 @njit
 def count_nonzeros(array):
-    """ Self-explaining. """
+    """ Jit-accelerated function to count non-zero elements. Faster than numpy version. """
     count = 0
     for i in array:
         if i != 0:
             count += 1
-    return max(count, 1)
+    return count
 
 
 @njit
 def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
     """ Jit-accelerated function to glue together crops according to grid.
-    This function is usually called inside SeismicCropBatch's method `assemble_predict`.
+    This function is usually called inside SeismicCropBatch's method `assemble_crops`.
     """
     total = len(array_grid)
     background = np.zeros(predict_shape)
