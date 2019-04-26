@@ -18,7 +18,6 @@ SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 
 class SeismicCropBatch(Batch):
     """ Batch with ability to generate 3d-crops of various shapes."""
-    # pylint: disable=protected-access, C0103
     components = ('slices', 'geometries', 'labels')
 
     def _init_component(self, *args, **kwargs):
@@ -304,7 +303,7 @@ class SeismicCropBatch(Batch):
             coords = np.round(coords).astype(np.int32)[cond]
             new_mask[coords[:, 0], coords[:, 1], coords[:, 2]] = mask[coords[:, 0], coords[:, 1], coords[:, 2]]
             mask = new_mask
-        
+
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
         return self
@@ -344,7 +343,7 @@ class SeismicCropBatch(Batch):
 
         Returns
         -------
-        str
+        path : str
             supplied string with random postfix.
 
         Notes

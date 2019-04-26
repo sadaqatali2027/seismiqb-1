@@ -9,7 +9,6 @@ from tqdm import tqdm
 
 class SeismicGeometry():
     """ Class to hold information about .sgy-file. """
-    # pylint: disable=too-many-instance-attributes
     def __init__(self, path):
         self.path = path
         self.il_xl_trace = {}
@@ -125,7 +124,6 @@ class SeismicGeometry():
 
     def log(self, path_log=None):
         """ Log some info. """
-        # pylint: disable=logging-format-interpolation
         path_log = path_log or ('/'.join(self.path.split('/')[:-1]) + '/CUBE_INFO.log')
         handler = logging.FileHandler(path_log, mode='w')
         handler.setFormatter(logging.Formatter('%(message)s'))
