@@ -2,6 +2,7 @@
 import dill
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from ..batchflow import Dataset, Sampler
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
@@ -164,8 +165,13 @@ class SeismicCubeset(Dataset):
 
 
     def show_labels(self, ix):
-        """ Not empty! """
-        import matplotlib.pyplot as plt
+        """ Draw image that shows, how many of iline/xline pairs are labeled.
+
+        Parameters
+        ----------
+        ix : str
+            Identificator of cube to draw in index.
+        """
         geom = self.geometries[ix]
         labels = self.labels[ix]
         possible_coordinates = [[il, xl] for il in geom.ilines for xl in geom.xlines]
@@ -173,6 +179,7 @@ class SeismicCubeset(Dataset):
         background = np.zeros((geom.ilines_len, geom.xlines_len))
         img = labels_matrix(background, np.array(possible_coordinates), labels,
                             geom.ilines_offset, geom.xlines_offset)
+        img[0, 0] = 0
 
         print('Showing labels from above for {}'.format(ix))
         _, ax = plt.subplots(figsize=(12, 7))

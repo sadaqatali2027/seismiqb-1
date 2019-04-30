@@ -188,7 +188,9 @@ def make_labels_dict(point_cloud):
 @njit
 def labels_matrix(background, possible_coordinates, labels,
                   ilines_offset, xlines_offset):
-    """ Jitify! """
+    """ Jit-accelerated function to check how many of iline/xline pairs are labeled.
+    This function is usually called inside SeismicCubeset's method show_labels.
+    """
     for i in range(len(possible_coordinates)):
         point = possible_coordinates[i, :]
         if labels.get((point[0], point[1])) is not None:
