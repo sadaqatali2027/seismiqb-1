@@ -292,3 +292,21 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
 
                 background[il, xl, h] = aggr_func(temp_arr)
     return background
+
+
+@njit
+def round_to_array(array, ticks):
+    """"""
+    for i, p in enumerate(array):
+        if p <= ticks[0]:
+            array[i] = ticks[0]
+        elif p >= ticks[-1]:
+            array[i] = ticks[-1]
+        else:
+            ix = np.searchsorted(ticks, p)
+
+            if abs(ticks[ix] - p) <= abs(ticks[ix-1] - p):
+                array[i] = ticks[ix]
+            else:
+                array[i] = ticks[ix-1]
+    return array

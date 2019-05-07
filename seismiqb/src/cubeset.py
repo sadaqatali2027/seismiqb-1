@@ -8,7 +8,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
-from .utils import read_point_cloud, make_labels_dict, _get_horizons
+from .utils import read_point_cloud, make_labels_dict, _get_horizons, round_to_array
 
 
 class SeismicCubeset(Dataset):
@@ -164,7 +164,7 @@ class SeismicCubeset(Dataset):
 
 
     def load_samplers(self, path=None, mode='hist', p=None,
-                      transforms=None, **kwargs):
+                      transforms=None, dst='sampler', **kwargs):
         """ Create samplers for every cube and store it in `samplers`
         attribute of passed dataset. Also creates one combined sampler
         and stores it in `sampler` attribute of passed dataset.
@@ -240,8 +240,121 @@ class SeismicCubeset(Dataset):
             sampler_ = (ConstantSampler(ix)
                         & samplers[ix].apply(lambda d: d.astype(np.object)))
             sampler = sampler | (p[i] & sampler_)
-        self.sampler = sampler
+        setattr(self, dst, sampler)
         return self
+
+
+    def modify_sampler(self, dst, mode='iline', low=None, high=None,
+                       each=None, each_start=None, strict=True,
+                       to_cube=False, post=None, finish=False, src='sampler'):
+        """ Change given sampler to generate points from desired regions.
+
+        Parameters
+        ----------
+        src : str
+            Attribute with Sampler to change.
+
+        dst : str
+            Attribute to store created Sampler.
+
+        mode : str
+            Axis to modify: ilines/xlines/heights.
+
+        low : float
+            Lower bound for truncating.
+
+        high : float
+            Upper bound for truncating.
+
+        each : int
+            Keep only i-th value along axis.
+
+        each_start : int
+            Shift grid for previous parameter.
+
+        strict : bool
+            Whether to give exactly every `each`-th entry from each cube.
+            If False, for some cubes grid can be thinner.
+
+        to_cube : bool
+            Transform sampled values to each cube coordinates.
+
+        post : callable
+            Additional function to apply to sampled points.
+
+        finish : bool
+            If False, instance of Sampler is put into `dst` and can be modified later.
+            If True, `sample` method is put into `dst` and can be called via `D` named-expressions.
+
+        Examples
+        --------
+        Split into train / test along ilines in 80/20 ratio:
+
+        >>> cubeset.modify_sampler(dst='train_sampler', mode='i', high=0.8)
+        >>> cubeset.modify_sampler(dst='test_sampler', mode='i', low=0.8)
+
+        Sample only every 50-th point along xlines starting from 70-th xline:
+
+        >>> cubeset.modify_sampler(dst='train_sampler', mode='x', each=50, each_start=70)
+
+        Notes
+        -----
+        It is advised to have gap between `high` for train sampler and `low` for test sampler.
+        """
+
+        # Parsing arguments
+        sampler = getattr(self, src)
+
+        mapping = {'ilines': 0, 'xlines': 1, 'heights': 2,
+                   'iline': 0, 'xline': 1, 'i': 0, 'x': 1, 'h': 2}
+        axis = mapping[mode]
+
+        low, high = low or 0, high or 1
+        each = each or 1
+        each_start = each_start or each
+
+        # Keep only points from region
+        if (low != 0) or (high != 1):
+            sampler = sampler.truncate(low=low, high=high, prob=high-low,
+                                        expr=lambda p: p[:, axis+1])
+
+        # Keep only every `each`-th point
+        if strict:
+            shape = min([self.geometries[ix].cube_shape[axis] for ix in self.indices])
+
+            def filter(array):
+                ticks = np.arange(each_start, shape, each)
+                arr = (array[:, axis+1]*shape).astype(int)
+                array[:, axis+1] = round_to_array(arr, ticks)  / shape
+                return array
+            sampler = sampler.apply(filter)
+
+        else:
+            def get_shape(name):
+                return self.geometries[name].cube_shape[axis]
+
+            def expression(array):
+                return np.array(array[:, axis+1] * np.array(list(map(get_shape, array[:, 0]))) % each)
+            sampler = sampler.truncate(low=0, high=1, expr=expression, prob=1/(10*each))
+
+        # Change representation of points from unit cube to cube coordinates
+        if to_cube:
+            def get_shape(name):
+                return self.geometries[name].cube_shape
+            def to_cube(array):
+                array[:, 1:] = (array[:, 1:] * np.array(list(map(get_shape, array[:, 0])))).astype(int)
+                return array
+
+            sampler = sampler.apply(to_cube)
+
+        # Apply additional transformations to points
+        if callable(post):
+            sampler = sampler.apply(post)
+
+        if finish:
+            setattr(self, dst, sampler.sample)
+        else:
+            setattr(self, dst, sampler)
 
 
     def save_samplers(self, save_to):
