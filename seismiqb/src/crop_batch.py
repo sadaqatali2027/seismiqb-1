@@ -543,6 +543,17 @@ class SeismicCropBatch(Batch):
         return cv2.warpAffine(crop, matrix, (shape[1], shape[0]))
 
 
+    def _flip_(self, crop, axis=0):
+        """ Flip crop along the given axis.
+
+        Parameters
+        ----------
+        axis : int
+            Axis to flip along
+        """
+        return cv2.flip(crop, axis)
+
+
     def _scale_2d_(self, crop, scale):
         """ Zoom in or zoom out along the first two axes of crop.
 
