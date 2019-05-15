@@ -71,7 +71,8 @@ class SeismicGeometry():
         transform_h = lambda h: ((h - self.delay) / self.sample_rate).astype(np.int64)
         self.abs_to_lines = (lambda array: np.stack([transform_y(array[:, 0]),
                                                      transform_x(array[:, 1]),
-                                                     transform_h(array[:, 2])],
+                                                     transform_h(array[:, 2]),
+                                                     array[:, 3]],
                                                     axis=-1))
 
         # Callable to transform cube values to [0, 1] (and vice versa)

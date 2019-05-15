@@ -217,7 +217,7 @@ class SeismicCubeset(Dataset):
                     geom = getattr(self, 'geometries')[ix]
                     offsets = np.array([geom.ilines_offset, geom.xlines_offset, 0])
                     cube_shape = np.array(geom.cube_shape)
-                    to_cube = lambda points: (points - offsets)/cube_shape
+                    to_cube = lambda points: (points[:, :3] - offsets)/cube_shape
                     default = lambda points: to_cube(geom.abs_to_lines(points))
 
                     transform = transforms.get(ix) or default
