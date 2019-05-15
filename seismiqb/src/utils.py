@@ -104,11 +104,14 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
 
     # read point clouds
     point_clouds = []
-    for path in paths:
+    for ix, path in enumerate(paths):
         copy = default.copy()
         copy.update(kwargs.get(path, dict()))
         cloud = pd.read_csv(path, **copy)
-        point_clouds.append(cloud.loc[:, order].values)
+
+        temp = np.hstack([cloud.loc[:, order].values,
+                          np.ones((cloud.shape[0], 1)) * ix])
+        point_clouds.append(temp)
 
     points = np.concatenate(point_clouds)
 
@@ -165,23 +168,18 @@ def make_labels_dict(point_cloud):
     labels = Dict.empty(key_type, value_type)
 
     @njit
-    def fill_labels(labels, counts, ilines_xlines, max_count):
+    def fill_labels(labels, ilines_xlines, max_count):
         """ Fill in labels-dict.
         """
-        # zero-out the counts
-        for k in counts.keys():
-            counts[k] = 0
-
-        # fill labels-dict
         for i in range(len(ilines_xlines)):
             il, xl = ilines_xlines[i, :2]
             if labels.get((il, xl)) is None:
                 labels[(il, xl)] = np.full((max_count, ), FILL_VALUE, np.int64)
 
-            labels[(il, xl)][counts[(il, xl)]] = point_cloud[i, 2]
-            counts[(il, xl)] += 1
+            idx = int(point_cloud[i, 3])
+            labels[(il, xl)][idx] = point_cloud[i, 2]
 
-    fill_labels(labels, counts, ilines_xlines, max_count)
+    fill_labels(labels, ilines_xlines, max_count)
     return labels
 
 
