@@ -46,7 +46,7 @@ class SeismicGeometry():
 
 
     def load(self):
-        """ Load a lot of information about the file. """
+        """ Load of information about the file. """
         if not isinstance(self.path, str):
             raise ValueError('Path to a cube should be supplied!')
 
@@ -121,18 +121,12 @@ class SeismicGeometry():
         No passing through data whatsoever.
         """
         self.h5py_file = h5py.File(self.path, "r")
+        attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
+                      'ilines', 'xlines', 'cdp_x', 'cdp_y']
 
-        self.depth = self.h5py_file['/info/depth'][()]
-        self.delay = self.h5py_file['/info/delay'][()]
-        self.sample_rate = self.h5py_file['/info/sample_rate'][()]
-
-        self.value_min = self.h5py_file['/info/value_min'][()]
-        self.value_max = self.h5py_file['/info/value_max'][()]
-
-        self.ilines = self.h5py_file['/info/ilines'][:]
-        self.xlines = self.h5py_file['/info/xlines'][:]
-        self.cdp_x = self.h5py_file['/info/cdp_x'][:]
-        self.cdp_y = self.h5py_file['/info/cdp_y'][:]
+        for item in attributes:
+            value = self.h5py_file['/info/' + item][()]
+            setattr(self, item, value)
 
 
     def _get_linear(self, set_x, set_y):
@@ -193,21 +187,14 @@ class SeismicGeometry():
                     slide[0, xl_, :] = segyfile.trace[tr_]
                 cube_h5py[il_, :, :] = slide
 
-        # Move all the necessary attributes to the `info` group
-        h5py_file['/info/depth'] = self.depth
-        h5py_file['/info/delay'] = self.delay
-        h5py_file['/info/sample_rate'] = self.sample_rate
+        # Save all the necessary attributes to the `info` group
+        attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
+                      'ilines', 'xlines', 'cdp_x', 'cdp_y']
 
-        h5py_file['/info/value_min'] = self.value_min
-        h5py_file['/info/value_max'] = self.value_max
-
-        h5py_file['/info/ilines'] = self.ilines
-        h5py_file['/info/xlines'] = self.xlines
-        h5py_file['/info/cdp_x'] = self.cdp_x
-        h5py_file['/info/cdp_y'] = self.cdp_y
+        for item in attributes:
+            h5py_file['/info/' + item] = getattr(self, item)
 
         self.h5py_file = h5py.File(path_h5py, "r")
-
 
 
     def log(self, path_log=None):
