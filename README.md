@@ -13,13 +13,16 @@
 git clone -- recursive https://github.com/analysiscenter/seismiqb.git
 ```
 
-## Models
+## Turorials
+
+### Cube-preprocessing
+Performing basic preprocessing on seismic cubes. You can find the tutorial [here](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/2.%20Batch.ipynb).
 
 ### Horizon segmentation
-A task of binary segmentation. You can find the model-notebook here.
+Solving a task of binary segmentation. You can find the model-notebook [here](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/3.%20Horizonts_model.ipynb).
 
 ### Horizon extension
-A task of binary segmentation. You can find the tutorial here.
+Solving a task of binary segmentation. You can find the tutorial [here](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/Horizon%20Extension.ipynb).
 
 ### Interlayers segmentation
-Multiclass segmentation. You can find the notebook here.
+Performing multiclass segmentation. You can find the notebook [here](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/4.%20Segmenting_interlayers.ipynb).
