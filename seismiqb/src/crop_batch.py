@@ -16,9 +16,9 @@ SIZE_POSTFIX = 7
 SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 
 
+
 class SeismicCropBatch(Batch):
     """ Batch with ability to generate 3d-crops of various shapes."""
-    # pylint: disable=protected-access, C0103
     components = ('slices', 'geometries', 'labels')
 
     def _init_component(self, *args, **kwargs):
@@ -333,6 +333,65 @@ class SeismicCropBatch(Batch):
         return horizons
 
     @action
+    @inbatch_parallel(init='_init_component', target='threads')
+    def filter_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None):
+        """ Cut mask for horizont extension task.
+        src : str
+            Component of batch with mask
+        dst : str
+            Component of batch to put cut mask in.
+        mode : str
+            Either point, line, iline or xline.
+            If point, then only only one point per horizon will be labeled.
+            If iline or xline then single iline or xline with labeled.
+            If line then randomly either single iline or xline will be
+            labeled.
+        expr : callable, optional.
+            Some vectorized function. Accepts points in cube, returns either float.
+            If not None, high or low should also be supplied.
+        """
+        if not (src and dst):
+            raise ValueError('Src and dst must be provided')
+
+        pos = self.get_pos(None, src, ix)
+        mask = getattr(self, src)[pos]
+        coords = np.where(mask > 0)
+        if len(coords[0]) == 0:
+            getattr(self, dst)[pos] = mask
+            return self
+        if mode is not None:
+            new_mask = np.zeros_like(mask)
+            point = np.random.randint(len(coords))
+            if mode == 'point':
+                new_mask[coords[0][point], coords[1][point], :] = mask[coords[0][point], coords[1][point], :]
+            elif mode == 'iline' or (mode == 'line' and np.random.binomial(1, 0.5)) == 1:
+                new_mask[coords[0][point], :, :] = mask[coords[0][point], :, :]
+            elif mode in ['xline', 'line']:
+                new_mask[:, coords[1][point], :] = mask[:, coords[1][point], :]
+            else:
+                raise ValueError('Mode should be either `point`, `iline`, `xline` or `line')
+            mask = new_mask
+        if expr is not None:
+            coords = np.where(mask > 0)
+            new_mask = np.zeros_like(mask)
+
+            coords = np.array(coords).astype(np.float).T
+            cond = np.ones(shape=coords.shape[0]).astype(bool)
+            coords /= np.reshape(mask.shape, newshape=(1, 3))
+            if low is not None:
+                cond &= np.greater_equal(expr(coords), low)
+            if high is not None:
+                cond &= np.less_equal(expr(coords), high)
+            coords *= np.reshape(mask.shape, newshape=(1, 3))
+            coords = np.round(coords).astype(np.int32)[cond]
+            new_mask[coords[:, 0], coords[:, 1], coords[:, 2]] = mask[coords[:, 0], coords[:, 1], coords[:, 2]]
+            mask = new_mask
+
+        pos = self.get_pos(None, dst, ix)
+        getattr(self, dst)[pos] = mask
+        return self
+
+    @action
     @inbatch_parallel(init='indices', target='threads')
     def scale(self, ix, mode, src=None, dst=None):
         """ Scale values in crop. """
@@ -367,7 +426,7 @@ class SeismicCropBatch(Batch):
 
         Returns
         -------
-        str
+        path : str
             supplied string with random postfix.
 
         Notes
