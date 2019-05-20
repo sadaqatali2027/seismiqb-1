@@ -3,6 +3,7 @@ import string
 import random
 
 import numpy as np
+import pandas as pd
 import segyio
 from skimage.measure import label, regionprops
 
