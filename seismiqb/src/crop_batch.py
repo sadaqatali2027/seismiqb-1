@@ -9,7 +9,7 @@ from skimage.measure import label, regionprops
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 
-from .utils import create_mask
+from .utils import create_mask, make_labels_dict
 
 
 AFFIX = '___'
