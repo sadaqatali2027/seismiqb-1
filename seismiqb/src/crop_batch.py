@@ -103,6 +103,18 @@ class SeismicCropBatch(Batch):
             for il_xl in labels[cube]:
                 labels[cube][il_xl] = np.sort(list(labels[cube][il_xl]))
 
+        # convert labels to numba.Dict if needed
+        if kwargs.get('to_numba'):
+            for cube, cloud_dict in labels.items():
+                cloud = []
+                for il_xl, horizons in cloud_dict.items():
+                    (il, xl) = il_xl
+                    for h in horizons.reshape(-1):
+                        cloud.append([il, xl, h])
+
+                cloud = np.array(cloud)
+                labels[cube] = make_labels_dict(cloud)
+
         setattr(self, dst, labels)
         return self
 
@@ -284,8 +296,8 @@ class SeismicCropBatch(Batch):
     @action
     @inbatch_parallel(init='indices', post='_assemble_labels', target='threads')
     def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
-                        threshold=0.5, averaging='mean'):
-        """ Get labels in point-cloud format from horizons-mask.
+                        threshold=0.5, averaging='mean', coords='cubic', to_numba=False):
+        """ Convert labels from horizons-mask into point-cloud format.
 
         Parameters
         ----------
@@ -299,6 +311,13 @@ class SeismicCropBatch(Batch):
             parameter of mask-thresholding.
         averaging : str
             method of pandas.groupby used for finding the center of a horizon.
+        coords : str
+            coordinates-mode to use for keys of point-cloud. Can be either 'cubic'
+            or 'lines'. In case of `lines`-option, `geometries` must be loaded as
+            a component of batch.
+        to_numba : bool
+            whether to convert the resulting point-cloud to numba-dict. The conversion
+            takes additional time.
 
         Returns
         -------
@@ -325,8 +344,11 @@ class SeismicCropBatch(Batch):
                 i, x = i_x
                 i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
                 il_xl = (i + i_shift, x + x_shift)
+                if coords == 'lines':
+                    geom = self.get(ix, 'geometries')
+                    il_xl = geom.ilines[il_xl[0]], geom.xlines[il_xl[1]]
 
-                if i_x in horizons:
+                if il_xl in horizons:
                     horizons[il_xl].append(horizon_.loc[i_x, 'height'] + h_shift)
                 else:
                     horizons[il_xl] = [horizon_.loc[i_x, 'height'] + h_shift]
