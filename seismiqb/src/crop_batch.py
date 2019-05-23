@@ -296,7 +296,7 @@ class SeismicCropBatch(Batch):
     @action
     @inbatch_parallel(init='indices', post='_assemble_labels', target='threads')
     def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
-                        threshold=0.5, averaging='mean', coords='cubic', to_numba=False):
+                        threshold=0.5, averaging='mean', coordinates='cubic', to_numba=False):
         """ Convert labels from horizons-mask into point-cloud format.
 
         Parameters
@@ -311,7 +311,7 @@ class SeismicCropBatch(Batch):
             parameter of mask-thresholding.
         averaging : str
             method of pandas.groupby used for finding the center of a horizon.
-        coords : str
+        coordinates : str
             coordinates-mode to use for keys of point-cloud. Can be either 'cubic'
             or 'lines'. In case of `lines`-option, `geometries` must be loaded as
             a component of batch.
@@ -344,7 +344,7 @@ class SeismicCropBatch(Batch):
                 i, x = i_x
                 i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
                 il_xl = (i + i_shift, x + x_shift)
-                if coords == 'lines':
+                if coordinates == 'lines':
                     geom = self.get(ix, 'geometries')
                     il_xl = geom.ilines[il_xl[0]], geom.xlines[il_xl[1]]
 
