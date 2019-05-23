@@ -4,10 +4,11 @@ import random
 
 import numpy as np
 import segyio
+import numba
+from numba import njit
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
-
-from .utils import create_mask
+from .utils import create_mask, aggregate, count_nonzeros
 
 
 AFFIX = '___'
@@ -166,18 +167,14 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
-    def load_cubes(self, ix, segyfile, dst, src='slices'):
+    def load_cubes(self, dst, fmt='h5py', src='slices'):
         """ Load data from cube in given positions.
-
-        Notes
-        -----
-        Init function `_sgy_init` passes both index and handler to necessary
-        .sgy file. Post function '_sgy_post' takes all of the handlers and
-        closes I/O. That is done in order to open every file only once (since it is time-consuming).
 
         Parameters
         ----------
+        fmt : 'h5py' or 'sgy'
+            Cube storing format.
+
         src : str
             Component of batch with positions of crops to load.
 
@@ -189,6 +186,17 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             Batch with loaded crops in desired component.
         """
+        if fmt.lower() in ['sgy', 'segy']:
+            return self._load_cubes_sgy(src=src, dst=dst)
+        if fmt.lower() in ['h5py', 'h5']:
+            return self._load_cubes_h5py(src=src, dst=dst)
+
+        return self
+
+
+    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
+    def _load_cubes_sgy(self, ix, segyfile, dst, src='slices'):
+        """ Load data from .sgy-cube in given positions. """
         geom = self.get(ix, 'geometries')
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
@@ -206,6 +214,25 @@ class SeismicCropBatch(Batch):
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = crop
         return segyfile
+
+
+    @inbatch_parallel(init='_init_component', target='threads')
+    def _load_cubes_h5py(self, ix, dst, src='slices'):
+        """ Load data from .hdf5-cube in given positions. """
+        geom = self.get(ix, 'geometries')
+        h5py_cube = geom.h5py_file['cube']
+
+        slice_ = self.get(ix, src)
+        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
+
+        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+        for i, iline_ in enumerate(ilines_):
+            slide = h5py_cube[iline_, :, :]
+            crop[i, :, :] = slide[xlines_, :][:, hs_]
+
+        pos = self.get_pos(None, dst, ix)
+        getattr(self, dst)[pos] = crop
+        return self
 
 
     @action
@@ -330,6 +357,61 @@ class SeismicCropBatch(Batch):
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = new_data
         return self
+
+
+    @action
+    @inbatch_parallel(init='run_once')
+    def assemble_crops(self, src, dst, grid_info, mode='avg'):
+        """ Glue crops together in accordance to the grid.
+
+        Note
+        ----
+        In order to use this function you must first call `make_grid` method of SeismicCubeset.
+
+        Parameters
+        ----------
+        src : array-like
+            Sequence of crops.
+
+        dst : str
+            Component of batch to put results in.
+
+        grid_info : dict
+            Dictionary with information about grid. Should be created by `make_grid` method.
+
+        mode : str or jit-decorated callable
+            Mapping from multiple values to one for areas, where multiple crops overlap.
+
+        Returns
+        -------
+        SeismicCropBatch
+            Batch with assembled subcube in desired component.
+        """
+        # Do nothing until there is a crop for every point
+        if len(src) != len(grid_info['grid_array']):
+            return self
+
+        if mode == 'avg':
+            @njit
+            def _callable(array):
+                return np.sum(array) / max(count_nonzeros(array), 1)
+        elif mode == 'max':
+            @njit
+            def _callable(array):
+                return np.max(array)
+        elif isinstance(mode, numba.targets.registry.CPUDispatcher):
+            _callable = mode
+
+        # Since we know that cube is 3-d entity, we can get rid of
+        # unneccessary dimensions
+        src = np.array(src)
+        src = src if len(src.shape) == 4 else np.squeeze(src, axis=-1)
+        assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
+                              grid_info['predict_shape'], aggr_func=_callable)
+
+        setattr(self, dst, assembled[grid_info['slice']])
+        return self
+
 
 
     @staticmethod

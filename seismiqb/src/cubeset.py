@@ -24,6 +24,8 @@ class SeismicCubeset(Dataset):
         self.samplers = {ix: None for ix in self.indices}
         self.sampler = None
 
+        self.grid_gen, self.grid_info, self.grid_iters = None, None, None
+
 
     def load_geometries(self, path=None, scalers=False, mode='full', logs=True):
         """ Load geometries into dataset-attribute.
@@ -68,7 +70,13 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.geometries, file)
+        return self
 
+
+    def convert_to_h5py(self):
+        """ Converts every cube in dataset from `.sgy` to `.hdf5`. """
+        for ix in self.indices:
+            self.geometries[ix].make_h5py()
         return self
 
 
@@ -103,7 +111,6 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.point_clouds, file)
-
         return self
 
 
@@ -124,6 +131,7 @@ class SeismicCubeset(Dataset):
             Attribute with saved point clouds.
 
         Returns
+        SeismicCubeset
             Same instance with loaded labels.
         """
         point_clouds = getattr(self, src) if isinstance(src, str) else src
@@ -242,7 +250,6 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.samplers, file)
-
         return self
 
 
@@ -251,5 +258,89 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(getattr(self, name), file)
+        return self
 
+
+    def make_grid(self, cube_name, crop_shape,
+                  ilines_range, xlines_range, h_range,
+                  strides=None, batch_size=16):
+        """ Create regular grid of points in cube.
+        This method is usually used with `assemble_predict` action of SeismicCropBatch.
+
+        Parameters
+        ----------
+        cube_name : str
+            Reference to cube. Should be valid key for `geometries` attribute.
+
+        crop_shape : array-like
+            Shape of model inputs.
+
+        ilines_range : array-like of two elements
+            Location of desired prediction, iline-wise.
+
+        xlines_range : array-like of two elements
+            Location of desired prediction, xline-wise.
+
+        h_range : array-like of two elements
+            Location of desired prediction, depth-wise.
+
+        strides : array-like
+            Distance between grid points.
+
+        batch_size : int
+            Amount of returned points per generator call.
+
+        Returns
+        -------
+        SeismicCubeset
+            Same instance with grid generator and grid information in attributes.
+
+        """
+        geom = self.geometries[cube_name]
+        strides = strides or crop_shape
+
+        # Making sure that ranges are within cube bounds
+        i_low = min(geom.ilines_len-crop_shape[0], ilines_range[0])
+        i_high = min(geom.ilines_len-crop_shape[0], ilines_range[1])
+
+        x_low = min(geom.xlines_len-crop_shape[1], xlines_range[0])
+        x_high = min(geom.xlines_len-crop_shape[1], xlines_range[1])
+
+        h_low = min(geom.depth-crop_shape[2], h_range[0])
+        h_high = min(geom.depth-crop_shape[2], h_range[1])
+
+        # Every point in grid contains reference to cube
+        # in order to be valid input for `crop` action of SeismicCropBatch
+        grid = []
+        for il in np.arange(i_low, i_high+1, strides[0]):
+            for xl in np.arange(x_low, x_high+1, strides[1]):
+                for h in np.arange(h_low, h_high+1, strides[2]):
+                    point = [cube_name, il, xl, h]
+                    grid.append(point)
+        grid = np.array(grid, dtype=object)
+
+        # Creating  and storing all the necessary things
+        grid_gen = (grid[i:i+batch_size]
+                    for i in range(0, len(grid), batch_size))
+
+        offsets = np.array([min(grid[:, 1]),
+                            min(grid[:, 2]),
+                            min(grid[:, 3])])
+
+        predict_shape = (i_high-i_low+crop_shape[0],
+                         x_high-x_low+crop_shape[1],
+                         h_high-h_low+crop_shape[2])
+
+        slice_ = (slice(0, i_high-i_low, 1),
+                  slice(0, x_high-x_low, 1),
+                  slice(0, h_high-h_low, 1))
+
+        grid_array = grid[:, 1:].astype(int) - offsets
+
+        self.grid_gen = lambda: next(grid_gen)
+        self.grid_iters = - (-len(grid) // batch_size)
+        self.grid_info = {'grid_array': grid_array,
+                          'predict_shape': predict_shape,
+                          'slice': slice_,
+                          'crop_shape': crop_shape}
         return self

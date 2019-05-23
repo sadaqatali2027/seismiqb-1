@@ -1,11 +1,12 @@
 """ Utility functions. """
 import numpy as np
+import pandas as pd
 import segyio
 from tqdm import tqdm
-import pandas as pd
+
+from numba import njit, types
 from numba.typed import Dict
-from numba import types
-from numba import njit
+
 
 FILL_VALUE = -999
 
@@ -188,8 +189,8 @@ def make_labels_dict(point_cloud):
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, geom_ilines, geom_xlines, geom_depth,
                 mode, width):
-    """ Jit-decorated function for fast mask creation from point cloud data stored in numba.typed.Dict.
-    This function is usually called inside SeismicCropBatch's method load_masks.
+    """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
+    This function is usually called inside SeismicCropBatch's method `load_masks`.
     """
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
 
@@ -217,3 +218,41 @@ def create_mask(ilines_, xlines_, hs_,
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
     return mask
+
+
+@njit
+def count_nonzeros(array):
+    """ Jit-accelerated function to count non-zero elements. Faster than numpy version. """
+    count = 0
+    for i in array:
+        if i != 0:
+            count += 1
+    return count
+
+
+@njit
+def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
+    """ Jit-accelerated function to glue together crops according to grid.
+    This function is usually called inside SeismicCropBatch's method `assemble_crops`.
+    """
+    total = len(array_grid)
+    background = np.zeros(predict_shape)
+
+    for il in range(background.shape[0]):
+        for xl in range(background.shape[1]):
+            for h in range(background.shape[2]):
+
+                temp_arr = np.zeros(total)
+                for i in range(total):
+                    il_crop = array_grid[i, 0]
+                    xl_crop = array_grid[i, 1]
+                    h_crop = array_grid[i, 2]
+
+                    if 0 <= (il - il_crop) < crop_shape[0] and \
+                       0 <= (xl - xl_crop) < crop_shape[1] and \
+                       0 <= (h - h_crop) < crop_shape[2]:
+                        dot = array_crops[i, xl-xl_crop, h-h_crop, il-il_crop] # crops are in (xl, h, il) order
+                        temp_arr[i] = dot
+
+                background[il, xl, h] = aggr_func(temp_arr)
+    return background
