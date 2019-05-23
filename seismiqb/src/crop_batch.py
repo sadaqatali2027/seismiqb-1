@@ -78,6 +78,7 @@ class SeismicCropBatch(Batch):
     def _assemble_labels(self, all_clouds, *args, dst=None, **kwargs):
         """ Assemble labels-dict from different crops in batch.
         """
+        _ = args
         labels = dict()
         labels_ = dict()
 
@@ -324,6 +325,8 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             batch with fetched labels.
         """
+        _ = dst, to_numba
+
         # threshold the mask
         mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
         mask_ = np.zeros_like(mask, np.int32)
