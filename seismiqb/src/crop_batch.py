@@ -216,6 +216,7 @@ class SeismicCropBatch(Batch):
             slice_point = point[1:]
 
 <<<<<<< HEAD
+<<<<<<< HEAD
         slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]*dilations[0], dilations[0]),
                   np.arange(slice_point[1], slice_point[1]+shape[1]*dilations[1], dilations[1]),
                   np.arange(slice_point[2], slice_point[2]+shape[2]*dilations[2], dilations[2])]
@@ -224,6 +225,11 @@ class SeismicCropBatch(Batch):
                   np.arange(slice_point[1], slice_point[1]+shape[1], dilations[1]),
                   np.arange(slice_point[2], slice_point[2]+shape[2], dilations[2])]
 >>>>>>> src/dst for labels in different places. added dilations
+=======
+        slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]*dilations[0], dilations[0]),
+                  np.arange(slice_point[1], slice_point[1]+shape[1]*dilations[1], dilations[1]),
+                  np.arange(slice_point[2], slice_point[2]+shape[2]*dilations[2], dilations[2])]
+>>>>>>> changed make_grid convention
         return slice_
 
 
