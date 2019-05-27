@@ -1,13 +1,17 @@
 """ Seismic Crop Batch."""
 import string
 import random
+from copy import copy
 
 import numpy as np
 import segyio
 import numba
 from numba import njit
+import cv2
+from scipy.signal import butter, lfilter
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
+from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 from .utils import create_mask, aggregate, count_nonzeros
 
 
@@ -16,7 +20,7 @@ SIZE_POSTFIX = 7
 SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 
 
-
+@transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
 class SeismicCropBatch(Batch):
     """ Batch with ability to generate 3d-crops of various shapes."""
     components = ('slices', 'geometries', 'labels')
@@ -36,43 +40,49 @@ class SeismicCropBatch(Batch):
         return self.indices
 
 
-    def _sgy_init(self, *args, **kwargs):
-        """ Create `dst` component and preemptively open all the .sgy files.
-        Should always be used in pair with `_sgy_post`!
+    @staticmethod
+    def salt(path):
+        """ Adds random postfix of predefined length to string.
 
-        Note
-        ----
-        This init function is helpful for actions that work directly with .sgy
-        files through `segyio` API: all the file handlers are created only once per batch,
-        rather than once for every item in the batch.
+        Parameters
+        ----------
+        path : str
+            supplied string.
+
+        Returns
+        -------
+        path : str
+            supplied string with random postfix.
+
+        Notes
+        -----
+        Action `crop` makes a new instance of SeismicCropBatch with
+        different (enlarged) index. Items in that index should point to cube
+        location to cut crops from. Since we can't store multiple copies of the same
+        string in one index (due to internal usage of dictionary), we need to augment
+        those strings with random postfix (which we can remove later).
         """
-        _ = args
-        dst = kwargs.get("dst")
-        if dst is None:
-            raise KeyError("dst argument must be specified")
-        if isinstance(dst, str):
-            dst = (dst,)
-        for comp in dst:
-            if not hasattr(self, comp):
-                setattr(self, comp, np.array([None] * len(self.index)))
-
-        segyfiles = {}
-        for ix in self.indices:
-            path_data = self.index.get_fullpath(ix)
-            if segyfiles.get(self.unsalt(ix)) is None:
-                segyfile = segyio.open(path_data, 'r', strict=False)
-                segyfile.mmap()
-                segyfiles[self.unsalt(ix)] = segyfile
-        return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
-                for ix in self.indices]
+        chars = string.ascii_uppercase + string.digits
+        return path + AFFIX + ''.join(random.choice(chars) for _ in range(SIZE_POSTFIX))
 
 
-    def _sgy_post(self, segyfiles, *args, **kwargs):
-        """ Close opened .sgy files."""
-        _, _ = args, kwargs
-        for segyfile in segyfiles:
-            segyfile.close()
-        return self
+    @staticmethod
+    def unsalt(path):
+        """ Removes postfix that was made by `salt` method.
+
+        Parameters
+        ----------
+        path : str
+            supplied string.
+
+        Returns
+        -------
+        str
+            string without postfix.
+        """
+        if AFFIX in path:
+            return path[:-SIZE_SALT]
+        return path
 
 
     def get_pos(self, data, component, index):
@@ -191,6 +201,45 @@ class SeismicCropBatch(Batch):
         if fmt.lower() in ['h5py', 'h5']:
             return self._load_cubes_h5py(src=src, dst=dst)
 
+        return self
+
+
+    def _sgy_init(self, *args, **kwargs):
+        """ Create `dst` component and preemptively open all the .sgy files.
+        Should always be used in pair with `_sgy_post`!
+
+        Note
+        ----
+        This init function is helpful for actions that work directly with .sgy
+        files through `segyio` API: all the file handlers are created only once per batch,
+        rather than once for every item in the batch.
+        """
+        _ = args
+        dst = kwargs.get("dst")
+        if dst is None:
+            raise KeyError("dst argument must be specified")
+        if isinstance(dst, str):
+            dst = (dst,)
+        for comp in dst:
+            if not hasattr(self, comp):
+                setattr(self, comp, np.array([None] * len(self.index)))
+
+        segyfiles = {}
+        for ix in self.indices:
+            path_data = self.index.get_fullpath(ix)
+            if segyfiles.get(self.unsalt(ix)) is None:
+                segyfile = segyio.open(path_data, 'r', strict=False)
+                segyfile.mmap()
+                segyfiles[self.unsalt(ix)] = segyfile
+        return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
+                for ix in self.indices]
+
+
+    def _sgy_post(self, segyfiles, *args, **kwargs):
+        """ Close opened .sgy files."""
+        _, _ = args, kwargs
+        for segyfile in segyfiles:
+            segyfile.close()
         return self
 
 
@@ -335,6 +384,7 @@ class SeismicCropBatch(Batch):
         getattr(self, dst)[pos] = mask
         return self
 
+
     @action
     @inbatch_parallel(init='indices', target='threads')
     def scale(self, ix, mode, src=None, dst=None):
@@ -413,47 +463,231 @@ class SeismicCropBatch(Batch):
         return self
 
 
-
-    @staticmethod
-    def salt(path):
-        """ Adds random postfix of predefined length to string.
-
-        Parameters
-        ----------
-        path : str
-            supplied string.
-
-        Returns
-        -------
-        path : str
-            supplied string with random postfix.
+    def _rotate_axes_(self, crop):
+        """ The last shall be first and the first last.
 
         Notes
         -----
-        Action `crop` makes a new instance of SeismicCropBatch with
-        different (enlarged) index. Items in that index should point to cube
-        location to cut crops from. Since we can't store multiple copies of the same
-        string in one index (due to internal usage of dictionary), we need to augment
-        those strings with random postfix (which we can remove later).
+        Actions `crop`, `load_cubes`, `create_mask` make data in [iline, xline, height]
+        format. Since most of the models percieve ilines as channels, it might be convinient
+        to change format to [xline, heigh, ilines] via this action.
         """
-        chars = string.ascii_uppercase + string.digits
-        return path + AFFIX + ''.join(random.choice(chars) for _ in range(SIZE_POSTFIX))
+        crop_ = np.swapaxes(crop, 0, 1)
+        crop_ = np.swapaxes(crop_, 1, 2)
+        return crop_
 
 
-    @staticmethod
-    def unsalt(path):
-        """ Removes postfix that was made by `salt` method.
+    def _add_axis_(self, crop):
+        """ Add new axis.
+
+        Notes
+        -----
+        Used in combination with `dice` and `ce` losses to tell model that input is
+        3D entity, but 2D convolutions are used.
+        """
+        return crop[..., np.newaxis]
+
+
+    def _additive_noise_(self, crop, scale):
+        """ Add random value to each entry of crop. Added values are centered at 0.
 
         Parameters
         ----------
-        path : str
-            supplied string.
+        scale : float
+            Standart deviation of normal distribution."""
+        return crop + np.random.normal(loc=0, scale=scale, size=crop.shape)
 
-        Returns
-        -------
-        str
-            string without postfix.
+
+    def _multiplicative_noise_(self, crop, scale):
+        """ Multiply each entry of crop by random value, centered at 1.
+
+        Parameters
+        ----------
+        scale : float
+            Standart deviation of normal distribution."""
+        return crop * np.random.normal(loc=1, scale=scale, size=crop.shape)
+
+
+    def _cutout_2d_(self, crop, patch_shape, n):
+        """ Change patches of data to zeros.
+
+        Parameters
+        ----------
+        patch_shape : array-like
+            Shape or patches along each axis.
+
+        n : float
+            Number of patches to cut.
         """
-        if AFFIX in path:
-            return path[:-SIZE_SALT]
-        return path
+        rnd = np.random.RandomState(int(n*100)).uniform
+        patch_shape = patch_shape.astype(int)
+
+        copy_ = copy(crop)
+        for _ in range(int(n)):
+            x_ = int(rnd(max(crop.shape[0] - patch_shape[0], 1)))
+            h_ = int(rnd(max(crop.shape[1] - patch_shape[1], 1)))
+            copy_[x_:x_+patch_shape[0], h_:h_+patch_shape[1], :] = 0
+        return copy_
+
+
+    def _rotate_(self, crop, angle):
+        """ Rotate crop along the first two axes.
+
+        Parameters
+        ----------
+        angle : float
+            Angle of rotation.
+        """
+        shape = crop.shape
+        matrix = cv2.getRotationMatrix2D((shape[1]//2, shape[0]//2), angle, 1)
+        return cv2.warpAffine(crop, matrix, (shape[1], shape[0]))
+
+
+    def _flip_(self, crop, axis=0):
+        """ Flip crop along the given axis.
+
+        Parameters
+        ----------
+        axis : int
+            Axis to flip along
+        """
+        return cv2.flip(crop, axis)
+
+
+    def _scale_2d_(self, crop, scale):
+        """ Zoom in or zoom out along the first two axes of crop.
+
+        Parameters
+        ----------
+        scale : float
+            Zooming factor.
+        """
+        shape = crop.shape
+        matrix = cv2.getRotationMatrix2D((shape[1]//2, shape[0]//2), 0, scale)
+        return cv2.warpAffine(crop, matrix, (shape[1], shape[0]))
+
+
+    def _affine_transform_(self, crop, alpha_affine=10):
+        """ Perspective transform. Moves three points to other locations.
+        Guaranteed not to flip image or scale it more than 2 times.
+
+        Parameters
+        ----------
+        alpha_affine : float
+            Maximum distance along each axis between points before and after transform.
+        """
+        rnd = np.random.RandomState(int(alpha_affine*100)).uniform
+        shape = np.array(crop.shape)[:2]
+        if alpha_affine >= min(shape)//16:
+            alpha_affine = min(shape)//16
+
+        center_ = shape // 2
+        square_size = min(shape) // 3
+
+        pts1 = np.float32([center_ + square_size,
+                           center_ - square_size,
+                           [center_[0] + square_size, center_[1] - square_size]])
+
+        pts2 = pts1 + rnd(-alpha_affine, alpha_affine, size=pts1.shape).astype(np.float32)
+
+
+        matrix = cv2.getAffineTransform(pts1, pts2)
+        return cv2.warpAffine(crop, matrix, (shape[1], shape[0]))
+
+
+    def _perspective_transform_(self, crop, alpha_persp):
+        """ Perspective transform. Moves four points to other four.
+        Guaranteed not to flip image or scale it more than 2 times.
+
+        Parameters
+        ----------
+        alpha_persp : float
+            Maximum distance along each axis between points before and after transform.
+        """
+        rnd = np.random.RandomState(int(alpha_persp*100)).uniform
+        shape = np.array(crop.shape)[:2]
+        if alpha_persp >= min(shape) // 16:
+            alpha_persp = min(shape) // 16
+
+        center_ = shape // 2
+        square_size = min(shape) // 3
+
+        pts1 = np.float32([center_ + square_size,
+                           center_ - square_size,
+                           [center_[0] + square_size, center_[1] - square_size],
+                           [center_[0] - square_size, center_[1] + square_size]])
+
+        pts2 = pts1 + rnd(-alpha_persp, alpha_persp, size=pts1.shape).astype(np.float32)
+
+        matrix = cv2.getPerspectiveTransform(pts1, pts2)
+        return cv2.warpPerspective(crop, matrix, (shape[1], shape[0]))
+
+
+    def _elastic_transform_(self, crop, alpha=40, sigma=4):
+        """ Transform indexing grid of the first two axes.
+
+        Parameters
+        ----------
+        alpha : float
+            Maximum shift along each axis.
+
+        sigma : float
+            Smoothening factor.
+        """
+        state = np.random.RandomState(int(alpha*100))
+        shape_size = crop.shape[:2]
+
+        grid_scale = 4
+        alpha //= grid_scale
+        sigma //= grid_scale
+        grid_shape = (shape_size[0]//grid_scale, shape_size[1]//grid_scale)
+
+        blur_size = int(4 * sigma) | 1
+        rand_x = cv2.GaussianBlur((state.rand(*grid_shape) * 2 - 1).astype(np.float32),
+                                  ksize=(blur_size, blur_size), sigmaX=sigma) * alpha
+        rand_y = cv2.GaussianBlur((state.rand(*grid_shape) * 2 - 1).astype(np.float32),
+                                  ksize=(blur_size, blur_size), sigmaX=sigma) * alpha
+        if grid_scale > 1:
+            rand_x = cv2.resize(rand_x, shape_size[::-1])
+            rand_y = cv2.resize(rand_y, shape_size[::-1])
+
+        grid_x, grid_y = np.meshgrid(np.arange(shape_size[1]), np.arange(shape_size[0]))
+        grid_x = (grid_x + rand_x).astype(np.float32)
+        grid_y = (grid_y + rand_y).astype(np.float32)
+
+        distorted_img = cv2.remap(crop, grid_x, grid_y,
+                                  borderMode=cv2.BORDER_REFLECT_101,
+                                  interpolation=cv2.INTER_LINEAR)
+        return distorted_img
+
+
+
+    def _bandwidth_filter_(self, crop, lowcut=None, highcut=None, fs=1, order=3):
+        """ Keep only frequences between lowcut and highcut.
+
+        Notes
+        -----
+        Use it before other augmentations, especially before ones that add lots of zeros.
+
+        Parameters
+        ----------
+        lowcut : float
+            Lower bound for frequences kept.
+
+        highcut : float
+            Upper bound for frequences kept.
+
+        fs : float
+            Sampling rate.
+
+        order : int
+            Filtering order.
+        """
+        nyq = 0.5 * fs
+        if lowcut is None:
+            b, a = butter(order, highcut / nyq, btype='high')
+        elif highcut is None:
+            b, a = butter(order, lowcut / nyq, btype='low')
+        else:
+            b, a = butter(order, [lowcut / nyq, highcut / nyq], btype='band')
+        return lfilter(b, a, crop, axis=1)
