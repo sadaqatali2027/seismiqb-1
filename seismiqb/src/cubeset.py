@@ -114,7 +114,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load_labels(self, path=None, transforms=None, src='point_clouds'):
+    def load_labels(self, path=None, transforms=None, src='point_clouds', dst='labels'):
         """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
 
         Parameters
@@ -136,11 +136,13 @@ class SeismicCubeset(Dataset):
         """
         point_clouds = getattr(self, src) if isinstance(src, str) else src
         transforms = transforms or dict()
+        if not hasattr(self, dst):
+            setattr(self, dst, {})
 
         if isinstance(path, str):
             try:
                 with open(path, 'rb') as file:
-                    self.labels = dill.load(file)
+                    setattr(self, dst, dill.load(file))
             except TypeError:
                 raise NotImplementedError("Numba dicts are yet to support serializing")
         else:
@@ -148,16 +150,16 @@ class SeismicCubeset(Dataset):
                 point_cloud = point_clouds.get(ix)
                 geom = getattr(self, 'geometries').get(ix)
                 transform = transforms.get(ix) or geom.abs_to_lines
-                self.labels[ix] = make_labels_dict(transform(point_cloud))
+                getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
         return self
 
 
-    def save_labels(self, save_to):
+    def save_labels(self, save_to, src='labels'):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
         if isinstance(save_to, str):
             try:
                 with open(save_to, 'wb') as file:
-                    dill.dump(self.labels, file)
+                    dill.dump(getattr(self, src), file)
             except TypeError:
                 raise NotImplementedError("Numba dicts are yet to support serializing")
         return self

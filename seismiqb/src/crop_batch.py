@@ -151,7 +151,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape, dst='slices', passdown=None):
+    def crop(self, points, shape, dilations=None, dst='slices', passdown=None):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
 
@@ -196,15 +196,16 @@ class SeismicCropBatch(Batch):
             if hasattr(self, component):
                 setattr(new_batch, component, getattr(self, component))
 
+        dilations = dilations or [1, 1, 1]
         slices = []
         for point in points:
-            slice_ = self._make_slice(point, shape)
+            slice_ = self._make_slice(point, shape, dilations)
             slices.append(slice_)
         setattr(new_batch, dst, slices)
         return new_batch
 
 
-    def _make_slice(self, point, shape):
+    def _make_slice(self, point, shape, dilations):
         """ Creates list of `np.arange`'s for desired location. """
         ix = point[0]
 
@@ -214,9 +215,9 @@ class SeismicCropBatch(Batch):
         else:
             slice_point = point[1:]
 
-        slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]),
-                  np.arange(slice_point[1], slice_point[1]+shape[1]),
-                  np.arange(slice_point[2], slice_point[2]+shape[2])]
+        slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0], dilations[0]),
+                  np.arange(slice_point[1], slice_point[1]+shape[1], dilations[1]),
+                  np.arange(slice_point[2], slice_point[2]+shape[2], dilations[2])]
         return slice_
 
 
@@ -330,7 +331,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3):
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels'):
         """ Create masks from labels-dictionary in given positions.
 
         Parameters
@@ -359,7 +360,7 @@ class SeismicCropBatch(Batch):
         Can be run only after labels-dict is loaded into labels-component.
         """
         geom = self.get(ix, 'geometries')
-        il_xl_h = self.get(ix, 'labels')
+        il_xl_h = self.get(ix, src_labels)
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
