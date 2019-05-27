@@ -257,11 +257,11 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
 
 
 @njit
-def count_nonzeros(array):
-    """ Jit-accelerated function to count non-zero elements. Faster than numpy version. """
+def count_nonfill(array):
+    """ Jit-accelerated function to count non-fill elements. """
     count = 0
     for i in array:
-        if i != 0:
+        if i != FILL_VALUE:
             count += 1
     return count
 
@@ -271,6 +271,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
     """ Jit-accelerated function to glue together crops according to grid.
     This function is usually called inside SeismicCropBatch's method `assemble_crops`.
     """
+    #pylint: disable=too-many-nested-blocks
     total = len(array_grid)
     background = np.zeros(predict_shape)
 
@@ -278,7 +279,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
         for xl in range(background.shape[1]):
             for h in range(background.shape[2]):
 
-                temp_arr = np.zeros(total)
+                temp_arr = np.full((total, ), FILL_VALUE, np.float64)
                 for i in range(total):
                     il_crop = array_grid[i, 0]
                     xl_crop = array_grid[i, 1]
@@ -290,5 +291,16 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
                         dot = array_crops[i, xl-xl_crop, h-h_crop, il-il_crop] # crops are in (xl, h, il) order
                         temp_arr[i] = dot
 
-                background[il, xl, h] = aggr_func(temp_arr)
+                count = count_nonfill(temp_arr)
+
+                if count != 0:
+                    filtered = np.zeros(count)
+                    c = 0
+                    for i in range(total):
+                        if temp_arr[i] != FILL_VALUE:
+                            filtered[c] = temp_arr[i]
+                            c += 1
+                    background[il, xl, h] = aggr_func(filtered)
+                else:
+                    background[il, xl, h] = 0
     return background

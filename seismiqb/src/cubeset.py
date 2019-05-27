@@ -204,7 +204,7 @@ class SeismicCubeset(Dataset):
         else:
             samplers = {}
             if not isinstance(mode, dict):
-                mode = {ix:mode for ix in self.indices}
+                mode = {ix: mode for ix in self.indices}
 
             for ix in self.indices:
                 if isinstance(mode[ix], Sampler):

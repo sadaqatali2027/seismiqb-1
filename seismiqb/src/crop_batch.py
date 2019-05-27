@@ -12,7 +12,8 @@ from scipy.signal import butter, lfilter
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, aggregate, count_nonzeros, make_labels_dict, _get_horizons
+from .utils import create_mask, aggregate, make_labels_dict, _get_horizons
+
 
 
 AFFIX = '___'
@@ -502,7 +503,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='run_once')
-    def assemble_crops(self, src, dst, grid_info, mode='avg'):
+    def assemble_crops(self, src, dst, grid_info, mode='avg', cut_slice=True):
         """ Glue crops together in accordance to the grid.
 
         Note
@@ -535,7 +536,7 @@ class SeismicCropBatch(Batch):
         if mode == 'avg':
             @njit
             def _callable(array):
-                return np.sum(array) / max(count_nonzeros(array), 1)
+                return np.mean(array)
         elif mode == 'max':
             @njit
             def _callable(array):
@@ -550,7 +551,9 @@ class SeismicCropBatch(Batch):
         assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
                               grid_info['predict_shape'], aggr_func=_callable)
 
-        setattr(self, dst, assembled[grid_info['slice']])
+        if cut_slice:
+            assembled = assembled[grid_info['slice']]
+        setattr(self, dst, assembled)
         return self
 
 
