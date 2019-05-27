@@ -301,27 +301,47 @@ class SeismicCubeset(Dataset):
         geom = self.geometries[cube_name]
         strides = strides or crop_shape
 
-        # Making sure that ranges are within cube bounds
-        i_low = min(geom.ilines_len-crop_shape[0], ilines_range[0])
-        i_high = min(geom.ilines_len-crop_shape[0], ilines_range[1])
+        # Assert ranges are valid
+        if ilines_range[0] < 0 or \
+           xlines_range[0] < 0 or \
+           h_range[0] < 0:
+            raise ValueError('Ranges must contain in the cube.')
 
-        x_low = min(geom.xlines_len-crop_shape[1], xlines_range[0])
-        x_high = min(geom.xlines_len-crop_shape[1], xlines_range[1])
+        if ilines_range[1] >= geom.ilines_len or \
+           xlines_range[1] >= geom.xlines_len or \
+           h_range[1] >= geom.depth:
+            raise ValueError('Ranges must contain in the cube.')
 
-        h_low = min(geom.depth-crop_shape[2], h_range[0])
-        h_high = min(geom.depth-crop_shape[2], h_range[1])
+        # Make
+        ilines = np.arange(ilines_range[0], ilines_range[1], strides[0])
+        ilines_ = [iline for iline in ilines if iline + crop_shape[0] < geom.ilines_len]
+        if len(ilines) != len(ilines_):
+            ilines_ += [ilines_range[1] - crop_shape[0]]
+        ilines = sorted(ilines_)
+
+        xlines = np.arange(xlines_range[0], xlines_range[1], strides[1])
+        xlines_ = [xline for xline in xlines if xline + crop_shape[1] < geom.xlines_len]
+        if len(xlines) != len(xlines_):
+            xlines_ += [xlines_range[1] - crop_shape[1]]
+        xlines = sorted(xlines_)
+
+        hs = np.arange(h_range[0], h_range[1], strides[2])
+        hs_ = [h for h in hs if h + crop_shape[2] < geom.depth]
+        if len(hs) != len(hs_):
+            hs_ += [h_range[1] - crop_shape[2]]
+        hs = sorted(hs_)
 
         # Every point in grid contains reference to cube
         # in order to be valid input for `crop` action of SeismicCropBatch
         grid = []
-        for il in np.arange(i_low, i_high+1, strides[0]):
-            for xl in np.arange(x_low, x_high+1, strides[1]):
-                for h in np.arange(h_low, h_high+1, strides[2]):
+        for il in ilines:
+            for xl in xlines:
+                for h in hs:
                     point = [cube_name, il, xl, h]
                     grid.append(point)
         grid = np.array(grid, dtype=object)
 
-        # Creating  and storing all the necessary things
+        # Creating and storing all the necessary things
         grid_gen = (grid[i:i+batch_size]
                     for i in range(0, len(grid), batch_size))
 
@@ -329,13 +349,13 @@ class SeismicCubeset(Dataset):
                             min(grid[:, 2]),
                             min(grid[:, 3])])
 
-        predict_shape = (i_high-i_low+crop_shape[0],
-                         x_high-x_low+crop_shape[1],
-                         h_high-h_low+crop_shape[2])
+        predict_shape = (ilines_range[1] - ilines_range[0],
+                         xlines_range[1] - xlines_range[0],
+                         h_range[1] - h_range[0])
 
-        slice_ = (slice(0, i_high-i_low, 1),
-                  slice(0, x_high-x_low, 1),
-                  slice(0, h_high-h_low, 1))
+        slice_ = (slice(0, ilines_range[1]-ilines_range[0], 1),
+                  slice(0, xlines_range[1]-xlines_range[0], 1),
+                  slice(0, h_range[1]-h_range[0], 1))
 
         grid_array = grid[:, 1:].astype(int) - offsets
 
