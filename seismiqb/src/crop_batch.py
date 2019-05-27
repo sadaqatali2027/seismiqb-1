@@ -3,9 +3,7 @@ import string
 import random
 
 import numpy as np
-import pandas as pd
 import segyio
-from skimage.measure import label, regionprops
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 
@@ -329,34 +327,18 @@ class SeismicCropBatch(Batch):
 
         # threshold the mask
         mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
-        mask_ = np.zeros_like(mask, np.int32)
-        mask_[mask < threshold] = 0
-        mask_[mask >= threshold] = 1
 
-        # get regions
-        labels = label(mask_)
-        regions = regionprops(labels)
+        # prepare args
+        i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
+        geom = self.get(ix, 'geometries')
+        if coordinates == 'lines':
+            transforms = (lambda i_: geom.ilines[i_ + i_shift], lambda x_: geom.xlines[x_ + x_shift],
+                          lambda h_: h_ + h_shift)
+        else:
+            transforms = (lambda i_: i_ + i_shift, lambda x_: x_ + x_shift,
+                          lambda h_: h_ + h_shift)
 
-        # get horizons
-        horizons = dict()
-        for region in regions:
-            coords = region.coords
-            coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
-            horizon_ = getattr(coords.groupby(['iline', 'xline']), averaging)()
-            for i_x in horizon_.index.values:
-                i, x = i_x
-                i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
-                il_xl = (i + i_shift, x + x_shift)
-                if coordinates == 'lines':
-                    geom = self.get(ix, 'geometries')
-                    il_xl = geom.ilines[il_xl[0]], geom.xlines[il_xl[1]]
-
-                if il_xl in horizons:
-                    horizons[il_xl].append(horizon_.loc[i_x, 'height'] + h_shift)
-                else:
-                    horizons[il_xl] = [horizon_.loc[i_x, 'height'] + h_shift]
-
-        return horizons
+        return _get_point_cloud(mask, threshold, averaging, transforms, separate=False)
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')

@@ -3,6 +3,7 @@ import numpy as np
 import segyio
 from tqdm import tqdm
 import pandas as pd
+from skimage.measure import label, regionprops
 from numba.typed import Dict
 from numba import types
 from numba import njit
@@ -217,3 +218,37 @@ def create_mask(ilines_, xlines_, hs_,
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
     return mask
+
+
+def _get_point_cloud(mask, threshold, averaging, transforms, separate=False):
+    mask_ = np.zeros_like(mask, np.int32)
+    mask_[mask >= threshold] = 1
+
+    # get regions
+    labels = label(mask_)
+    regions = regionprops(labels)
+
+    # make horizons-structure
+    horizons = dict() if not separate else []
+    for n_horizon, region in enumerate(regions):
+        if separate:
+            horizons[n_horizon] = dict()
+
+        # compute horizon-height for each inline-xline
+        coords = region.coords
+        coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
+        horizon_ = getattr(coords.groupby(['iline', 'xline']), averaging)()
+
+        for i, x in horizon_.index.values:
+            il_xl = (transforms[0](i), transforms[1](x))
+            height = transforms[2](horizon_.loc[(i, x), 'height'])
+
+            if separate:
+                horizons[n_horizon][il_xl] = height
+            else:
+                if il_xl in horizons:
+                    horizons[il_xl].append(height)
+                else:
+                    horizons[il_xl] = [height]
+
+    return horizons
