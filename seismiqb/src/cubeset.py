@@ -165,7 +165,7 @@ class SeismicCubeset(Dataset):
 
 
     def show_labels(self, ix):
-        """ Draw image that shows, how many of iline/xline pairs are labeled.
+        """ Draw image to show how many of iline/xline pairs are labeled.
 
         Parameters
         ----------
@@ -181,7 +181,6 @@ class SeismicCubeset(Dataset):
                             geom.ilines_offset, geom.xlines_offset)
         img[0, 0] = 0
 
-        print('Showing labels from above for {}'.format(ix))
         _, ax = plt.subplots(figsize=(12, 7))
         ax.imshow(img)
         ax.set_title('Known labels for cube (yellow is known)', fontdict={'fontsize': 20})
