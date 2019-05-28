@@ -12,7 +12,7 @@ from scipy.signal import butter, lfilter
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, aggregate, count_nonzeros, make_labels_dict, _get_point_cloud
+from .utils import create_mask, aggregate, count_nonzeros, make_labels_dict, _get_horizons
 
 
 AFFIX = '___'
@@ -414,7 +414,7 @@ class SeismicCropBatch(Batch):
             transforms = (lambda i_: i_ + i_shift, lambda x_: x_ + x_shift,
                           lambda h_: h_ + h_shift)
 
-        return _get_point_cloud(mask, threshold, averaging, transforms, separate=False)
+        return _get_horizons(mask, threshold, averaging, transforms, separate=False)
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')

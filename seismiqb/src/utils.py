@@ -220,7 +220,9 @@ def create_mask(ilines_, xlines_, hs_,
     return mask
 
 
-def _get_point_cloud(mask, threshold, averaging, transforms, separate=False):
+def _get_horizons(mask, threshold, averaging, transforms, separate=False):
+    """ Compute horizons from a mask.
+    """
     mask_ = np.zeros_like(mask, np.int32)
     mask_[mask >= threshold] = 1
 
