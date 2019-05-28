@@ -12,7 +12,7 @@ from scipy.signal import butter, lfilter
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, aggregate, count_nonzeros, make_labels_dict
+from .utils import create_mask, aggregate, count_nonzeros, make_labels_dict, _get_point_cloud
 
 
 AFFIX = '___'
