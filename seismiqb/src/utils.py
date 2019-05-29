@@ -234,7 +234,7 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
     horizons = dict() if not separate else []
     for n_horizon, region in enumerate(regions):
         if separate:
-            horizons[n_horizon] = dict()
+            horizons.append(dict())
 
         # compute horizon-height for each inline-xline
         coords = region.coords
