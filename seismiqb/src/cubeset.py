@@ -366,16 +366,22 @@ def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates
         requires 'grid_info'-attribute; can be run after `make_grid`-method. Mode 'lines'
         requires both 'grid_info' and 'geometries'-attributes to be loaded.
     """
+    # fetch mask-array
+    mask = getattr(self, src) if isinstance(src, str) else src
+
     # prepare coordinate-transforms
     if coordinates is None:
         transforms = [lambda x: x for _ in range(3)]
     elif coordinates == 'cubic':
         shifts = [axis_range[0] for axis_range in self.grid_info['range']]
-        transforms = [lambda x_: x_ + shift for shift in shifts]
+        transforms = [lambda x_, shift=shift: x_ + shift for shift in shifts]
     elif coordinates == 'lines':
         geom = self.geometries[self.grid_info['cube_name']]
         i_shift, x_shift, h_shift = [axis_range[0] for axis_range in self.grid_info['range']]
         transforms = [lambda i_: geom.ilines[i_ + i_shift], lambda x_: geom.xlines[x_ + x_shift],
                       lambda h_: h_ + h_shift]
 
+    # get horizons
     setattr(self, dst, _get_horizons(mask, threshold, averaging, transforms, separate))
+
+    return self
