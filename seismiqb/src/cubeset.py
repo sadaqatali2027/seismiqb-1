@@ -8,7 +8,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
-from .utils import read_point_cloud, make_labels_dict
+from .utils import read_point_cloud, make_labels_dict, _get_horizons
 
 
 class SeismicCubeset(Dataset):
@@ -342,5 +342,46 @@ class SeismicCubeset(Dataset):
         self.grid_info = {'grid_array': grid_array,
                           'predict_shape': predict_shape,
                           'slice': slice_,
-                          'crop_shape': crop_shape}
+                          'crop_shape': crop_shape,
+                          'cube_name': cube_name,
+                          'range': [ilines_range, xlines_range, h_range]}
+        return self
+
+    def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates='cubic', separate=True):
+        """ Compute point cloud of horizons from a mask, save it into the 'cubeset'-attribute.
+
+        Parameters
+        ----------
+        src : str or array
+            source-mask. Can be either a name of attribute or mask itself.
+        dst : attribute of `cubeset` to write the horizons in.
+        threshold : float
+            parameter of mask-thresholding.
+        averaging : str
+            method of pandas.groupby used for finding the center of a horizon
+            for each (iline, xline).
+        coordinates : str
+            coordinates to use for keys of point-cloud. Can be either 'cubic'
+            'lines' or None. In case of None, mask-coordinates are used. Mode 'cubic'
+            requires 'grid_info'-attribute; can be run after `make_grid`-method. Mode 'lines'
+            requires both 'grid_info' and 'geometries'-attributes to be loaded.
+        """
+        # fetch mask-array
+        mask = getattr(self, src) if isinstance(src, str) else src
+
+        # prepare coordinate-transforms
+        if coordinates is None:
+            transforms = [lambda x: x for _ in range(3)]
+        elif coordinates == 'cubic':
+            shifts = [axis_range[0] for axis_range in self.grid_info['range']]
+            transforms = [lambda x_, shift=shift: x_ + shift for shift in shifts]
+        elif coordinates == 'lines':
+            geom = self.geometries[self.grid_info['cube_name']]
+            i_shift, x_shift, h_shift = [axis_range[0] for axis_range in self.grid_info['range']]
+            transforms = [lambda i_: geom.ilines[i_ + i_shift], lambda x_: geom.xlines[x_ + x_shift],
+                          lambda h_: h_ + h_shift]
+
+        # get horizons
+        setattr(self, dst, _get_horizons(mask, threshold, averaging, transforms, separate))
+
         return self

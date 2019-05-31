@@ -12,7 +12,7 @@ from scipy.signal import butter, lfilter
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, aggregate, count_nonzeros
+from .utils import create_mask, aggregate, count_nonzeros, make_labels_dict, _get_horizons
 
 
 AFFIX = '___'
@@ -84,6 +84,49 @@ class SeismicCropBatch(Batch):
             return path[:-SIZE_SALT]
         return path
 
+    def _assemble_labels(self, all_clouds, *args, dst=None, **kwargs):
+        """ Assemble labels-dict from different crops in batch.
+        """
+        _ = args
+        labels = dict()
+        labels_ = dict()
+
+        # init labels-dict
+        for ix in self.indices:
+            labels_[self.unsalt(ix)] = set()
+
+        for ix, cloud in zip(self.indices, all_clouds):
+            labels_[self.unsalt(ix)] |= set(cloud.keys())
+
+        for cube, ilines_xlines in labels_.items():
+            labels[cube] = dict()
+            for il_xl in ilines_xlines:
+                labels[cube][il_xl] = set()
+
+        # fill labels with sets of horizons
+        for ix, cloud in zip(self.indices, all_clouds):
+            for il_xl, heights in cloud.items():
+                labels[self.unsalt(ix)][il_xl] |= set(heights)
+
+        # transforms sets of horizons to labels
+        for cube in labels:
+            for il_xl in labels[cube]:
+                labels[cube][il_xl] = np.sort(list(labels[cube][il_xl]))
+
+        # convert labels to numba.Dict if needed
+        if kwargs.get('to_numba'):
+            for cube, cloud_dict in labels.items():
+                cloud = []
+                for il_xl, horizons in cloud_dict.items():
+                    (il, xl) = il_xl
+                    for h in horizons.reshape(-1):
+                        cloud.append([il, xl, h])
+
+                cloud = np.array(cloud)
+                labels[cube] = make_labels_dict(cloud)
+
+        setattr(self, dst, labels)
+        return self
 
     def get_pos(self, data, component, index):
         """ Get correct slice/key of a component-item based on its type.
@@ -324,6 +367,54 @@ class SeismicCropBatch(Batch):
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
         return self
+
+    @action
+    @inbatch_parallel(init='indices', post='_assemble_labels', target='threads')
+    def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
+                        threshold=0.5, averaging='mean', coordinates='cubic', to_numba=False):
+        """ Convert labels from horizons-mask into point-cloud format.
+
+        Parameters
+        ----------
+        src_masks : str
+            component of batch that stores masks.
+        src_slices : str
+            component of batch that stores slices of crops.
+        dst : str
+            component of batch to store the resulting labels.
+        threshold : float
+            parameter of mask-thresholding.
+        averaging : str
+            method of pandas.groupby used for finding the center of a horizon.
+        coordinates : str
+            coordinates-mode to use for keys of point-cloud. Can be either 'cubic'
+            or 'lines'. In case of `lines`-option, `geometries` must be loaded as
+            a component of batch.
+        to_numba : bool
+            whether to convert the resulting point-cloud to numba-dict. The conversion
+            takes additional time.
+
+        Returns
+        -------
+        SeismicCropBatch
+            batch with fetched labels.
+        """
+        _ = dst, to_numba
+
+        # threshold the mask
+        mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
+
+        # prepare args
+        i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
+        geom = self.get(ix, 'geometries')
+        if coordinates == 'lines':
+            transforms = (lambda i_: geom.ilines[i_ + i_shift], lambda x_: geom.xlines[x_ + x_shift],
+                          lambda h_: h_ + h_shift)
+        else:
+            transforms = (lambda i_: i_ + i_shift, lambda x_: x_ + x_shift,
+                          lambda h_: h_ + h_shift)
+
+        return _get_horizons(mask, threshold, averaging, transforms, separate=False)
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
