@@ -27,7 +27,7 @@ class SeismicCubeset(Dataset):
         self.grid_gen, self.grid_info, self.grid_iters = None, None, None
 
 
-    def load_geometries(self, path=None, scalers=False, mode='full', logs=True):
+    def load_geometries(self, path=None, logs=True):
         """ Load geometries into dataset-attribute.
 
         Parameters
@@ -57,8 +57,6 @@ class SeismicCubeset(Dataset):
         else:
             for ix in self.indices:
                 self.geometries[ix].load()
-                if scalers:
-                    self.geometries[ix].make_scalers(mode=mode)
                 if logs:
                     self.geometries[ix].log()
         return self
