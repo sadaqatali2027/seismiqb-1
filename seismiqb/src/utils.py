@@ -310,18 +310,19 @@ def round_to_array(values, ticks):
     Returns
     -------
     array-like
-        Array with values from `values` rounded to the nearest from `ticks`.
+        Array with values from `values` rounded to the nearest from corresponding entry of `ticks`.
     """
     for i, p in enumerate(values):
-        if p <= ticks[0]:
-            values[i] = ticks[0]
-        elif p >= ticks[-1]:
-            values[i] = ticks[-1]
+        ticks_ = ticks[i]
+        if p <= ticks_[0]:
+            values[i] = ticks_[0]
+        elif p >= ticks_[-1]:
+            values[i] = ticks_[-1]
         else:
-            ix = np.searchsorted(ticks, p)
+            ix = np.searchsorted(ticks_, p)
 
-            if abs(ticks[ix] - p) <= abs(ticks[ix-1] - p):
-                values[i] = ticks[ix]
+            if abs(ticks_[ix] - p) <= abs(ticks_[ix-1] - p):
+                values[i] = ticks_[ix]
             else:
-                values[i] = ticks[ix-1]
+                values[i] = ticks_[ix-1]
     return values

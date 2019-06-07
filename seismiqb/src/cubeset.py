@@ -204,7 +204,7 @@ class SeismicCubeset(Dataset):
         else:
             samplers = {}
             if not isinstance(mode, dict):
-                mode = {ix:mode for ix in self.indices}
+                mode = {ix: mode for ix in self.indices}
 
             for ix in self.indices:
                 if isinstance(mode[ix], Sampler):
@@ -245,7 +245,7 @@ class SeismicCubeset(Dataset):
 
 
     def modify_sampler(self, dst, mode='iline', low=None, high=None,
-                       each=None, each_start=None, strict=False,
+                       each=None, each_start=None,
                        to_cube=False, post=None, finish=False, src='sampler'):
         """ Change given sampler to generate points from desired regions.
 
@@ -272,11 +272,6 @@ class SeismicCubeset(Dataset):
         each_start : int
             Shift grid for previous parameter.
 
-        strict : bool
-            Whether to give exactly every `each`-th entry from each cube.
-            If False, for some cubes grid can be thinner.
-            Non-strict mode is way faster, than the strict one.
-
         to_cube : bool
             Transform sampled values to each cube coordinates.
 
@@ -292,7 +287,7 @@ class SeismicCubeset(Dataset):
         Split into train / test along ilines in 80/20 ratio:
 
         >>> cubeset.modify_sampler(dst='train_sampler', mode='i', high=0.8)
-        >>> cubeset.modify_sampler(dst='test_sampler', mode='i', low=0.8)
+        >>> cubeset.modify_sampler(dst='test_sampler', mode='i', low=0.9)
 
         Sample only every 50-th point along xlines starting from 70-th xline:
 
@@ -321,30 +316,27 @@ class SeismicCubeset(Dataset):
 
         # Keep only every `each`-th point
         if each is not None:
-            if not strict:
-                shape = min([self.geometries[ix].cube_shape[axis]
-                             for ix in self.indices])
+            def get_shape(name):
+                return self.geometries[name].cube_shape[axis]
 
-                def filter_out(array):
-                    ticks = np.arange(each_start, shape, each)
-                    arr = (array[:, axis+1]*shape).astype(int)
-                    array[:, axis+1] = round_to_array(arr, ticks) / shape
-                    return array
-                sampler = sampler.apply(filter_out)
+            def get_ticks(name):
+                shape = self.geometries[name].cube_shape[axis]
+                return np.arange(each_start, shape, each)
 
-            else:
-                def get_shape(name):
-                    return self.geometries[name].cube_shape[axis]
+            def filter_out(array):
+                shapes = np.array(list(map(get_shape, array[:, 0])))
+                ticks = np.array(list(map(get_ticks, array[:, 0])))
+                arr = (array[:, axis+1]*shapes).astype(int)
+                array[:, axis+1] = round_to_array(arr, ticks) / shapes
+                return array
 
-                def expression(array):
-                    shapes = np.array(list(map(get_shape, array[:, 0]))) % each
-                    return np.array(array[:, axis+1] * shapes)
-                sampler = sampler.truncate(low=0, high=1, expr=expression, prob=1/(10*each))
+            sampler = sampler.apply(filter_out)
 
         # Change representation of points from unit cube to cube coordinates
         if to_cube:
             def get_shapes(name):
                 return self.geometries[name].cube_shape
+
             def coords_to_cube(array):
                 shapes = np.array(list(map(get_shapes, array[:, 0])))
                 array[:, 1:] = (array[:, 1:] * shapes).astype(int)
