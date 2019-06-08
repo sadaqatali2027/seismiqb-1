@@ -186,6 +186,19 @@ def make_labels_dict(point_cloud):
 
 
 @njit
+def labels_matrix(background, possible_coordinates, labels,
+                  ilines_offset, xlines_offset):
+    """ Jit-accelerated function to check how many of iline/xline pairs are labeled.
+    This function is usually called inside SeismicCubeset's method show_labels.
+    """
+    for i in range(len(possible_coordinates)):
+        point = possible_coordinates[i, :]
+        if labels.get((point[0], point[1])) is not None:
+            background[point[0] - ilines_offset, point[1] - xlines_offset] += len(labels.get((point[0], point[1])))
+    return background
+
+
+@njit
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, geom_ilines, geom_xlines, geom_depth,
                 mode, width, max_horizons):

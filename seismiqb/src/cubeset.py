@@ -2,6 +2,7 @@
 import dill
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from ..batchflow import Dataset, Sampler
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
@@ -9,7 +10,6 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
 from .utils import read_point_cloud, make_labels_dict, _get_horizons
-
 
 class SeismicCubeset(Dataset):
     """ Stores indexing structure for dataset of seismic cubes along with additional structures.
@@ -27,12 +27,12 @@ class SeismicCubeset(Dataset):
         self.grid_gen, self.grid_info, self.grid_iters = None, None, None
 
 
-    def load_geometries(self, path=None, scalers=False, mode='full', logs=True):
+    def load_geometries(self, load_from=None, scalers=False, mode='full', logs=True):
         """ Load geometries into dataset-attribute.
 
         Parameters
         ----------
-        path : str
+        load_from : str
             Path to load geometries from.
 
         scalers : bool
@@ -51,8 +51,8 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with loaded geometries.
         """
-        if isinstance(path, str):
-            with open(path, 'rb') as file:
+        if isinstance(load_from, str):
+            with open(load_from, 'rb') as file:
                 self.geometries = dill.load(file)
         else:
             for ix in self.indices:
@@ -80,7 +80,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load_point_clouds(self, paths=None, path=None, **kwargs):
+    def load_point_clouds(self, paths=None, load_from=None, **kwargs):
         """ Load point-cloud of labels for each cube in dataset.
 
         Parameters
@@ -88,7 +88,7 @@ class SeismicCubeset(Dataset):
         paths : dict
             Mapping from indices to txt paths with labels.
 
-        path : str
+        load_from : str
             Path to load point clouds from.
 
         Returns
@@ -96,8 +96,8 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with loaded point clouds.
         """
-        if isinstance(path, str):
-            with open(path, 'rb') as file:
+        if isinstance(load_from, str):
+            with open(load_from, 'rb') as file:
                 self.point_clouds = dill.load(file)
         else:
             for ix in self.indices:
@@ -114,12 +114,12 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load_labels(self, path=None, transforms=None, src='point_clouds'):
+    def load_labels(self, load_from=None, transforms=None, src='point_clouds'):
         """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
 
         Parameters
         ----------
-        path : str
+        load_from : str
             Path to load labels from.
 
         transforms : dict
@@ -137,9 +137,9 @@ class SeismicCubeset(Dataset):
         point_clouds = getattr(self, src) if isinstance(src, str) else src
         transforms = transforms or dict()
 
-        if isinstance(path, str):
+        if isinstance(load_from, str):
             try:
-                with open(path, 'rb') as file:
+                with open(load_from, 'rb') as file:
                     self.labels = dill.load(file)
             except TypeError:
                 raise NotImplementedError("Numba dicts are yet to support serializing")
@@ -163,7 +163,32 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load_samplers(self, path=None, mode='hist', p=None,
+    def show_labels(self, ix):
+        """ Draw image to show how many of iline/xline pairs are labeled.
+
+        Parameters
+        ----------
+        ix : str
+            Identificator of cube to draw in index.
+        """
+        geom = self.geometries[ix]
+        labels = self.labels[ix]
+        possible_coordinates = [[il, xl] for il in geom.ilines for xl in geom.xlines]
+
+        background = np.zeros((geom.ilines_len, geom.xlines_len))
+        img = labels_matrix(background, np.array(possible_coordinates), labels,
+                            geom.ilines_offset, geom.xlines_offset)
+        img[0, 0] = 0
+
+        _, ax = plt.subplots(figsize=(12, 7))
+        ax.imshow(img)
+        ax.set_title('Known labels for cube (yellow is known)', fontdict={'fontsize': 20})
+        plt.xlabel('XLINES', fontdict={'fontsize': 20})
+        plt.ylabel('ILINES', fontdict={'fontsize': 20})
+        plt.show()
+
+
+    def load_samplers(self, load_from=None, mode='hist', p=None,
                       transforms=None, **kwargs):
         """ Create samplers for every cube and store it in `samplers`
         attribute of passed dataset. Also creates one combined sampler
@@ -171,7 +196,7 @@ class SeismicCubeset(Dataset):
 
         Parameters
         ----------
-        path : str
+        load_from : str
             Path to load samplers from.
 
         mode : str or Sampler
@@ -197,8 +222,8 @@ class SeismicCubeset(Dataset):
         lowcut, highcut = [0, 0, 0], [1, 1, 1]
         transforms = transforms or dict()
 
-        if isinstance(path, str):
-            with open(path, 'rb') as file:
+        if isinstance(load_from, str):
+            with open(load_from, 'rb') as file:
                 samplers = dill.load(file)
 
         else:
