@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import segyio
 from tqdm import tqdm
-
+from skimage.measure import label, regionprops
 from numba import njit, types
 from numba.typed import Dict
 
@@ -201,25 +201,30 @@ def labels_matrix(background, possible_coordinates, labels,
 @njit
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, geom_ilines, geom_xlines, geom_depth,
-                mode, width):
+                mode, width, max_horizons):
     """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
-    This function is usually called inside SeismicCropBatch's method `load_masks`.
+    This function is usually called inside SeismicCropBatch's method create_masks`.
     """
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
             il_, xl_ = geom_ilines[iline_], geom_xlines[xline_]
             if il_xl_h.get((il_, xl_)) is None:
                 continue
             m_temp = np.zeros(geom_depth)
+            sorted_heights = sorted(il_xl_h[(il_, xl_)])
             if mode == 'horizon':
-                for height_ in il_xl_h[(il_, xl_)]:
-                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
+                horizons_count = 0
+                for height_ in sorted_heights:
+                    if height_ >  hs_[0]:
+                        m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
+                        horizons_count += 1
+                        if max_horizons is not None:
+                            if horizons_count >= max_horizons:
+                                break
             elif mode == 'stratum':
                 current_col = 1
                 start = 0
-                sorted_heights = sorted(il_xl_h[(il_, xl_)])
                 for height_ in sorted_heights:
                     if start > hs_[-1]:
                         break
@@ -231,6 +236,42 @@ def create_mask(ilines_, xlines_, hs_,
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
     return mask
+
+
+def _get_horizons(mask, threshold, averaging, transforms, separate=False):
+    """ Compute horizons from a mask.
+    """
+    mask_ = np.zeros_like(mask, np.int32)
+    mask_[mask >= threshold] = 1
+
+    # get regions
+    labels = label(mask_)
+    regions = regionprops(labels)
+
+    # make horizons-structure
+    horizons = dict() if not separate else []
+    for n_horizon, region in enumerate(regions):
+        if separate:
+            horizons.append(dict())
+
+        # compute horizon-height for each inline-xline
+        coords = region.coords
+        coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
+        horizon_ = getattr(coords.groupby(['iline', 'xline']), averaging)()
+
+        for i, x in horizon_.index.values:
+            il_xl = (transforms[0](i), transforms[1](x))
+            height = transforms[2](horizon_.loc[(i, x), 'height'])
+
+            if separate:
+                horizons[n_horizon][il_xl] = height
+            else:
+                if il_xl in horizons:
+                    horizons[il_xl].append(height)
+                else:
+                    horizons[il_xl] = [height]
+
+    return horizons
 
 
 @njit
