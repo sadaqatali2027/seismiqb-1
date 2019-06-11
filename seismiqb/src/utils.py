@@ -205,6 +205,7 @@ def create_mask(ilines_, xlines_, hs_,
     """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
     This function is usually called inside SeismicCropBatch's method create_masks`.
     """
+    #pylint: disable=too-many-nested-blocks
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
@@ -216,7 +217,7 @@ def create_mask(ilines_, xlines_, hs_,
             if mode == 'horizon':
                 horizons_count = 0
                 for height_ in sorted_heights:
-                    if height_ >  hs_[0]:
+                    if height_ > hs_[0]:
                         m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
                         horizons_count += 1
                         if max_horizons is not None:
