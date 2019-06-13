@@ -795,9 +795,10 @@ class SeismicCropBatch(Batch):
         Parameters
         ----------
         axis : int
-            Axis of transformation.
+            Axis of transformation. Intended to be used after `rotate_axes`, so default value
+            is to make transform along depth dimension.
 
-        mode : {'phase', 'freq'}
+        mode : str
             If 'phase', compute instantaneous phase.
             If 'freq', compute instantaneous frequency.
         """
