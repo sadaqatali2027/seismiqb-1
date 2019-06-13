@@ -267,40 +267,22 @@ def count_nonfill(array):
 
 
 @njit
-def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
+def aggregate(array_crops, array_grid, crop_shape, predict_shape):
     """ Jit-accelerated function to glue together crops according to grid.
+    At positions, where different crops overlap, only the maximum value is saved.
     This function is usually called inside SeismicCropBatch's method `assemble_crops`.
     """
-    #pylint: disable=too-many-nested-blocks
     total = len(array_grid)
     background = np.zeros(predict_shape)
 
-    for il in range(background.shape[0]):
-        for xl in range(background.shape[1]):
-            for h in range(background.shape[2]):
+    for i in range(total):
+        il, xl, h = array_grid[i, :]
+        il_end = min(background.shape[0], il+crop_shape[0])
+        xl_end = min(background.shape[1], xl+crop_shape[1])
+        h_end = min(background.shape[2], h+crop_shape[2])
 
-                temp_arr = np.full((total, ), FILL_VALUE, np.float64)
-                for i in range(total):
-                    il_crop = array_grid[i, 0]
-                    xl_crop = array_grid[i, 1]
-                    h_crop = array_grid[i, 2]
-
-                    if 0 <= (il - il_crop) < crop_shape[0] and \
-                       0 <= (xl - xl_crop) < crop_shape[1] and \
-                       0 <= (h - h_crop) < crop_shape[2]:
-                        dot = array_crops[i, xl-xl_crop, h-h_crop, il-il_crop] # crops are in (xl, h, il) order
-                        temp_arr[i] = dot
-
-                count = count_nonfill(temp_arr)
-
-                if count != 0:
-                    filtered = np.zeros(count)
-                    c = 0
-                    for i in range(total):
-                        if temp_arr[i] != FILL_VALUE:
-                            filtered[c] = temp_arr[i]
-                            c += 1
-                    background[il, xl, h] = aggr_func(filtered)
-                else:
-                    background[il, xl, h] = 0
+        crop = np.transpose(array_crops[i], (2, 0, 1))
+        crop = crop[:(il_end-il), :(xl_end-xl), :(h_end-h)]
+        previous = background[il:il_end, xl:xl_end, h:h_end]
+        background[il:il_end, xl:xl_end, h:h_end] = np.maximum(crop, previous)
     return background
