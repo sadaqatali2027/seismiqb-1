@@ -5,8 +5,6 @@ from copy import copy
 
 import numpy as np
 import segyio
-import numba
-from numba import njit
 import cv2
 from scipy.signal import butter, lfilter
 
@@ -522,9 +520,6 @@ class SeismicCropBatch(Batch):
 
         grid_info : dict
             Dictionary with information about grid. Should be created by `make_grid` method.
-
-        mode : str or jit-decorated callable
-            Mapping from multiple values to one for areas, where multiple crops overlap.
 
         Returns
         -------
