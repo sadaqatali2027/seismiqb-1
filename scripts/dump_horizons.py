@@ -77,6 +77,6 @@ prediction = batch.assembled_pred
 ds.get_point_cloud(prediction, 'horizons', coordinates='lines', threshold=THRESHOLD)
 ctr = 0
 for h in ds.horizons:
-    if len(h) / ds.geometries[ds.indices[0]].cube_shape >= AREA_SHARE:
+    if len(h) / np.prod(ds.geometries[ds.indices[0]].cube_shape) >= AREA_SHARE:
         _dump_horizon(h, ds.geometries[ds.indices[0]], PATH_TO_PREDICTIONS, 'horizon_' + str(ctr))
         ctr += 1
