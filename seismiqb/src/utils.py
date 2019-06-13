@@ -272,6 +272,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape):
     At positions, where different crops overlap, only the maximum value is saved.
     This function is usually called inside SeismicCropBatch's method `assemble_crops`.
     """
+    #pylint: disable=assignment-from-no-return
     total = len(array_grid)
     background = np.zeros(predict_shape)
 
