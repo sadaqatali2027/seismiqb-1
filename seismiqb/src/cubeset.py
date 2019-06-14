@@ -407,6 +407,6 @@ class SeismicCubeset(Dataset):
         if separate:
             horizons = getattr(self, dst)
             horizons.sort(key=len, reverse=True)
-            for i in range(horizons):
-                setattr(self, dst+'_'+str(i), horizons[i])
+            for i, horizon in enumerate(horizons):
+                setattr(self, dst+'_'+str(i), horizon)
         return self
