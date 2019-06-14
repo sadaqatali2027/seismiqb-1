@@ -12,11 +12,11 @@ from seismiqb import SeismicCubeset
 from seismiqb.batchflow import Pipeline, FilesIndex, B, V, L, D
 from seismiqb.batchflow.models.tf import TFModel
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 
 # Script-args
 # Cube crop for prediction
-CUBE_CROP = ([0, 2500], [0, 1200], [0, 1350])
+CUBE_CROP = ([2000, 2500], [0, 1200], [500, 600])
 
 # Small-crop shape
 CROP_SHAPE = [3, 400, 400]
@@ -30,9 +30,9 @@ AREA_SHARE = 0.6
 # Threshold for clearing predictions
 THRESHOLD = 0.5
 
-PATH_TO_MODEL = "/notebooks/SEISMIC_DATA/SAVED/MODELS/CUBE_1_ONLY/"
-PATH_TO_CUBE = "/notebooks/SEISMIC_DATA/CUBE_1/E_anon.hdf5"
-PATH_TO_PREDICTIONS = "/notebooks/SEISMIC_DATA/CUBE_1/PREDICTED_SCRIPT/"
+PATH_TO_MODEL = "/notebooks/SEISMIC_DATA/SAVED/MODELS/CUBE_3_ONLY/"
+PATH_TO_CUBE = "/notebooks/SEISMIC_DATA/CUBE_3/P_cube.hdf5"
+PATH_TO_PREDICTIONS = "/notebooks/SEISMIC_DATA/CUBE_3/SCRIPT/"
 
 
 def dump_horizon(horizon, geometry, path, name):
@@ -45,7 +45,7 @@ def dump_horizon(horizon, geometry, path, name):
     sample_rate, delay = geometry.sample_rate, geometry.delay
     inverse = lambda h: (h + 1) * sample_rate + delay
     labels.loc[:, 'height'] = inverse(labels.loc[:, 'height'])
-    labels.to_csv(os.path.join(path, name + '.csv'), sep=' ', index=False)
+    labels.to_csv(os.path.join(path, name + '.csv'), sep=' ', index=False, header=False)
 
 
 def main():
@@ -56,7 +56,7 @@ def main():
     ds = ds.load_geometries()
 
     # Make grid for small crops
-    ds = ds.make_grid(ds.indices[0], CROP_SHAPE, *CUBE_CROP)
+    ds = ds.make_grid(ds.indices[0], CROP_SHAPE, *CUBE_CROP, CROP_STRIDE)
 
     # Pipeline: slice crops, normalize values in the cube, make predictions
     # via model, assemble crops according to the grid
@@ -70,7 +70,7 @@ def main():
                         .init_model('dynamic', TFModel, 'loaded_model', load_config)
                         .init_variable('result_preds', init_on_each_run=list())
                         .predict_model('loaded_model', fetches='sigmoid', cubes=B('data_crops'),
-                                       save_to=V('result_preds'), mode='e')
+                                       save_to=V('result_preds', mode='e'))
                         .assemble_crops(src=V('result_preds'), dst='assembled_pred',
                                         grid_info=D('grid_info'))
                         ) << ds
@@ -78,7 +78,7 @@ def main():
     for _ in tqdm(range(ds.grid_iters)):
         batch = predict_pipeline.next_batch(1, n_epochs=None)
 
-    # fetch and dump horizons
+    # Fetch and dump horizons
     prediction = batch.assembled_pred
     ds.get_point_cloud(prediction, 'horizons', coordinates='lines', threshold=THRESHOLD)
 
