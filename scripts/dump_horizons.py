@@ -79,7 +79,7 @@ def main(path_to_cube, path_to_model, path_to_predictions, gpu_devices,
 if __name__ == '__main__':
     # fetch path to config
     parser = argparse.ArgumentParser(description="Predict horizons on a part of seismic-cube.")
-    parser.add_argument("--config_path", type=str, default="./config.json")
+    parser.add_argument("--config_path", type=str, default="./config_dump.json")
     args = parser.parse_args()
 
     # fetch main-arguments from config and run main
