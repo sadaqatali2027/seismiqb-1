@@ -241,17 +241,25 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
         coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
         horizon_ = getattr(coords.groupby(['iline', 'xline']), averaging)()
 
-        for i, x in horizon_.index.values:
-            il_xl = (transforms[0](i), transforms[1](x))
-            height = transforms[2](horizon_.loc[(i, x), 'height'])
+        # separate the columns
+        ilines = np.array([i for i, x in horizon_.index.values])
+        xlines = np.array([x for i, x in horizon_.index.values])
+        heights = horizon_.values
 
-            if separate:
-                horizons[n_horizon][il_xl] = height
-            else:
-                if il_xl in horizons:
-                    horizons[il_xl].append(height)
+        # transform each column
+        ilines_ = transforms[0](ilines)
+        xlines_ = transforms[1](xlines)
+        heights_ = np.ravel(transforms[2](heights))
+
+        if separate:
+            for key, h in zip(zip(ilines_, xlines_), heights_):
+                horizons[n_horizon][key] = h
+        else:
+            for key, h in zip(zip(ilines_, xlines_), heights_):
+                if key in horizons:
+                    horizons[key].append(h)
                 else:
-                    horizons[il_xl] = [height]
+                    horizons[key] = [h]
 
     return horizons
 

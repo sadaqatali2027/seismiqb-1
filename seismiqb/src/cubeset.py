@@ -404,4 +404,9 @@ class SeismicCubeset(Dataset):
         # get horizons
         setattr(self, dst, _get_horizons(mask, threshold, averaging, transforms, separate))
 
+        if separate:
+            horizons = getattr(self, dst)
+            horizons.sort(key = lambda s: len(s), reverse=True)
+            for i in range(horizons):
+                setattr(self, dst+'_'+str(i), horizons[i])
         return self
