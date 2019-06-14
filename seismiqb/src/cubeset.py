@@ -125,7 +125,7 @@ class SeismicCubeset(Dataset):
         transforms : dict
             Mapping from indices to callables. Each callable should define
             way to map point from absolute coordinates (X, Y world-wise) to
-            cube specific (ILINE, XLINE) and take array of shape (N, 3) as input.
+            cube specific (ILINE, XLINE) and take array of shape (N, 4) as input.
 
         src : str
             Attribute with saved point clouds.
@@ -186,7 +186,7 @@ class SeismicCubeset(Dataset):
         transforms : dict
             Mapping from indices to callables. Each callable should define
             way to map point from absolute coordinates (X, Y world-wise) to
-            cube local specific and take array of shape (N, 3) as input.
+            cube local specific and take array of shape (N, 4) as input.
 
         Note
         ----

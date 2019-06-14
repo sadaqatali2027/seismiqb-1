@@ -94,7 +94,8 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
     Returns
     -------
     ndarray
-        resulting point-cloud.
+        resulting point-cloud. First three columns contain `(x, y, z)`-coords while the last one stores
+        horizon-number.
     """
     paths = (paths, ) if isinstance(paths, str) else paths
 
@@ -117,7 +118,7 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
 
     # apply transforms
     if transforms is not None:
-        for i in range(points.shape[-1]):
+        for i in range(points.shape[-1] - 1):
             points[:, i] = transforms[i](points[:, i])
 
     return points
@@ -129,7 +130,7 @@ def make_labels_dict(point_cloud):
     Parameters
     ----------
     point_cloud : array
-        array `(n_points, 3)`, contains point cloud of labels in format `(x, y, z)`.
+        array `(n_points, 4)`, contains point cloud of labels in format `(x, y, z, horizon_number)`.
 
     Returns
     -------
