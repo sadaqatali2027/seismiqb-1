@@ -8,7 +8,7 @@ import segyio
 import numba
 from numba import njit
 import cv2
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
@@ -782,3 +782,31 @@ class SeismicCropBatch(Batch):
         else:
             b, a = butter(order, [lowcut / nyq, highcut / nyq], btype='band')
         return lfilter(b, a, crop, axis=1)
+
+
+    def _sign_(self, crop):
+        """ Element-wise indication of the sign of a number. """
+        return np.sign(crop)
+
+
+    def _analytic_transform_(self, crop, axis=1, mode='phase'):
+        """ Compute instantaneous phase or frequency via the Hilbert transform.
+
+        Parameters
+        ----------
+        axis : int
+            Axis of transformation. Intended to be used after `rotate_axes`, so default value
+            is to make transform along depth dimension.
+
+        mode : str
+            If 'phase', compute instantaneous phase.
+            If 'freq', compute instantaneous frequency.
+        """
+        analytic = hilbert(crop, axis=axis)
+        phase = np.unwrap(np.angle(analytic))
+
+        if mode == 'phase':
+            return phase
+        if 'freq' in mode:
+            return np.diff(phase, axis=axis) / (2*np.pi)
+        raise ValueError('Unknown `mode` parameter.')
