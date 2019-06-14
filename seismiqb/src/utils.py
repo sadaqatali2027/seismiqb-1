@@ -241,8 +241,8 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
         horizon_ = getattr(coords.groupby(['iline', 'xline']), averaging)()
 
         # separate the columns
-        ilines = np.array([i for i, x in horizon_.index.values])
-        xlines = np.array([x for i, x in horizon_.index.values])
+        ilines = horizon_.index.get_level_values('iline').values
+        xlines = horizon_.index.get_level_values('xline').values
         heights = horizon_.values
 
         # transform each column
