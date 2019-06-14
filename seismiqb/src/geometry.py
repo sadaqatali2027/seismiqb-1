@@ -84,7 +84,7 @@ class SeismicGeometry():
                                                      xline_to_x(array[:, 1]),
                                                      depth_to_h(array[:, 2]),
                                                      array[:, 3]],
-                                                    axis=-1)) 
+                                                    axis=-1))
 
         # Callable to transform cube values to [0, 1] (and vice versa)
         if self.value_min is not None:
