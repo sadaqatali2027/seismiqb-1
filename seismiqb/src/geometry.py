@@ -165,7 +165,11 @@ class SeismicGeometry():
 
     def make_h5py(self, path_h5py=None):
         """ Converts `.sgy` cube to `.hdf5` format.
-        By default, new cube is stored right next to original.
+
+        Parameters
+        ----------
+        path_h5py : str
+            Path to store converted cube. By default, new cube is stored right next to original.
         """
         if os.path.splitext(self.path)[1][1:] not in ['sgy', 'segy']:
             raise TypeError('Format should be `sgy`')
@@ -205,29 +209,31 @@ class SeismicGeometry():
         self.h5py_file = h5py.File(path_h5py, "r")
 
 
-    def log(self, path_log=None):
+    def log(self, printer=None):
         """ Log some info. """
-        path_log = path_log or ('/'.join(self.path.split('/')[:-1]) + '/CUBE_INFO.log')
-        handler = logging.FileHandler(path_log, mode='w')
-        handler.setFormatter(logging.Formatter('%(message)s'))
+        if not callable(printer):
+            path_log = '/'.join(self.path.split('/')[:-1]) + '/CUBE_INFO.log'
+            handler = logging.FileHandler(path_log, mode='w')
+            handler.setFormatter(logging.Formatter('%(message)s'))
 
-        logger = logging.getLogger('geometry_logger')
-        logger.setLevel(logging.INFO)
-        logger.addHandler(handler)
+            logger = logging.getLogger('geometry_logger')
+            logger.setLevel(logging.INFO)
+            logger.addHandler(handler)
+            printer = logger.info
 
-        logger.info('Info for cube: {}'.format(self.path))
+        printer('Info for cube: {}'.format(self.path))
 
-        logger.info('Depth of one trace is: {}'.format(self.depth))
-        logger.info('Time delay: {}'.format(self.delay))
-        logger.info('Sample rate: {}'.format(self.sample_rate))
+        printer('Depth of one trace is: {}'.format(self.depth))
+        printer('Time delay: {}'.format(self.delay))
+        printer('Sample rate: {}'.format(self.sample_rate))
 
-        logger.info('Number of ILINES: {}'.format(self.ilines_len))
-        logger.info('Number of XLINES: {}'.format(self.xlines_len))
+        printer('Number of ILINES: {}'.format(self.ilines_len))
+        printer('Number of XLINES: {}'.format(self.xlines_len))
 
-        logger.info('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
-        logger.info('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
+        printer('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
+        printer('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
 
-        logger.info('CDP_X range from {} to {}'.format(min(self.cdp_x),
-                                                       max(self.cdp_x)))
-        logger.info('CDP_X range from {} to {}'.format(min(self.cdp_y),
-                                                       max(self.cdp_y)))
+        printer('CDP_X range from {} to {}'.format(min(self.cdp_x),
+                                                   max(self.cdp_x)))
+        printer('CDP_X range from {} to {}'.format(min(self.cdp_y),
+                                                   max(self.cdp_y)))

@@ -310,24 +310,17 @@ class SeismicCubeset(Dataset):
            h_range[1] >= geom.depth:
             raise ValueError('Ranges must contain in the cube.')
 
-        # Make
-        ilines = np.arange(ilines_range[0], ilines_range[1], strides[0])
-        ilines_ = [iline for iline in ilines if iline + crop_shape[0] < geom.ilines_len]
-        if len(ilines) != len(ilines_):
-            ilines_ += [ilines_range[1] - crop_shape[0]]
-        ilines = sorted(ilines_)
+        # Make separate grids for every axis
+        def _make_axis_grid(axis_range, stride, length, crop_shape):
+            grid = np.arange(*axis_range, stride)
+            grid_ = [x for x in grid if x + crop_shape < length]
+            if len(grid) != len(grid_):
+                grid_ += [axis_range[1] - crop_shape]
+            return sorted(grid_)
 
-        xlines = np.arange(xlines_range[0], xlines_range[1], strides[1])
-        xlines_ = [xline for xline in xlines if xline + crop_shape[1] < geom.xlines_len]
-        if len(xlines) != len(xlines_):
-            xlines_ += [xlines_range[1] - crop_shape[1]]
-        xlines = sorted(xlines_)
-
-        hs = np.arange(h_range[0], h_range[1], strides[2])
-        hs_ = [h for h in hs if h + crop_shape[2] < geom.depth]
-        if len(hs) != len(hs_):
-            hs_ += [h_range[1] - crop_shape[2]]
-        hs = sorted(hs_)
+        ilines = _make_axis_grid(ilines_range, strides[0], geom.ilines_len, crop_shape[0])
+        xlines = _make_axis_grid(xlines_range, strides[1], geom.xlines_len, crop_shape[1])
+        hs = _make_axis_grid(h_range, strides[2], geom.depth, crop_shape[2])
 
         # Every point in grid contains reference to cube
         # in order to be valid input for `crop` action of SeismicCropBatch
@@ -351,17 +344,12 @@ class SeismicCubeset(Dataset):
                          xlines_range[1] - xlines_range[0],
                          h_range[1] - h_range[0])
 
-        slice_ = (slice(0, ilines_range[1]-ilines_range[0], 1),
-                  slice(0, xlines_range[1]-xlines_range[0], 1),
-                  slice(0, h_range[1]-h_range[0], 1))
-
         grid_array = grid[:, 1:].astype(int) - offsets
 
         self.grid_gen = lambda: next(grid_gen)
         self.grid_iters = - (-len(grid) // batch_size)
         self.grid_info = {'grid_array': grid_array,
                           'predict_shape': predict_shape,
-                          'slice': slice_,
                           'crop_shape': crop_shape,
                           'cube_name': cube_name,
                           'range': [ilines_range, xlines_range, h_range]}
@@ -373,18 +361,34 @@ class SeismicCubeset(Dataset):
         Parameters
         ----------
         src : str or array
-            source-mask. Can be either a name of attribute or mask itself.
-        dst : attribute of `cubeset` to write the horizons in.
+            Source-mask. Can be either a name of attribute or mask itself.
+
+        dst : str
+            Attribute of `cubeset` to write the horizons in.
+
         threshold : float
-            parameter of mask-thresholding.
+            Parameter of mask-thresholding.
+
         averaging : str
-            method of pandas.groupby used for finding the center of a horizon
+            Method of pandas.groupby used for finding the center of a horizon
             for each (iline, xline).
+
         coordinates : str
-            coordinates to use for keys of point-cloud. Can be either 'cubic'
+            Coordinates to use for keys of point-cloud. Can be either 'cubic'
             'lines' or None. In case of None, mask-coordinates are used. Mode 'cubic'
             requires 'grid_info'-attribute; can be run after `make_grid`-method. Mode 'lines'
             requires both 'grid_info' and 'geometries'-attributes to be loaded.
+
+        separate : bool
+            Whether to write horizonts in separate dictionaries or in one common.
+
+        Returns
+        -------
+        dict or list of dict
+            If separate is False, then one dictionary returned with keys being pairs of
+            (iline, xline) and values being lists of heights.
+            If separate is True, then list of dictionaries is returned, with every dictionary being
+            mapping from pairs of (iline, xline) to height from each individual horizont.
         """
         # fetch mask-array
         mask = getattr(self, src) if isinstance(src, str) else src

@@ -503,12 +503,12 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='run_once')
-    def assemble_crops(self, src, dst, grid_info, cut_slice=True):
+    def assemble_crops(self, src, dst, grid_info):
         """ Glue crops together in accordance to the grid.
 
         Note
         ----
-        In order to use this function you must first call `make_grid` method of SeismicCubeset.
+        In order to use this action you must first call `make_grid` method of SeismicCubeset.
 
         Parameters
         ----------
@@ -536,9 +536,6 @@ class SeismicCropBatch(Batch):
         src = src if len(src.shape) == 4 else np.squeeze(src, axis=-1)
         assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
                               grid_info['predict_shape'])
-
-        if cut_slice:
-            assembled = assembled[grid_info['slice']]
         setattr(self, dst, assembled)
         return self
 
