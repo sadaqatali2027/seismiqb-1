@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import segyio
 from tqdm import tqdm
-
+from skimage.measure import label, regionprops
 from numba import njit, types
 from numba.typed import Dict
 
@@ -94,7 +94,8 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
     Returns
     -------
     ndarray
-        resulting point-cloud.
+        resulting point-cloud. First three columns contain `(x, y, z)`-coords while the last one stores
+        horizon-number.
     """
     paths = (paths, ) if isinstance(paths, str) else paths
 
@@ -104,17 +105,20 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
 
     # read point clouds
     point_clouds = []
-    for path in paths:
+    for ix, path in enumerate(paths):
         copy = default.copy()
         copy.update(kwargs.get(path, dict()))
         cloud = pd.read_csv(path, **copy)
-        point_clouds.append(cloud.loc[:, order].values)
+
+        temp = np.hstack([cloud.loc[:, order].values,
+                          np.ones((cloud.shape[0], 1)) * ix])
+        point_clouds.append(temp)
 
     points = np.concatenate(point_clouds)
 
     # apply transforms
     if transforms is not None:
-        for i in range(points.shape[-1]):
+        for i in range(points.shape[-1] - 1):
             points[:, i] = transforms[i](points[:, i])
 
     return points
@@ -126,7 +130,7 @@ def make_labels_dict(point_cloud):
     Parameters
     ----------
     point_cloud : array
-        array `(n_points, 3)`, contains point cloud of labels in format `(x, y, z)`.
+        array `(n_points, 4)`, contains point cloud of labels in format `(x, y, z, horizon_number)`.
 
     Returns
     -------
@@ -165,23 +169,18 @@ def make_labels_dict(point_cloud):
     labels = Dict.empty(key_type, value_type)
 
     @njit
-    def fill_labels(labels, counts, ilines_xlines, max_count):
+    def fill_labels(labels, ilines_xlines, max_count):
         """ Fill in labels-dict.
         """
-        # zero-out the counts
-        for k in counts.keys():
-            counts[k] = 0
-
-        # fill labels-dict
         for i in range(len(ilines_xlines)):
             il, xl = ilines_xlines[i, :2]
             if labels.get((il, xl)) is None:
                 labels[(il, xl)] = np.full((max_count, ), FILL_VALUE, np.int64)
 
-            labels[(il, xl)][counts[(il, xl)]] = point_cloud[i, 2]
-            counts[(il, xl)] += 1
+            idx = int(point_cloud[i, 3])
+            labels[(il, xl)][idx] = point_cloud[i, 2]
 
-    fill_labels(labels, counts, ilines_xlines, max_count)
+    fill_labels(labels, ilines_xlines, max_count)
     return labels
 
 
@@ -231,6 +230,42 @@ def create_mask(ilines_, xlines_, hs_,
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
     return mask
+
+
+def _get_horizons(mask, threshold, averaging, transforms, separate=False):
+    """ Compute horizons from a mask.
+    """
+    mask_ = np.zeros_like(mask, np.int32)
+    mask_[mask >= threshold] = 1
+
+    # get regions
+    labels = label(mask_)
+    regions = regionprops(labels)
+
+    # make horizons-structure
+    horizons = dict() if not separate else []
+    for n_horizon, region in enumerate(regions):
+        if separate:
+            horizons.append(dict())
+
+        # compute horizon-height for each inline-xline
+        coords = region.coords
+        coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
+        horizon_ = getattr(coords.groupby(['iline', 'xline']), averaging)()
+
+        for i, x in horizon_.index.values:
+            il_xl = (transforms[0](i), transforms[1](x))
+            height = transforms[2](horizon_.loc[(i, x), 'height'])
+
+            if separate:
+                horizons[n_horizon][il_xl] = height
+            else:
+                if il_xl in horizons:
+                    horizons[il_xl].append(height)
+                else:
+                    horizons[il_xl] = [height]
+
+    return horizons
 
 
 @njit
