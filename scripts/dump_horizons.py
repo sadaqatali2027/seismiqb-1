@@ -90,7 +90,7 @@ def main(path_to_cube, path_to_model, path_to_predictions, gpu_device,
 if __name__ == '__main__':
     # Fetch path to config
     parser = argparse.ArgumentParser(description="Predict horizons on a part of seismic-cube.")
-    parser.add_argument("--config_path", type=str, default="./config_dump.json")
+    parser.add_argument("--config_path", type=str, default="./configs/dump.json")
     args = parser.parse_args()
 
     # Fetch main-arguments from config
@@ -103,7 +103,7 @@ if __name__ == '__main__':
     if config.get("print"):
         printer = print
     else:
-        path_log = config.get("path_log") or os.path.join(os.getcwd(), "dump.log")
+        path_log = config.get("path_log") or os.path.join(os.getcwd(), "logs/dump.log")
         print('LOGGING TO ', path_log)
         handler = logging.FileHandler(path_log, mode='w')        
         handler.setFormatter(logging.Formatter('%(asctime)s     %(message)s'))

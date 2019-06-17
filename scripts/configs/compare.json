@@ -1,5 +1,5 @@
 {
   "dir_1": "/notebooks/SEISMIC_DATA/CUBE_3/SCRIPT/*",
   "dir_2": "/notebooks/SEISMIC_DATA/CUBE_3/LINE_HORIZONTS/*.txt",
-  "path_log": "/notebooks/tsimfer/cloned/seismiqb/scripts/compare.log"
+  "path_log": "/notebooks/tsimfer/cloned/seismiqb/scripts/logs/compare.log"
 }

@@ -108,7 +108,7 @@ def main(dir_1, dir_2, printer=None):
 if __name__ == '__main__':
     # Get arguments from passed json
     parser = argparse.ArgumentParser(description="Compare two lists of horizonts.")
-    parser.add_argument("--config_path", type=str, default="./config_compare.json")
+    parser.add_argument("--config_path", type=str, default="./configs/compare.json")
     args = parser.parse_args()
 
     with open(args.config_path, 'r') as file:
@@ -119,7 +119,7 @@ if __name__ == '__main__':
     if config.get("print"):
         printer = print
     else:
-        path_log = config.get("path_log") or os.path.join(os.getcwd(), "compare.log")
+        path_log = config.get("path_log") or os.path.join(os.getcwd(), "logs/compare.log")
         handler = logging.FileHandler(path_log, mode='w')        
         handler.setFormatter(logging.Formatter('%(message)s'))
 
