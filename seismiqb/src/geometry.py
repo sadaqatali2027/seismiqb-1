@@ -40,6 +40,7 @@ class SeismicGeometry():
 
         self.cdp_x, self.cdp_y = set(), set()
         self.abs_to_lines = None
+        self.lines_to_abs = None
 
         self.value_min, self.value_max = np.inf, -np.inf
         self.scaler, self.descaler = None, None
@@ -53,6 +54,7 @@ class SeismicGeometry():
         ext = os.path.splitext(self.path)[1][1:]
         if ext in ['sgy', 'segy']:
             self._load_sgy()
+            self.make_scalers()
         elif ext in ['hdf5']:
             self._load_h5py()
         else:
@@ -65,13 +67,22 @@ class SeismicGeometry():
         self.xlines_len = len(self.xlines)
         self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
 
-        # Create transform from global coordinates to ilines/xlines/depth
-        transform_y = self._get_linear(self.cdp_y, self.ilines)
-        transform_x = self._get_linear(self.cdp_x, self.xlines)
-        transform_h = lambda h: ((h - self.delay) / self.sample_rate).astype(np.int64)
-        self.abs_to_lines = (lambda array: np.stack([transform_y(array[:, 0]),
-                                                     transform_x(array[:, 1]),
-                                                     transform_h(array[:, 2]),
+        # Create transform from global coordinates to ilines/xlines/depth (and vice versa)
+        y_to_iline = self._get_linear(self.cdp_y, self.ilines)
+        x_to_xline = self._get_linear(self.cdp_x, self.xlines)
+        h_to_depth = lambda h: ((h - self.delay) / self.sample_rate).astype(np.int64)
+        self.abs_to_lines = (lambda array: np.stack([y_to_iline(array[:, 0]),
+                                                     x_to_xline(array[:, 1]),
+                                                     h_to_depth(array[:, 2]),
+                                                     array[:, 3]],
+                                                    axis=-1))
+
+        iline_to_y = self._get_linear(self.ilines, self.cdp_y)
+        xline_to_x = self._get_linear(self.xlines, self.cdp_x)
+        depth_to_h = lambda depth: (depth*self.sample_rate + self.delay).astype(np.int64)
+        self.lines_to_abs = (lambda array: np.stack([iline_to_y(array[:, 0]),
+                                                     xline_to_x(array[:, 1]),
+                                                     depth_to_h(array[:, 2]),
                                                      array[:, 3]],
                                                     axis=-1))
 
@@ -137,19 +148,13 @@ class SeismicGeometry():
         return lambda x: a * x + b
 
 
-    def make_scalers(self, mode):
+    def make_scalers(self):
         """ Get scaling constants. """
-        count = len(self.il_xl_trace)
-        if mode == 'full':
-            traces = np.arange(count)
-        if mode == 'random':
-            traces = np.random.choice(count, count//10)
-
         with segyio.open(self.path, 'r', strict=False) as segyfile:
             segyfile.mmap()
 
             description = 'Making scalers for {}'.format('/'.join(self.path.split('/')[-2:]))
-            for i in tqdm(traces, desc=description):
+            for i in tqdm(range(len(self.il_xl_trace)), desc=description):
                 trace_ = segyfile.trace[i]
 
                 if np.min(trace_) < self.value_min:
@@ -160,7 +165,11 @@ class SeismicGeometry():
 
     def make_h5py(self, path_h5py=None):
         """ Converts `.sgy` cube to `.hdf5` format.
-        By default, new cube is stored right next to original.
+
+        Parameters
+        ----------
+        path_h5py : str
+            Path to store converted cube. By default, new cube is stored right next to original.
         """
         if os.path.splitext(self.path)[1][1:] not in ['sgy', 'segy']:
             raise TypeError('Format should be `sgy`')
@@ -174,7 +183,7 @@ class SeismicGeometry():
         cube_h5py = h5py_file.create_dataset('cube', self.cube_shape)
 
         # Copy traces from .sgy to .h5py
-        with segyio.open(self.path, 'r') as segyfile:
+        with segyio.open(self.path, 'r', strict=False) as segyfile:
             segyfile.mmap()
 
             description = 'Converting {} to h5py'.format('/'.join(self.path.split('/')[-2:]))
@@ -184,8 +193,9 @@ class SeismicGeometry():
                 for xl_ in range(self.xlines_len):
                     iline = self.ilines[il_]
                     xline = self.xlines[xl_]
-                    tr_ = self.il_xl_trace[(iline, xline)]
-                    slide[0, xl_, :] = segyfile.trace[tr_]
+                    tr_ = self.il_xl_trace.get((iline, xline))
+                    if tr_ is not None:
+                        slide[0, xl_, :] = segyfile.trace[tr_]
                 cube_h5py[il_, :, :] = slide
 
         # Save all the necessary attributes to the `info` group
@@ -195,32 +205,35 @@ class SeismicGeometry():
         for item in attributes:
             h5py_file['/info/' + item] = getattr(self, item)
 
+        h5py_file.close()
         self.h5py_file = h5py.File(path_h5py, "r")
 
 
-    def log(self, path_log=None):
+    def log(self, printer=None):
         """ Log some info. """
-        path_log = path_log or ('/'.join(self.path.split('/')[:-1]) + '/CUBE_INFO.log')
-        handler = logging.FileHandler(path_log, mode='w')
-        handler.setFormatter(logging.Formatter('%(message)s'))
+        if not callable(printer):
+            path_log = '/'.join(self.path.split('/')[:-1]) + '/CUBE_INFO.log'
+            handler = logging.FileHandler(path_log, mode='w')
+            handler.setFormatter(logging.Formatter('%(message)s'))
 
-        logger = logging.getLogger('geometry_logger')
-        logger.setLevel(logging.INFO)
-        logger.addHandler(handler)
+            logger = logging.getLogger('geometry_logger')
+            logger.setLevel(logging.INFO)
+            logger.addHandler(handler)
+            printer = logger.info
 
-        logger.info('Info for cube: {}'.format(self.path))
+        printer('Info for cube: {}'.format(self.path))
 
-        logger.info('Depth of one trace is: {}'.format(self.depth))
-        logger.info('Time delay: {}'.format(self.delay))
-        logger.info('Sample rate: {}'.format(self.sample_rate))
+        printer('Depth of one trace is: {}'.format(self.depth))
+        printer('Time delay: {}'.format(self.delay))
+        printer('Sample rate: {}'.format(self.sample_rate))
 
-        logger.info('Number of ILINES: {}'.format(self.ilines_len))
-        logger.info('Number of XLINES: {}'.format(self.xlines_len))
+        printer('Number of ILINES: {}'.format(self.ilines_len))
+        printer('Number of XLINES: {}'.format(self.xlines_len))
 
-        logger.info('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
-        logger.info('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
+        printer('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
+        printer('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
 
-        logger.info('CDP_X range from {} to {}'.format(min(self.cdp_x),
-                                                       max(self.cdp_x)))
-        logger.info('CDP_X range from {} to {}'.format(min(self.cdp_y),
-                                                       max(self.cdp_y)))
+        printer('CDP_X range from {} to {}'.format(min(self.cdp_x),
+                                                   max(self.cdp_x)))
+        printer('CDP_X range from {} to {}'.format(min(self.cdp_y),
+                                                   max(self.cdp_y)))
