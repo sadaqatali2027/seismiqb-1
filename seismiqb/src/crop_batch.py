@@ -329,7 +329,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3):
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, max_horizons=None):
         """ Create masks from labels-dictionary in given positions.
 
         Parameters
@@ -347,6 +347,8 @@ class SeismicCropBatch(Batch):
             1 to number_of_horizons + 1.
         width : int
             Width of horizons in the `horizon` mode.
+        max_horizons : int
+            Maximum number of horizons per crop.
 
         Returns
         -------
@@ -362,7 +364,9 @@ class SeismicCropBatch(Batch):
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-        mask = create_mask(ilines_, xlines_, hs_, il_xl_h, geom.ilines, geom.xlines, geom.depth, mode, width)
+        mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
+                           geom.ilines, geom.xlines, geom.depth,
+                           mode, width, max_horizons)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
