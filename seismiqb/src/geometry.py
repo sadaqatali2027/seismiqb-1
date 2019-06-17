@@ -73,7 +73,8 @@ class SeismicGeometry():
         h_to_depth = lambda h: ((h - self.delay) / self.sample_rate).astype(np.int64)
         self.abs_to_lines = (lambda array: np.stack([y_to_iline(array[:, 0]),
                                                      x_to_xline(array[:, 1]),
-                                                     h_to_depth(array[:, 2])],
+                                                     h_to_depth(array[:, 2]),
+                                                     array[:, 3]],
                                                     axis=-1))
 
         iline_to_y = self._get_linear(self.ilines, self.cdp_y)
@@ -81,7 +82,8 @@ class SeismicGeometry():
         depth_to_h = lambda depth: (depth*self.sample_rate + self.delay).astype(np.int64)
         self.lines_to_abs = (lambda array: np.stack([iline_to_y(array[:, 0]),
                                                      xline_to_x(array[:, 1]),
-                                                     depth_to_h(array[:, 2])],
+                                                     depth_to_h(array[:, 2]),
+                                                     array[:, 3]],
                                                     axis=-1))
 
         # Callable to transform cube values to [0, 1] (and vice versa)

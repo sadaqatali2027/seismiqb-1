@@ -123,7 +123,7 @@ class SeismicCubeset(Dataset):
         transforms : dict
             Mapping from indices to callables. Each callable should define
             way to map point from absolute coordinates (X, Y world-wise) to
-            cube specific (ILINE, XLINE) and take array of shape (N, 3) as input.
+            cube specific (ILINE, XLINE) and take array of shape (N, 4) as input.
 
         src : str
             Attribute with saved point clouds.
@@ -186,7 +186,7 @@ class SeismicCubeset(Dataset):
         transforms : dict
             Mapping from indices to callables. Each callable should define
             way to map point from absolute coordinates (X, Y world-wise) to
-            cube local specific and take array of shape (N, 3) as input.
+            cube local specific and take array of shape (N, 4) as input.
 
         Note
         ----
@@ -217,7 +217,7 @@ class SeismicCubeset(Dataset):
                     geom = getattr(self, 'geometries')[ix]
                     offsets = np.array([geom.ilines_offset, geom.xlines_offset, 0])
                     cube_shape = np.array(geom.cube_shape)
-                    to_cube = lambda points: (points - offsets)/cube_shape
+                    to_cube = lambda points: (points[:, :3] - offsets)/cube_shape
                     default = lambda points: to_cube(geom.abs_to_lines(points))
 
                     transform = transforms.get(ix) or default
@@ -404,4 +404,9 @@ class SeismicCubeset(Dataset):
         # get horizons
         setattr(self, dst, _get_horizons(mask, threshold, averaging, transforms, separate))
 
+        if separate:
+            horizons = getattr(self, dst)
+            horizons.sort(key=len, reverse=True)
+            for i, horizon in enumerate(horizons):
+                setattr(self, dst+'_'+str(i), horizon)
         return self
