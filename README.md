@@ -4,7 +4,11 @@
 
 * `sample` and `load` crops of `SEG-Y` cubes for training neural networks
 * convert `SEG-Y` cubes to `HDF5`-format for even faster `load`
-* `create_masks` of different types for segmenting horizons, facies and other seismic bodies
+* `create_masks` of different types from horizon labels for segmenting horizons, facies and other seismic bodies
+* build augmentation pipelines using custom augmentations for seismic data as well as `rotate`, `noise` and `elastic_transform`
+* segment horizons and interlayers using `UNet` and `Tiramisu`
+* extend horizons from several seismic `ilines` in spirit of classic autocorrelation tools but with deep learning
+* convert predicted masks into horizons for convenient validation by geophysicists
 
 
 ## Installation
@@ -15,14 +19,14 @@ git clone -- recursive https://github.com/analysiscenter/seismiqb.git
 
 ## Turorials
 
-### Cube-preprocessing
-Performing basic preprocessing on seismic cubes. You can find the tutorial [here](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/2.%20Batch.ipynb).
+### [Cube-preprocessing](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/2.%20Batch.ipynb)
+Seismic cube preprocessing: `load_cubes`, `create_masks`, `scale`, `cutout_2d`, `rotate` and others.
 
-### Horizon segmentation
-Solving a task of binary segmentation. You can find the model-notebook [here](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/3.%20Horizonts_model.ipynb).
+### [Horizon segmentations](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/3.%20Horizonts_model.ipynb)
+Solving a task of binary segmentation.
 
-### Horizon extension
-Solving a task of binary segmentation. You can find the tutorial [here](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/Horizon%20Extension.ipynb).
+### [Horizon extension](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/Horizon%20Extension.ipynb)
+Solving a task of binary segmentation.
 
-### Interlayers segmentation
-Performing multiclass segmentation. You can find the notebook [here](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/4.%20Segmenting_interlayers.ipynb).
+### [Interlayers segmentation](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/4.%20Segmenting_interlayers.ipynb)
+Performing multiclass segmentation.
