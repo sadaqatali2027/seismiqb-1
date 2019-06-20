@@ -2,7 +2,6 @@
 import dill
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 from ..batchflow import Dataset, Sampler
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
@@ -33,7 +32,7 @@ class SeismicCubeset(Dataset):
 
         Parameters
         ----------
-        load_from : str
+        path : str
             Path to load geometries from.
 
         scalers : bool
@@ -52,8 +51,8 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with loaded geometries.
         """
-        if isinstance(load_from, str):
-            with open(load_from, 'rb') as file:
+        if isinstance(path, str):
+            with open(path, 'rb') as file:
                 self.geometries = dill.load(file)
         else:
             for ix in self.indices:
@@ -79,7 +78,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load_point_clouds(self, paths=None, load_from=None, **kwargs):
+    def load_point_clouds(self, paths=None, path=None, **kwargs):
         """ Load point-cloud of labels for each cube in dataset.
 
         Parameters
@@ -87,7 +86,7 @@ class SeismicCubeset(Dataset):
         paths : dict
             Mapping from indices to txt paths with labels.
 
-        load_from : str
+        path : str
             Path to load point clouds from.
 
         Returns
@@ -95,8 +94,8 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with loaded point clouds.
         """
-        if isinstance(load_from, str):
-            with open(load_from, 'rb') as file:
+        if isinstance(path, str):
+            with open(path, 'rb') as file:
                 self.point_clouds = dill.load(file)
         else:
             for ix in self.indices:
@@ -118,7 +117,7 @@ class SeismicCubeset(Dataset):
 
         Parameters
         ----------
-        load_from : str
+        path : str
             Path to load labels from.
 
         transforms : dict
@@ -138,7 +137,7 @@ class SeismicCubeset(Dataset):
         if not hasattr(self, dst):
             setattr(self, dst, {})
 
-        if isinstance(load_from, str):
+        if isinstance(path, str):
             try:
                 with open(path, 'rb') as file:
                     setattr(self, dst, dill.load(file))
@@ -172,7 +171,7 @@ class SeismicCubeset(Dataset):
 
         Parameters
         ----------
-        load_from : str
+        path : str
             Path to load samplers from.
 
         mode : str or Sampler
@@ -198,8 +197,8 @@ class SeismicCubeset(Dataset):
         lowcut, highcut = [0, 0, 0], [1, 1, 1]
         transforms = transforms or dict()
 
-        if isinstance(load_from, str):
-            with open(load_from, 'rb') as file:
+        if isinstance(path, str):
+            with open(path, 'rb') as file:
                 samplers = dill.load(file)
 
         else:
