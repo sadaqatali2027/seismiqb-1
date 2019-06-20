@@ -5,14 +5,13 @@ from copy import copy
 
 import numpy as np
 import segyio
-import numba
-from numba import njit
 import cv2
 from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, aggregate, count_nonzeros, make_labels_dict, _get_horizons
+from .utils import create_mask, aggregate, make_labels_dict, _get_horizons
+
 
 
 AFFIX = '___'
@@ -150,7 +149,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape, dst='slices', passdown=None):
+    def crop(self, points, shape, dilations=None, dst='slices', passdown=None):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
 
@@ -195,15 +194,16 @@ class SeismicCropBatch(Batch):
             if hasattr(self, component):
                 setattr(new_batch, component, getattr(self, component))
 
+        dilations = dilations or [1, 1, 1]
         slices = []
         for point in points:
-            slice_ = self._make_slice(point, shape)
+            slice_ = self._make_slice(point, shape, dilations)
             slices.append(slice_)
         setattr(new_batch, dst, slices)
         return new_batch
 
 
-    def _make_slice(self, point, shape):
+    def _make_slice(self, point, shape, dilations):
         """ Creates list of `np.arange`'s for desired location. """
         ix = point[0]
 
@@ -213,9 +213,10 @@ class SeismicCropBatch(Batch):
         else:
             slice_point = point[1:]
 
-        slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]),
-                  np.arange(slice_point[1], slice_point[1]+shape[1]),
-                  np.arange(slice_point[2], slice_point[2]+shape[2])]
+        slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]*dilations[0], dilations[0]),
+                  np.arange(slice_point[1], slice_point[1]+shape[1]*dilations[1], dilations[1]),
+                  np.arange(slice_point[2], slice_point[2]+shape[2]*dilations[2], dilations[2])]
+
         return slice_
 
 
@@ -329,7 +330,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, max_horizons=None):
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels'):
         """ Create masks from labels-dictionary in given positions.
 
         Parameters
@@ -360,7 +361,7 @@ class SeismicCropBatch(Batch):
         Can be run only after labels-dict is loaded into labels-component.
         """
         geom = self.get(ix, 'geometries')
-        il_xl_h = self.get(ix, 'labels')
+        il_xl_h = self.get(ix, src_labels)
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
@@ -506,12 +507,12 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='run_once')
-    def assemble_crops(self, src, dst, grid_info, mode='avg'):
+    def assemble_crops(self, src, dst, grid_info):
         """ Glue crops together in accordance to the grid.
 
         Note
         ----
-        In order to use this function you must first call `make_grid` method of SeismicCubeset.
+        In order to use this action you must first call `make_grid` method of SeismicCubeset.
 
         Parameters
         ----------
@@ -524,9 +525,6 @@ class SeismicCropBatch(Batch):
         grid_info : dict
             Dictionary with information about grid. Should be created by `make_grid` method.
 
-        mode : str or jit-decorated callable
-            Mapping from multiple values to one for areas, where multiple crops overlap.
-
         Returns
         -------
         SeismicCropBatch
@@ -536,25 +534,13 @@ class SeismicCropBatch(Batch):
         if len(src) != len(grid_info['grid_array']):
             return self
 
-        if mode == 'avg':
-            @njit
-            def _callable(array):
-                return np.sum(array) / max(count_nonzeros(array), 1)
-        elif mode == 'max':
-            @njit
-            def _callable(array):
-                return np.max(array)
-        elif isinstance(mode, numba.targets.registry.CPUDispatcher):
-            _callable = mode
-
         # Since we know that cube is 3-d entity, we can get rid of
         # unneccessary dimensions
         src = np.array(src)
         src = src if len(src.shape) == 4 else np.squeeze(src, axis=-1)
         assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
-                              grid_info['predict_shape'], aggr_func=_callable)
-
-        setattr(self, dst, assembled[grid_info['slice']])
+                              grid_info['predict_shape'])
+        setattr(self, dst, assembled)
         return self
 
 

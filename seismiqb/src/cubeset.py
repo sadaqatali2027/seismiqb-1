@@ -9,8 +9,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
-from .utils import read_point_cloud, make_labels_dict, _get_horizons, labels_matrix
-
+from .utils import read_point_cloud, make_labels_dict, _get_horizons, round_to_array
 
 
 class SeismicCubeset(Dataset):
@@ -29,7 +28,7 @@ class SeismicCubeset(Dataset):
         self.grid_gen, self.grid_info, self.grid_iters = None, None, None
 
 
-    def load_geometries(self, load_from=None, scalers=False, mode='full', logs=True):
+    def load_geometries(self, path=None, logs=True):
         """ Load geometries into dataset-attribute.
 
         Parameters
@@ -59,8 +58,6 @@ class SeismicCubeset(Dataset):
         else:
             for ix in self.indices:
                 self.geometries[ix].load()
-                if scalers:
-                    self.geometries[ix].make_scalers(mode=mode)
                 if logs:
                     self.geometries[ix].log()
         return self
@@ -116,7 +113,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load_labels(self, load_from=None, transforms=None, src='point_clouds'):
+    def load_labels(self, path=None, transforms=None, src='point_clouds', dst='labels'):
         """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
 
         Parameters
@@ -138,11 +135,13 @@ class SeismicCubeset(Dataset):
         """
         point_clouds = getattr(self, src) if isinstance(src, str) else src
         transforms = transforms or dict()
+        if not hasattr(self, dst):
+            setattr(self, dst, {})
 
         if isinstance(load_from, str):
             try:
-                with open(load_from, 'rb') as file:
-                    self.labels = dill.load(file)
+                with open(path, 'rb') as file:
+                    setattr(self, dst, dill.load(file))
             except TypeError:
                 raise NotImplementedError("Numba dicts are yet to support serializing")
         else:
@@ -150,48 +149,23 @@ class SeismicCubeset(Dataset):
                 point_cloud = point_clouds.get(ix)
                 geom = getattr(self, 'geometries').get(ix)
                 transform = transforms.get(ix) or geom.abs_to_lines
-                self.labels[ix] = make_labels_dict(transform(point_cloud))
+                getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
         return self
 
 
-    def save_labels(self, save_to):
+    def save_labels(self, save_to, src='labels'):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
         if isinstance(save_to, str):
             try:
                 with open(save_to, 'wb') as file:
-                    dill.dump(self.labels, file)
+                    dill.dump(getattr(self, src), file)
             except TypeError:
                 raise NotImplementedError("Numba dicts are yet to support serializing")
         return self
 
 
-    def show_labels(self, ix):
-        """ Draw image to show how many of iline/xline pairs are labeled.
-
-        Parameters
-        ----------
-        ix : str
-            Identificator of cube to draw in index.
-        """
-        geom = self.geometries[ix]
-        labels = self.labels[ix]
-        possible_coordinates = [[il, xl] for il in geom.ilines for xl in geom.xlines]
-
-        background = np.zeros((geom.ilines_len, geom.xlines_len))
-        img = labels_matrix(background, np.array(possible_coordinates), labels,
-                            geom.ilines_offset, geom.xlines_offset)
-        img[0, 0] = 0
-
-        _, ax = plt.subplots(figsize=(12, 7))
-        ax.imshow(img)
-        ax.set_title('Known labels for cube (yellow is known)', fontdict={'fontsize': 20})
-        plt.xlabel('XLINES', fontdict={'fontsize': 20})
-        plt.ylabel('ILINES', fontdict={'fontsize': 20})
-        plt.show()
-
-
-    def load_samplers(self, load_from=None, mode='hist', p=None,
-                      transforms=None, **kwargs):
+    def load_samplers(self, path=None, mode='hist', p=None,
+                      transforms=None, dst='sampler', **kwargs):
         """ Create samplers for every cube and store it in `samplers`
         attribute of passed dataset. Also creates one combined sampler
         and stores it in `sampler` attribute of passed dataset.
@@ -231,7 +205,7 @@ class SeismicCubeset(Dataset):
         else:
             samplers = {}
             if not isinstance(mode, dict):
-                mode = {ix:mode for ix in self.indices}
+                mode = {ix: mode for ix in self.indices}
 
             for ix in self.indices:
                 if isinstance(mode[ix], Sampler):
@@ -267,8 +241,118 @@ class SeismicCubeset(Dataset):
             sampler_ = (ConstantSampler(ix)
                         & samplers[ix].apply(lambda d: d.astype(np.object)))
             sampler = sampler | (p[i] & sampler_)
-        self.sampler = sampler
+        setattr(self, dst, sampler)
         return self
+
+
+    def modify_sampler(self, dst, mode='iline', low=None, high=None,
+                       each=None, each_start=None,
+                       to_cube=False, post=None, finish=False, src='sampler'):
+        """ Change given sampler to generate points from desired regions.
+
+        Parameters
+        ----------
+        src : str
+            Attribute with Sampler to change.
+
+        dst : str
+            Attribute to store created Sampler.
+
+        mode : str
+            Axis to modify: ilines/xlines/heights.
+
+        low : float
+            Lower bound for truncating.
+
+        high : float
+            Upper bound for truncating.
+
+        each : int
+            Keep only i-th value along axis.
+
+        each_start : int
+            Shift grid for previous parameter.
+
+        to_cube : bool
+            Transform sampled values to each cube coordinates.
+
+        post : callable
+            Additional function to apply to sampled points.
+
+        finish : bool
+            If False, instance of Sampler is put into `dst` and can be modified later.
+            If True, `sample` method is put into `dst` and can be called via `D` named-expressions.
+
+        Examples
+        --------
+        Split into train / test along ilines in 80/20 ratio:
+
+        >>> cubeset.modify_sampler(dst='train_sampler', mode='i', high=0.8)
+        >>> cubeset.modify_sampler(dst='test_sampler', mode='i', low=0.9)
+
+        Sample only every 50-th point along xlines starting from 70-th xline:
+
+        >>> cubeset.modify_sampler(dst='train_sampler', mode='x', each=50, each_start=70)
+
+        Notes
+        -----
+        It is advised to have gap between `high` for train sampler and `low` for test sampler.
+        That is done in order to take into account additional seen entries due to crop shape.
+        """
+
+        # Parsing arguments
+        sampler = getattr(self, src)
+
+        mapping = {'ilines': 0, 'xlines': 1, 'heights': 2,
+                   'iline': 0, 'xline': 1, 'i': 0, 'x': 1, 'h': 2}
+        axis = mapping[mode]
+
+        low, high = low or 0, high or 1
+        each_start = each_start or each
+
+        # Keep only points from region
+        if (low != 0) or (high != 1):
+            sampler = sampler.truncate(low=low, high=high, prob=high-low,
+                                       expr=lambda p: p[:, axis+1])
+
+        # Keep only every `each`-th point
+        if each is not None:
+            def get_shape(name):
+                return self.geometries[name].cube_shape[axis]
+
+            def get_ticks(name):
+                shape = self.geometries[name].cube_shape[axis]
+                return np.arange(each_start, shape, each)
+
+            def filter_out(array):
+                shapes = np.array(list(map(get_shape, array[:, 0])))
+                ticks = np.array(list(map(get_ticks, array[:, 0])))
+                arr = (array[:, axis+1]*shapes).astype(int)
+                array[:, axis+1] = round_to_array(arr, ticks) / shapes
+                return array
+
+            sampler = sampler.apply(filter_out)
+
+        # Change representation of points from unit cube to cube coordinates
+        if to_cube:
+            def get_shapes(name):
+                return self.geometries[name].cube_shape
+
+            def coords_to_cube(array):
+                shapes = np.array(list(map(get_shapes, array[:, 0])))
+                array[:, 1:] = (array[:, 1:] * shapes).astype(int)
+                return array
+
+            sampler = sampler.apply(coords_to_cube)
+
+        # Apply additional transformations to points
+        if callable(post):
+            sampler = sampler.apply(post)
+
+        if finish:
+            setattr(self, dst, sampler.sample)
+        else:
+            setattr(self, dst, sampler)
 
 
     def save_samplers(self, save_to):
@@ -326,27 +410,40 @@ class SeismicCubeset(Dataset):
         geom = self.geometries[cube_name]
         strides = strides or crop_shape
 
-        # Making sure that ranges are within cube bounds
-        i_low = min(geom.ilines_len-crop_shape[0], ilines_range[0])
-        i_high = min(geom.ilines_len-crop_shape[0], ilines_range[1])
+        # Assert ranges are valid
+        if ilines_range[0] < 0 or \
+           xlines_range[0] < 0 or \
+           h_range[0] < 0:
+            raise ValueError('Ranges must contain in the cube.')
 
-        x_low = min(geom.xlines_len-crop_shape[1], xlines_range[0])
-        x_high = min(geom.xlines_len-crop_shape[1], xlines_range[1])
+        if ilines_range[1] >= geom.ilines_len or \
+           xlines_range[1] >= geom.xlines_len or \
+           h_range[1] >= geom.depth:
+            raise ValueError('Ranges must contain in the cube.')
 
-        h_low = min(geom.depth-crop_shape[2], h_range[0])
-        h_high = min(geom.depth-crop_shape[2], h_range[1])
+        # Make separate grids for every axis
+        def _make_axis_grid(axis_range, stride, length, crop_shape):
+            grid = np.arange(*axis_range, stride)
+            grid_ = [x for x in grid if x + crop_shape < length]
+            if len(grid) != len(grid_):
+                grid_ += [axis_range[1] - crop_shape]
+            return sorted(grid_)
+
+        ilines = _make_axis_grid(ilines_range, strides[0], geom.ilines_len, crop_shape[0])
+        xlines = _make_axis_grid(xlines_range, strides[1], geom.xlines_len, crop_shape[1])
+        hs = _make_axis_grid(h_range, strides[2], geom.depth, crop_shape[2])
 
         # Every point in grid contains reference to cube
         # in order to be valid input for `crop` action of SeismicCropBatch
         grid = []
-        for il in np.arange(i_low, i_high+1, strides[0]):
-            for xl in np.arange(x_low, x_high+1, strides[1]):
-                for h in np.arange(h_low, h_high+1, strides[2]):
+        for il in ilines:
+            for xl in xlines:
+                for h in hs:
                     point = [cube_name, il, xl, h]
                     grid.append(point)
         grid = np.array(grid, dtype=object)
 
-        # Creating  and storing all the necessary things
+        # Creating and storing all the necessary things
         grid_gen = (grid[i:i+batch_size]
                     for i in range(0, len(grid), batch_size))
 
@@ -354,13 +451,9 @@ class SeismicCubeset(Dataset):
                             min(grid[:, 2]),
                             min(grid[:, 3])])
 
-        predict_shape = (i_high-i_low+crop_shape[0],
-                         x_high-x_low+crop_shape[1],
-                         h_high-h_low+crop_shape[2])
-
-        slice_ = (slice(0, i_high-i_low, 1),
-                  slice(0, x_high-x_low, 1),
-                  slice(0, h_high-h_low, 1))
+        predict_shape = (ilines_range[1] - ilines_range[0],
+                         xlines_range[1] - xlines_range[0],
+                         h_range[1] - h_range[0])
 
         grid_array = grid[:, 1:].astype(int) - offsets
 
@@ -368,7 +461,6 @@ class SeismicCubeset(Dataset):
         self.grid_iters = - (-len(grid) // batch_size)
         self.grid_info = {'grid_array': grid_array,
                           'predict_shape': predict_shape,
-                          'slice': slice_,
                           'crop_shape': crop_shape,
                           'cube_name': cube_name,
                           'range': [ilines_range, xlines_range, h_range]}
@@ -380,18 +472,34 @@ class SeismicCubeset(Dataset):
         Parameters
         ----------
         src : str or array
-            source-mask. Can be either a name of attribute or mask itself.
-        dst : attribute of `cubeset` to write the horizons in.
+            Source-mask. Can be either a name of attribute or mask itself.
+
+        dst : str
+            Attribute of `cubeset` to write the horizons in.
+
         threshold : float
-            parameter of mask-thresholding.
+            Parameter of mask-thresholding.
+
         averaging : str
-            method of pandas.groupby used for finding the center of a horizon
+            Method of pandas.groupby used for finding the center of a horizon
             for each (iline, xline).
+
         coordinates : str
-            coordinates to use for keys of point-cloud. Can be either 'cubic'
+            Coordinates to use for keys of point-cloud. Can be either 'cubic'
             'lines' or None. In case of None, mask-coordinates are used. Mode 'cubic'
             requires 'grid_info'-attribute; can be run after `make_grid`-method. Mode 'lines'
             requires both 'grid_info' and 'geometries'-attributes to be loaded.
+
+        separate : bool
+            Whether to write horizonts in separate dictionaries or in one common.
+
+        Returns
+        -------
+        dict or list of dict
+            If separate is False, then one dictionary returned with keys being pairs of
+            (iline, xline) and values being lists of heights.
+            If separate is True, then list of dictionaries is returned, with every dictionary being
+            mapping from pairs of (iline, xline) to height from each individual horizont.
         """
         # fetch mask-array
         mask = getattr(self, src) if isinstance(src, str) else src
@@ -411,4 +519,9 @@ class SeismicCubeset(Dataset):
         # get horizons
         setattr(self, dst, _get_horizons(mask, threshold, averaging, transforms, separate))
 
+        if separate:
+            horizons = getattr(self, dst)
+            horizons.sort(key=len, reverse=True)
+            for i, horizon in enumerate(horizons):
+                setattr(self, dst+'_'+str(i), horizon)
         return self

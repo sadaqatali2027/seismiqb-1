@@ -259,54 +259,91 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
         coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
         horizon_ = getattr(coords.groupby(['iline', 'xline']), averaging)()
 
-        for i, x in horizon_.index.values:
-            il_xl = (transforms[0](i), transforms[1](x))
-            height = transforms[2](horizon_.loc[(i, x), 'height'])
+        # separate the columns
+        ilines = horizon_.index.get_level_values('iline').values
+        xlines = horizon_.index.get_level_values('xline').values
+        heights = horizon_.values
 
-            if separate:
-                horizons[n_horizon][il_xl] = height
-            else:
-                if il_xl in horizons:
-                    horizons[il_xl].append(height)
+        # transform each column
+        ilines_ = transforms[0](ilines)
+        xlines_ = transforms[1](xlines)
+        heights_ = np.ravel(transforms[2](heights))
+
+        if separate:
+            for key, h in zip(zip(ilines_, xlines_), heights_):
+                horizons[n_horizon][key] = h
+        else:
+            for key, h in zip(zip(ilines_, xlines_), heights_):
+                if key in horizons:
+                    horizons[key].append(h)
                 else:
-                    horizons[il_xl] = [height]
+                    horizons[key] = [h]
 
     return horizons
 
 
 @njit
-def count_nonzeros(array):
-    """ Jit-accelerated function to count non-zero elements. Faster than numpy version. """
+def count_nonfill(array):
+    """ Jit-accelerated function to count non-fill elements. """
     count = 0
     for i in array:
-        if i != 0:
+        if i != FILL_VALUE:
             count += 1
     return count
 
 
 @njit
-def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
+def aggregate(array_crops, array_grid, crop_shape, predict_shape):
     """ Jit-accelerated function to glue together crops according to grid.
+    At positions, where different crops overlap, only the maximum value is saved.
     This function is usually called inside SeismicCropBatch's method `assemble_crops`.
     """
+    #pylint: disable=assignment-from-no-return
     total = len(array_grid)
     background = np.zeros(predict_shape)
 
-    for il in range(background.shape[0]):
-        for xl in range(background.shape[1]):
-            for h in range(background.shape[2]):
+    for i in range(total):
+        il, xl, h = array_grid[i, :]
+        il_end = min(background.shape[0], il+crop_shape[0])
+        xl_end = min(background.shape[1], xl+crop_shape[1])
+        h_end = min(background.shape[2], h+crop_shape[2])
 
-                temp_arr = np.zeros(total)
-                for i in range(total):
-                    il_crop = array_grid[i, 0]
-                    xl_crop = array_grid[i, 1]
-                    h_crop = array_grid[i, 2]
-
-                    if 0 <= (il - il_crop) < crop_shape[0] and \
-                       0 <= (xl - xl_crop) < crop_shape[1] and \
-                       0 <= (h - h_crop) < crop_shape[2]:
-                        dot = array_crops[i, xl-xl_crop, h-h_crop, il-il_crop] # crops are in (xl, h, il) order
-                        temp_arr[i] = dot
-
-                background[il, xl, h] = aggr_func(temp_arr)
+        crop = np.transpose(array_crops[i], (2, 0, 1))
+        crop = crop[:(il_end-il), :(xl_end-xl), :(h_end-h)]
+        previous = background[il:il_end, xl:xl_end, h:h_end]
+        background[il:il_end, xl:xl_end, h:h_end] = np.maximum(crop, previous)
     return background
+
+
+@njit(parallel=True)
+def round_to_array(values, ticks):
+    """ Jit-accelerated function to round values from one array to the
+    nearest value from the other in a vectorized fashion. Faster than numpy version.
+
+    Parameters
+    ----------
+    values : array-like
+        Array to modify.
+
+    ticks : array-like
+        Values to cast to. Must be sorted in the ascending order.
+
+    Returns
+    -------
+    array-like
+        Array with values from `values` rounded to the nearest from corresponding entry of `ticks`.
+    """
+    for i, p in enumerate(values):
+        ticks_ = ticks[i]
+        if p <= ticks_[0]:
+            values[i] = ticks_[0]
+        elif p >= ticks_[-1]:
+            values[i] = ticks_[-1]
+        else:
+            ix = np.searchsorted(ticks_, p)
+
+            if abs(ticks_[ix] - p) <= abs(ticks_[ix-1] - p):
+                values[i] = ticks_[ix]
+            else:
+                values[i] = ticks_[ix-1]
+    return values
