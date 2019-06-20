@@ -4,7 +4,7 @@ import pandas as pd
 import segyio
 from tqdm import tqdm
 from skimage.measure import label, regionprops
-from numba import njit, types, prange
+from numba import njit, types
 from numba.typed import Dict
 
 
@@ -311,7 +311,7 @@ def round_to_array(values, ticks):
     array-like
         Array with values from `values` rounded to the nearest from corresponding entry of `ticks`.
     """
-    for i, p in prange(enumerate(values)):
+    for i, p in enumerate(values):
         ticks_ = ticks[i]
         if p <= ticks_[0]:
             values[i] = ticks_[0]
