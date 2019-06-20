@@ -4,7 +4,7 @@ import pandas as pd
 import segyio
 from tqdm import tqdm
 from skimage.measure import label, regionprops
-from numba import njit, types
+from numba import njit, types, prange
 from numba.typed import Dict
 
 
@@ -293,10 +293,10 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, aggr_func):
     return background
 
 
-@njit
+@njit(parallel=True)
 def round_to_array(values, ticks):
-    """ Jit-accelerated function to round values from one array to nearest value from the other.
-    Faster than numpy version.
+    """ Jit-accelerated function to round values from one array to the
+    nearest value from the other in a vectorized fashion. Faster than numpy version.
 
     Parameters
     ----------
@@ -311,7 +311,7 @@ def round_to_array(values, ticks):
     array-like
         Array with values from `values` rounded to the nearest from corresponding entry of `ticks`.
     """
-    for i, p in enumerate(values):
+    for i, p in prange(enumerate(values)):
         ticks_ = ticks[i]
         if p <= ticks_[0]:
             values[i] = ticks_[0]
