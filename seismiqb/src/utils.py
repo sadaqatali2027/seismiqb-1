@@ -294,3 +294,37 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape):
         previous = background[il:il_end, xl:xl_end, h:h_end]
         background[il:il_end, xl:xl_end, h:h_end] = np.maximum(crop, previous)
     return background
+
+
+@njit(parallel=True)
+def round_to_array(values, ticks):
+    """ Jit-accelerated function to round values from one array to the
+    nearest value from the other in a vectorized fashion. Faster than numpy version.
+
+    Parameters
+    ----------
+    values : array-like
+        Array to modify.
+
+    ticks : array-like
+        Values to cast to. Must be sorted in the ascending order.
+
+    Returns
+    -------
+    array-like
+        Array with values from `values` rounded to the nearest from corresponding entry of `ticks`.
+    """
+    for i, p in enumerate(values):
+        ticks_ = ticks[i]
+        if p <= ticks_[0]:
+            values[i] = ticks_[0]
+        elif p >= ticks_[-1]:
+            values[i] = ticks_[-1]
+        else:
+            ix = np.searchsorted(ticks_, p)
+
+            if abs(ticks_[ix] - p) <= abs(ticks_[ix-1] - p):
+                values[i] = ticks_[ix]
+            else:
+                values[i] = ticks_[ix-1]
+    return values

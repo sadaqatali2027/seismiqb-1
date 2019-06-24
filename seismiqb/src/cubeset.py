@@ -8,7 +8,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
-from .utils import read_point_cloud, make_labels_dict, _get_horizons
+from .utils import read_point_cloud, make_labels_dict, _get_horizons, round_to_array
 
 
 class SeismicCubeset(Dataset):
@@ -164,7 +164,7 @@ class SeismicCubeset(Dataset):
 
 
     def load_samplers(self, path=None, mode='hist', p=None,
-                      transforms=None, **kwargs):
+                      transforms=None, dst='sampler', **kwargs):
         """ Create samplers for every cube and store it in `samplers`
         attribute of passed dataset. Also creates one combined sampler
         and stores it in `sampler` attribute of passed dataset.
@@ -240,8 +240,118 @@ class SeismicCubeset(Dataset):
             sampler_ = (ConstantSampler(ix)
                         & samplers[ix].apply(lambda d: d.astype(np.object)))
             sampler = sampler | (p[i] & sampler_)
-        self.sampler = sampler
+        setattr(self, dst, sampler)
         return self
+
+
+    def modify_sampler(self, dst, mode='iline', low=None, high=None,
+                       each=None, each_start=None,
+                       to_cube=False, post=None, finish=False, src='sampler'):
+        """ Change given sampler to generate points from desired regions.
+
+        Parameters
+        ----------
+        src : str
+            Attribute with Sampler to change.
+
+        dst : str
+            Attribute to store created Sampler.
+
+        mode : str
+            Axis to modify: ilines/xlines/heights.
+
+        low : float
+            Lower bound for truncating.
+
+        high : float
+            Upper bound for truncating.
+
+        each : int
+            Keep only i-th value along axis.
+
+        each_start : int
+            Shift grid for previous parameter.
+
+        to_cube : bool
+            Transform sampled values to each cube coordinates.
+
+        post : callable
+            Additional function to apply to sampled points.
+
+        finish : bool
+            If False, instance of Sampler is put into `dst` and can be modified later.
+            If True, `sample` method is put into `dst` and can be called via `D` named-expressions.
+
+        Examples
+        --------
+        Split into train / test along ilines in 80/20 ratio:
+
+        >>> cubeset.modify_sampler(dst='train_sampler', mode='i', high=0.8)
+        >>> cubeset.modify_sampler(dst='test_sampler', mode='i', low=0.9)
+
+        Sample only every 50-th point along xlines starting from 70-th xline:
+
+        >>> cubeset.modify_sampler(dst='train_sampler', mode='x', each=50, each_start=70)
+
+        Notes
+        -----
+        It is advised to have gap between `high` for train sampler and `low` for test sampler.
+        That is done in order to take into account additional seen entries due to crop shape.
+        """
+
+        # Parsing arguments
+        sampler = getattr(self, src)
+
+        mapping = {'ilines': 0, 'xlines': 1, 'heights': 2,
+                   'iline': 0, 'xline': 1, 'i': 0, 'x': 1, 'h': 2}
+        axis = mapping[mode]
+
+        low, high = low or 0, high or 1
+        each_start = each_start or each
+
+        # Keep only points from region
+        if (low != 0) or (high != 1):
+            sampler = sampler.truncate(low=low, high=high, prob=high-low,
+                                       expr=lambda p: p[:, axis+1])
+
+        # Keep only every `each`-th point
+        if each is not None:
+            def get_shape(name):
+                return self.geometries[name].cube_shape[axis]
+
+            def get_ticks(name):
+                shape = self.geometries[name].cube_shape[axis]
+                return np.arange(each_start, shape, each)
+
+            def filter_out(array):
+                shapes = np.array(list(map(get_shape, array[:, 0])))
+                ticks = np.array(list(map(get_ticks, array[:, 0])))
+                arr = (array[:, axis+1]*shapes).astype(int)
+                array[:, axis+1] = round_to_array(arr, ticks) / shapes
+                return array
+
+            sampler = sampler.apply(filter_out)
+
+        # Change representation of points from unit cube to cube coordinates
+        if to_cube:
+            def get_shapes(name):
+                return self.geometries[name].cube_shape
+
+            def coords_to_cube(array):
+                shapes = np.array(list(map(get_shapes, array[:, 0])))
+                array[:, 1:] = (array[:, 1:] * shapes).astype(int)
+                return array
+
+            sampler = sampler.apply(coords_to_cube)
+
+        # Apply additional transformations to points
+        if callable(post):
+            sampler = sampler.apply(post)
+
+        if finish:
+            setattr(self, dst, sampler.sample)
+        else:
+            setattr(self, dst, sampler)
 
 
     def save_samplers(self, save_to):
@@ -310,24 +420,17 @@ class SeismicCubeset(Dataset):
            h_range[1] >= geom.depth:
             raise ValueError('Ranges must contain in the cube.')
 
-        # Make
-        ilines = np.arange(ilines_range[0], ilines_range[1], strides[0])
-        ilines_ = [iline for iline in ilines if iline + crop_shape[0] < geom.ilines_len]
-        if len(ilines) != len(ilines_):
-            ilines_ += [ilines_range[1] - crop_shape[0]]
-        ilines = sorted(ilines_)
+        # Make separate grids for every axis
+        def _make_axis_grid(axis_range, stride, length, crop_shape):
+            grid = np.arange(*axis_range, stride)
+            grid_ = [x for x in grid if x + crop_shape < length]
+            if len(grid) != len(grid_):
+                grid_ += [axis_range[1] - crop_shape]
+            return sorted(grid_)
 
-        xlines = np.arange(xlines_range[0], xlines_range[1], strides[1])
-        xlines_ = [xline for xline in xlines if xline + crop_shape[1] < geom.xlines_len]
-        if len(xlines) != len(xlines_):
-            xlines_ += [xlines_range[1] - crop_shape[1]]
-        xlines = sorted(xlines_)
-
-        hs = np.arange(h_range[0], h_range[1], strides[2])
-        hs_ = [h for h in hs if h + crop_shape[2] < geom.depth]
-        if len(hs) != len(hs_):
-            hs_ += [h_range[1] - crop_shape[2]]
-        hs = sorted(hs_)
+        ilines = _make_axis_grid(ilines_range, strides[0], geom.ilines_len, crop_shape[0])
+        xlines = _make_axis_grid(xlines_range, strides[1], geom.xlines_len, crop_shape[1])
+        hs = _make_axis_grid(h_range, strides[2], geom.depth, crop_shape[2])
 
         # Every point in grid contains reference to cube
         # in order to be valid input for `crop` action of SeismicCropBatch
@@ -351,17 +454,12 @@ class SeismicCubeset(Dataset):
                          xlines_range[1] - xlines_range[0],
                          h_range[1] - h_range[0])
 
-        slice_ = (slice(0, ilines_range[1]-ilines_range[0], 1),
-                  slice(0, xlines_range[1]-xlines_range[0], 1),
-                  slice(0, h_range[1]-h_range[0], 1))
-
         grid_array = grid[:, 1:].astype(int) - offsets
 
         self.grid_gen = lambda: next(grid_gen)
         self.grid_iters = - (-len(grid) // batch_size)
         self.grid_info = {'grid_array': grid_array,
                           'predict_shape': predict_shape,
-                          'slice': slice_,
                           'crop_shape': crop_shape,
                           'cube_name': cube_name,
                           'range': [ilines_range, xlines_range, h_range]}
@@ -373,18 +471,34 @@ class SeismicCubeset(Dataset):
         Parameters
         ----------
         src : str or array
-            source-mask. Can be either a name of attribute or mask itself.
-        dst : attribute of `cubeset` to write the horizons in.
+            Source-mask. Can be either a name of attribute or mask itself.
+
+        dst : str
+            Attribute of `cubeset` to write the horizons in.
+
         threshold : float
-            parameter of mask-thresholding.
+            Parameter of mask-thresholding.
+
         averaging : str
-            method of pandas.groupby used for finding the center of a horizon
+            Method of pandas.groupby used for finding the center of a horizon
             for each (iline, xline).
+
         coordinates : str
-            coordinates to use for keys of point-cloud. Can be either 'cubic'
+            Coordinates to use for keys of point-cloud. Can be either 'cubic'
             'lines' or None. In case of None, mask-coordinates are used. Mode 'cubic'
             requires 'grid_info'-attribute; can be run after `make_grid`-method. Mode 'lines'
             requires both 'grid_info' and 'geometries'-attributes to be loaded.
+
+        separate : bool
+            Whether to write horizonts in separate dictionaries or in one common.
+
+        Returns
+        -------
+        dict or list of dict
+            If separate is False, then one dictionary returned with keys being pairs of
+            (iline, xline) and values being lists of heights.
+            If separate is True, then list of dictionaries is returned, with every dictionary being
+            mapping from pairs of (iline, xline) to height from each individual horizont.
         """
         # fetch mask-array
         mask = getattr(self, src) if isinstance(src, str) else src
