@@ -6,7 +6,6 @@ import argparse
 import json
 import logging
 
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -98,19 +97,19 @@ if __name__ == '__main__':
         config = json.load(file)
         args = [config.get(key) for key in ["cubePath", "modelPath", "predictionsPath", "gpuDevice",
                                             "cubeCrop", "cropShape", "cropStride", "areaShare", "threshold"]]
-        
+
     # Logging to either stdout or file
     if config.get("print"):
         printer = print
     else:
         path_log = config.get("path_log") or os.path.join(os.getcwd(), "logs/dump.log")
         print('LOGGING TO ', path_log)
-        handler = logging.FileHandler(path_log, mode='w')        
+        handler = logging.FileHandler(path_log, mode='w')
         handler.setFormatter(logging.Formatter('%(asctime)s     %(message)s'))
 
         logger = logging.getLogger('train_logger')
         logger.setLevel(logging.INFO)
         logger.addHandler(handler)
         printer = logger.info
-        
+
     main(*args, printer=printer)

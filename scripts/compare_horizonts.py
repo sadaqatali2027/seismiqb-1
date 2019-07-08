@@ -1,28 +1,37 @@
-"""Test"""
+""" Compare each horizont in the first directory with each horizont in the second. """
 #pylint: disable=import-error, wrong-import-position
 import os
 import sys
 import argparse
 import json
 import logging
+from glob import glob
 
 import numpy as np
 from tqdm import tqdm
-from glob import glob
 
 sys.path.append('..')
 from seismiqb import read_point_cloud, make_labels_dict
 
 
 
+def matcher(horizont_1, horizont_2, eps=400):
+    mean_1 = pd.read_csv(horizont_1, names=['ilines', 'xlines', 'heights'],
+                         sep='\s+', usecols=['heights'])['heights'].mean()
+
+    mean_2 = pd.read_csv(horizont_2, names=['ilines', 'xlines', 'heights'],
+                         sep='\s+', usecols=['heights'])['heights'].mean()
+    return np.abs((mean_1 - mean_2)) < eps
+
+
 def compare(horizont_1, horizont_2):
     """ Compare two horizonts by computing multiple simple metrics.
-    
+
     Parameters
     ----------
     horizont_1, horizont_2 : str
         Path to horizont. Each line in the file must be in (iline, xline, height) format.
-        
+
     Returns
     -------
     dict
@@ -71,12 +80,12 @@ def compare(horizont_1, horizont_2):
 
 def main(dir_1, dir_2, printer=None):
     """ Compare each pair of horizonts in passed lists.
-    
+
     Parameters
     ----------
     dir_1, dir_2 : str
         Path to directories with horizonts to compare.
-        
+
     printer : callable
         Function to print with.
     """
@@ -85,12 +94,18 @@ def main(dir_1, dir_2, printer=None):
     cross = [(item_1, item_2) for item_1 in list_1 for item_2 in list_2]
 
     for horizont_1, horizont_2 in tqdm(cross):
+
+        if not matcher(horizont_1, horizont_2):
+            printer('Horizonts {} \n          {} \nwere REJECTED\n'.format(horizont_1, horizont_2))
+            continue
+
         info = compare(horizont_1, horizont_2)
 
         printer('First horizont:  {}'.format(info['name_1']))
         printer('Second horizont: {}'.format(info['name_2']))
 
-        printer('Mean value/std of error:                  {:8.7} / {:8.7}'.format(info['mean_error'], info['std_error']))
+        printer('Mean value/std of error:                  {:8.7} / {:8.7}'.format(info['mean_error'],
+                                                                                   info['std_error']))
         printer('First horizont length:                    {}'.format(info['len_1']))
         printer('Second horizont length:                   {}'.format(info['len_2']))
 
@@ -114,19 +129,19 @@ if __name__ == '__main__':
     with open(args.config_path, 'r') as file:
         config = json.load(file)
         args = [config.get(key) for key in ["dir_1", "dir_2"]]
-        
+
     # Logging to either stdout or file
     if config.get("print"):
         printer = print
     else:
         path_log = config.get("path_log") or os.path.join(os.getcwd(), "logs/compare.log")
-        handler = logging.FileHandler(path_log, mode='w')        
+        handler = logging.FileHandler(path_log, mode='w')
         handler.setFormatter(logging.Formatter('%(message)s'))
 
         logger = logging.getLogger('compare_logger')
         logger.setLevel(logging.INFO)
         logger.addHandler(handler)
         printer = logger.info
-    
+
     # Compare each pair of horizonts in two directories
     main(*args, printer=printer)
