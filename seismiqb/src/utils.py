@@ -147,7 +147,7 @@ def make_labels_dict(point_cloud):
     labels = Dict.empty(key_type, value_type)
 
     @njit
-    def fill_labels(labels, ilines_xlines, max_count):
+    def fill_labels(labels, ilines_xlines, point_cloud, max_count):
         """ Fill in labels-dict.
         """
         for i in range(len(ilines_xlines)):
@@ -158,7 +158,7 @@ def make_labels_dict(point_cloud):
             idx = int(point_cloud[i, 3])
             labels[(il, xl)][idx] = point_cloud[i, 2]
 
-    fill_labels(labels, ilines_xlines, max_count)
+    fill_labels(labels, ilines_xlines, point_cloud, max_count)
     return labels
 
 
