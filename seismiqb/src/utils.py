@@ -191,6 +191,7 @@ def create_mask(ilines_, xlines_, hs_,
     """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
     This function is usually called inside SeismicCropBatch's method `load_masks`.
     """
+    #pylint: disable=too-many-nested-blocks
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
 
     for i, iline_ in enumerate(ilines_):
@@ -201,18 +202,20 @@ def create_mask(ilines_, xlines_, hs_,
             m_temp = np.zeros(geom_depth)
             if mode == 'horizon':
                 for height_ in il_xl_h[(il_, xl_)]:
-                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
+                    if height_ != FILL_VALUE:
+                        m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
             elif mode == 'stratum':
                 current_col = 1
                 start = 0
                 sorted_heights = sorted(il_xl_h[(il_, xl_)])
                 for height_ in sorted_heights:
-                    if start > hs_[-1]:
-                        break
-                    m_temp[start:height_ + 1] = current_col
-                    start = height_ + 1
-                    current_col += 1
-                    m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
+                    if height_ != FILL_VALUE:
+                        if start > hs_[-1]:
+                            break
+                        m_temp[start:height_ + 1] = current_col
+                        start = height_ + 1
+                        current_col += 1
+                        m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
             else:
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
