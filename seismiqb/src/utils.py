@@ -139,33 +139,11 @@ def make_labels_dict(point_cloud):
     """
     # round and cast
     ilines_xlines = np.round(point_cloud[:, :2]).astype(np.int64)
+    max_count = int(point_cloud[-1, -1]) + 1
 
-    # make dict-types
+    # make typed Dict
     key_type = types.Tuple((types.int64, types.int64))
     value_type = types.int64[:]
-
-    # find max array-length
-    counts = Dict.empty(key_type, types.int64)
-
-    @njit
-    def fill_counts_get_max(counts, ilines_xlines):
-        """ Fill in counts-dict.
-        """
-        max_count = 0
-        for i in range(len(ilines_xlines)):
-            il, xl = ilines_xlines[i, :2]
-            if counts.get((il, xl)) is None:
-                counts[(il, xl)] = 0
-
-            counts[(il, xl)] += 1
-            if counts[(il, xl)] > max_count:
-                max_count = counts[(il, xl)]
-
-        return max_count
-
-    max_count = fill_counts_get_max(counts, ilines_xlines)
-
-    # put key-value pairs into numba-dict
     labels = Dict.empty(key_type, value_type)
 
     @njit
