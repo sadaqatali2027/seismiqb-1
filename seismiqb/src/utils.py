@@ -103,8 +103,11 @@ def convert_point_cloud(path, path_save, names=None, order=None):
     order = [order] if isinstance(order, str) else order
 
     df = pd.read_csv(path, sep='\s+', names=names, usecols=set(order))
+    df.dropna(inplace=True)
+
     if 'iline' in order and 'xline' in order:
         df.sort_values(['iline', 'xline'], inplace=True)
+
     to_save = df.loc[:, order]
     to_save.to_csv(path_save, sep=' ', index=False, header=False)
 
@@ -116,15 +119,14 @@ def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
     ----------
     paths : str or tuple or list
         array-like of paths to files containing point clouds (table of floats with several columns).
-    default : dict
-        dict containing arguments of pandas parser; will be used for parsing all supplied files.
+    names : sequence
+        sequence of column names in files.
     order : array-like
-        specifies the order of columns of the resulting array.
+        specifies the order of columns to keep in the resulting array.
     transforms : array-like
         contains list of vectorized transforms. Each transform is applied to a column of the resulting array.
     **kwargs
-        file-specific arguments of pandas parser in format `{paths[0]: args_0, paths[1]: args_1, ...}`.
-        Each dict updates `default`-args and then usef for parsing a specific file.
+        file-specific arguments of pandas parser.
 
     Returns
     -------
