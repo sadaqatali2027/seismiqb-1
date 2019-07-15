@@ -74,7 +74,7 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
         pass
 
 
-def convert_point_cloud(path, path_save, names, order):
+def convert_point_cloud(path, path_save, names=None, order=None):
     """ Change set of columns in file with point cloud labels.
     Usually is used to remove redundant columns.
 
@@ -97,7 +97,7 @@ def convert_point_cloud(path, path_save, names, order):
     #pylint: disable=anomalous-backslash-in-string
     names = names or ['_', '_', 'iline', '_', '_', 'xline',
                       'cdp_x', 'cdp_y', 'height']
-    order = order or ['cdp_y', 'cdp_x', 'height']
+    order = order or ['iline', 'xline', 'cdp_x', 'cdp_y', 'height']
 
     names = [names] if isinstance(names, str) else names
     order = [order] if isinstance(order, str) else order
