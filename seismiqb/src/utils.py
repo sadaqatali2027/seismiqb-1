@@ -323,7 +323,8 @@ def dump_horizon(horizon, transform, path_save):
     data = np.hstack([ixh[:, :2], cdp_xy])
     df = pd.DataFrame(data, columns=['iline', 'xline', 'cdp_y', 'cdp_x', 'height'])
     df.sort_values(['iline', 'xline'], inplace=True)
-    df.to_csv(path_save, sep=' ', index=False, header=False)
+    df.to_csv(path_save, sep=' ', columns=['iline', 'xline', 'cdp_x', 'cdp_y', 'height'],
+              index=False, header=False)
 
 
 @njit
