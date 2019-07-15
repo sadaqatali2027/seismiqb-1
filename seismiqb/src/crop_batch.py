@@ -5,14 +5,13 @@ from copy import copy
 
 import numpy as np
 import segyio
-import numba
-from numba import njit
 import cv2
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, aggregate, count_nonzeros
+from .utils import create_mask, aggregate, make_labels_dict, _get_horizons
+
 
 
 AFFIX = '___'
@@ -43,17 +42,14 @@ class SeismicCropBatch(Batch):
     @staticmethod
     def salt(path):
         """ Adds random postfix of predefined length to string.
-
         Parameters
         ----------
         path : str
             supplied string.
-
         Returns
         -------
         path : str
             supplied string with random postfix.
-
         Notes
         -----
         Action `crop` makes a new instance of SeismicCropBatch with
@@ -69,12 +65,10 @@ class SeismicCropBatch(Batch):
     @staticmethod
     def unsalt(path):
         """ Removes postfix that was made by `salt` method.
-
         Parameters
         ----------
         path : str
             supplied string.
-
         Returns
         -------
         str
@@ -84,6 +78,49 @@ class SeismicCropBatch(Batch):
             return path[:-SIZE_SALT]
         return path
 
+    def _assemble_labels(self, all_clouds, *args, dst=None, **kwargs):
+        """ Assemble labels-dict from different crops in batch.
+        """
+        _ = args
+        labels = dict()
+        labels_ = dict()
+
+        # init labels-dict
+        for ix in self.indices:
+            labels_[self.unsalt(ix)] = set()
+
+        for ix, cloud in zip(self.indices, all_clouds):
+            labels_[self.unsalt(ix)] |= set(cloud.keys())
+
+        for cube, ilines_xlines in labels_.items():
+            labels[cube] = dict()
+            for il_xl in ilines_xlines:
+                labels[cube][il_xl] = set()
+
+        # fill labels with sets of horizons
+        for ix, cloud in zip(self.indices, all_clouds):
+            for il_xl, heights in cloud.items():
+                labels[self.unsalt(ix)][il_xl] |= set(heights)
+
+        # transforms sets of horizons to labels
+        for cube in labels:
+            for il_xl in labels[cube]:
+                labels[cube][il_xl] = np.sort(list(labels[cube][il_xl]))
+
+        # convert labels to numba.Dict if needed
+        if kwargs.get('to_numba'):
+            for cube, cloud_dict in labels.items():
+                cloud = []
+                for il_xl, horizons in cloud_dict.items():
+                    (il, xl) = il_xl
+                    for h in horizons.reshape(-1):
+                        cloud.append([il, xl, h])
+
+                cloud = np.array(cloud)
+                labels[cube] = make_labels_dict(cloud)
+
+        setattr(self, dst, labels)
+        return self
 
     def get_pos(self, data, component, index):
         """ Get correct slice/key of a component-item based on its type.
@@ -107,10 +144,9 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape, dst='slices', passdown=None):
+    def crop(self, points, shape, dilations=None, dst='slices', passdown=None):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
-
         Parameters
         ----------
         points : array-like
@@ -118,22 +154,17 @@ class SeismicCropBatch(Batch):
             cut it from. Order is: name, iline, xline, height. For example,
             ['Cube.sgy', 13, 500, 200] stands for crop has [13, 500, 200]
             as its upper rightmost point and must be cut from 'Cube.sgy' file.
-
         shape : array-like
             Desired shape of crops.
-
         dst : str, optional
             Component of batch to put positions of crops in.
-
         passdown : str of list of str
             Components of batch to keep in the new one.
-
         Note
         ----
         Based on the first column of `points`, new instance of SeismicCropBatch is created.
         In order to keep multiple references to the same .sgy cube, each index is augmented
         with prefix of fixed length (check `salt` method for details).
-
         Returns
         -------
         SeismicCropBatch
@@ -152,15 +183,16 @@ class SeismicCropBatch(Batch):
             if hasattr(self, component):
                 setattr(new_batch, component, getattr(self, component))
 
+        dilations = dilations or [1, 1, 1]
         slices = []
         for point in points:
-            slice_ = self._make_slice(point, shape)
+            slice_ = self._make_slice(point, shape, dilations)
             slices.append(slice_)
         setattr(new_batch, dst, slices)
         return new_batch
 
 
-    def _make_slice(self, point, shape):
+    def _make_slice(self, point, shape, dilations):
         """ Creates list of `np.arange`'s for desired location. """
         ix = point[0]
 
@@ -170,27 +202,24 @@ class SeismicCropBatch(Batch):
         else:
             slice_point = point[1:]
 
-        slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]),
-                  np.arange(slice_point[1], slice_point[1]+shape[1]),
-                  np.arange(slice_point[2], slice_point[2]+shape[2])]
+        slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]*dilations[0], dilations[0]),
+                  np.arange(slice_point[1], slice_point[1]+shape[1]*dilations[1], dilations[1]),
+                  np.arange(slice_point[2], slice_point[2]+shape[2]*dilations[2], dilations[2])]
+
         return slice_
 
 
     @action
     def load_cubes(self, dst, fmt='h5py', src='slices'):
         """ Load data from cube in given positions.
-
         Parameters
         ----------
         fmt : 'h5py' or 'sgy'
             Cube storing format.
-
         src : str
             Component of batch with positions of crops to load.
-
         dst : str
             Component of batch to put loaded crops in.
-
         Returns
         -------
         SeismicCropBatch
@@ -207,7 +236,6 @@ class SeismicCropBatch(Batch):
     def _sgy_init(self, *args, **kwargs):
         """ Create `dst` component and preemptively open all the .sgy files.
         Should always be used in pair with `_sgy_post`!
-
         Note
         ----
         This init function is helpful for actions that work directly with .sgy
@@ -286,9 +314,8 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, max_horizons=None):
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels'):
         """ Create masks from labels-dictionary in given positions.
-
         Parameters
         ----------
         src : str
@@ -304,26 +331,70 @@ class SeismicCropBatch(Batch):
             1 to number_of_horizons + 1.
         width : int
             Width of horizons in the `horizon` mode.
-
         Returns
         -------
         SeismicCropBatch
             Batch with loaded masks in desired components.
-
         Notes
         -----
         Can be run only after labels-dict is loaded into labels-component.
         """
         geom = self.get(ix, 'geometries')
-        il_xl_h = self.get(ix, 'labels')
+        il_xl_h = self.get(ix, src_labels)
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-        mask = create_mask(ilines_, xlines_, hs_, il_xl_h, geom.ilines, geom.xlines, geom.depth, mode, width, max_horizons)
+        mask = create_mask(ilines_, xlines_, hs_, il_xl_h, geom.ilines, geom.xlines, geom.depth, mode, width)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
         return self
+
+    @action
+    @inbatch_parallel(init='indices', post='_assemble_labels', target='threads')
+    def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
+                        threshold=0.5, averaging='mean', coordinates='cubic', to_numba=False):
+        """ Convert labels from horizons-mask into point-cloud format.
+        Parameters
+        ----------
+        src_masks : str
+            component of batch that stores masks.
+        src_slices : str
+            component of batch that stores slices of crops.
+        dst : str
+            component of batch to store the resulting labels.
+        threshold : float
+            parameter of mask-thresholding.
+        averaging : str
+            method of pandas.groupby used for finding the center of a horizon.
+        coordinates : str
+            coordinates-mode to use for keys of point-cloud. Can be either 'cubic'
+            or 'lines'. In case of `lines`-option, `geometries` must be loaded as
+            a component of batch.
+        to_numba : bool
+            whether to convert the resulting point-cloud to numba-dict. The conversion
+            takes additional time.
+        Returns
+        -------
+        SeismicCropBatch
+            batch with fetched labels.
+        """
+        _ = dst, to_numba
+
+        # threshold the mask
+        mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
+
+        # prepare args
+        i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
+        geom = self.get(ix, 'geometries')
+        if coordinates == 'lines':
+            transforms = (lambda i_: geom.ilines[i_ + i_shift], lambda x_: geom.xlines[x_ + x_shift],
+                          lambda h_: h_ + h_shift)
+        else:
+            transforms = (lambda i_: i_ + i_shift, lambda x_: x_ + x_shift,
+                          lambda h_: h_ + h_shift)
+
+        return _get_horizons(mask, threshold, averaging, transforms, separate=False)
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
@@ -411,27 +482,19 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='run_once')
-    def assemble_crops(self, src, dst, grid_info, mode='avg'):
+    def assemble_crops(self, src, dst, grid_info):
         """ Glue crops together in accordance to the grid.
-
         Note
         ----
-        In order to use this function you must first call `make_grid` method of SeismicCubeset.
-
+        In order to use this action you must first call `make_grid` method of SeismicCubeset.
         Parameters
         ----------
         src : array-like
             Sequence of crops.
-
         dst : str
             Component of batch to put results in.
-
         grid_info : dict
             Dictionary with information about grid. Should be created by `make_grid` method.
-
-        mode : str or jit-decorated callable
-            Mapping from multiple values to one for areas, where multiple crops overlap.
-
         Returns
         -------
         SeismicCropBatch
@@ -441,31 +504,18 @@ class SeismicCropBatch(Batch):
         if len(src) != len(grid_info['grid_array']):
             return self
 
-        if mode == 'avg':
-            @njit
-            def _callable(array):
-                return np.sum(array) / max(count_nonzeros(array), 1)
-        elif mode == 'max':
-            @njit
-            def _callable(array):
-                return np.max(array)
-        elif isinstance(mode, numba.targets.registry.CPUDispatcher):
-            _callable = mode
-
         # Since we know that cube is 3-d entity, we can get rid of
         # unneccessary dimensions
         src = np.array(src)
         src = src if len(src.shape) == 4 else np.squeeze(src, axis=-1)
         assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
-                              grid_info['predict_shape'], aggr_func=_callable)
-
-        setattr(self, dst, assembled[grid_info['slice']])
+                              grid_info['predict_shape'])
+        setattr(self, dst, assembled)
         return self
 
 
     def _rotate_axes_(self, crop):
         """ The last shall be first and the first last.
-
         Notes
         -----
         Actions `crop`, `load_cubes`, `create_mask` make data in [iline, xline, height]
@@ -479,7 +529,6 @@ class SeismicCropBatch(Batch):
 
     def _add_axis_(self, crop):
         """ Add new axis.
-
         Notes
         -----
         Used in combination with `dice` and `ce` losses to tell model that input is
@@ -490,7 +539,6 @@ class SeismicCropBatch(Batch):
 
     def _additive_noise_(self, crop, scale):
         """ Add random value to each entry of crop. Added values are centered at 0.
-
         Parameters
         ----------
         scale : float
@@ -500,7 +548,6 @@ class SeismicCropBatch(Batch):
 
     def _multiplicative_noise_(self, crop, scale):
         """ Multiply each entry of crop by random value, centered at 1.
-
         Parameters
         ----------
         scale : float
@@ -510,12 +557,10 @@ class SeismicCropBatch(Batch):
 
     def _cutout_2d_(self, crop, patch_shape, n):
         """ Change patches of data to zeros.
-
         Parameters
         ----------
         patch_shape : array-like
             Shape or patches along each axis.
-
         n : float
             Number of patches to cut.
         """
@@ -532,7 +577,6 @@ class SeismicCropBatch(Batch):
 
     def _rotate_(self, crop, angle):
         """ Rotate crop along the first two axes.
-
         Parameters
         ----------
         angle : float
@@ -543,9 +587,18 @@ class SeismicCropBatch(Batch):
         return cv2.warpAffine(crop, matrix, (shape[1], shape[0]))
 
 
+    def _flip_(self, crop, axis=0):
+        """ Flip crop along the given axis.
+        Parameters
+        ----------
+        axis : int
+            Axis to flip along
+        """
+        return cv2.flip(crop, axis)
+
+
     def _scale_2d_(self, crop, scale):
         """ Zoom in or zoom out along the first two axes of crop.
-
         Parameters
         ----------
         scale : float
@@ -559,7 +612,6 @@ class SeismicCropBatch(Batch):
     def _affine_transform_(self, crop, alpha_affine=10):
         """ Perspective transform. Moves three points to other locations.
         Guaranteed not to flip image or scale it more than 2 times.
-
         Parameters
         ----------
         alpha_affine : float
@@ -587,7 +639,6 @@ class SeismicCropBatch(Batch):
     def _perspective_transform_(self, crop, alpha_persp):
         """ Perspective transform. Moves four points to other four.
         Guaranteed not to flip image or scale it more than 2 times.
-
         Parameters
         ----------
         alpha_persp : float
@@ -614,12 +665,10 @@ class SeismicCropBatch(Batch):
 
     def _elastic_transform_(self, crop, alpha=40, sigma=4):
         """ Transform indexing grid of the first two axes.
-
         Parameters
         ----------
         alpha : float
             Maximum shift along each axis.
-
         sigma : float
             Smoothening factor.
         """
@@ -653,22 +702,17 @@ class SeismicCropBatch(Batch):
 
     def _bandwidth_filter_(self, crop, lowcut=None, highcut=None, fs=1, order=3):
         """ Keep only frequences between lowcut and highcut.
-
         Notes
         -----
         Use it before other augmentations, especially before ones that add lots of zeros.
-
         Parameters
         ----------
         lowcut : float
             Lower bound for frequences kept.
-
         highcut : float
             Upper bound for frequences kept.
-
         fs : float
             Sampling rate.
-
         order : int
             Filtering order.
         """
@@ -680,3 +724,29 @@ class SeismicCropBatch(Batch):
         else:
             b, a = butter(order, [lowcut / nyq, highcut / nyq], btype='band')
         return lfilter(b, a, crop, axis=1)
+
+
+    def _sign_(self, crop):
+        """ Element-wise indication of the sign of a number. """
+        return np.sign(crop)
+
+
+    def _analytic_transform_(self, crop, axis=1, mode='phase'):
+        """ Compute instantaneous phase or frequency via the Hilbert transform.
+        Parameters
+        ----------
+        axis : int
+            Axis of transformation. Intended to be used after `rotate_axes`, so default value
+            is to make transform along depth dimension.
+        mode : str
+            If 'phase', compute instantaneous phase.
+            If 'freq', compute instantaneous frequency.
+        """
+        analytic = hilbert(crop, axis=axis)
+        phase = np.unwrap(np.angle(analytic))
+
+        if mode == 'phase':
+            return phase
+        if 'freq' in mode:
+            return np.diff(phase, axis=axis) / (2*np.pi)
+        raise ValueError('Unknown `mode` parameter.')
