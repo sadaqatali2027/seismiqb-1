@@ -321,6 +321,8 @@ def dump_horizon(horizon, transform, path_save):
     cdp_xy = transform(ixh)
 
     data = np.hstack([ixh[:, :2], cdp_xy])
+    data[:, -1] += 1 # take into account that initial horizonts are 1-based
+
     df = pd.DataFrame(data, columns=['iline', 'xline', 'cdp_y', 'cdp_x', 'height'])
     df.sort_values(['iline', 'xline'], inplace=True)
     df.to_csv(path_save, sep=' ', columns=['iline', 'xline', 'cdp_x', 'cdp_y', 'height'],
