@@ -25,7 +25,7 @@ def matcher(horizont_1, horizont_2, eps=400):
     return np.abs((mean_1 - mean_2)) < eps
 
 
-def compare(horizont_1, horizont_2):
+def compare(horizont_1, horizont_2, printer):
     """ Compare two horizonts by computing multiple simple metrics.
 
     Parameters
@@ -63,20 +63,25 @@ def compare(horizont_1, horizont_2):
         if labels_1.get(key) is None:
             not_present_2 += 1
 
-    info = {'name_1': '/'.join(horizont_1.split('/')[-3:]),
-            'name_2': '/'.join(horizont_2.split('/')[-3:]),
-            'mean_error': np.mean(differences),
-            'std_error':  np.std(differences),
-            'len_1': len(labels_1),
-            'len_2': len(labels_2),
-            'in_window':  sum(np.array(differences) <= 5),
-            'rate_in_window': sum(np.array(differences) <= 5) / len(differences),
-            'mean_1': np.mean(vals_1),
-            'mean_2': np.mean(vals_2),
-            'not_present_1': not_present_1,
-            'not_present_2': not_present_2,
-            }
-    return info
+
+    printer('First horizont:  {}'.format('/'.join(horizont_1.split('/')[-3:])))
+    printer('Second horizont: {}'.format('/'.join(horizont_2.split('/')[-3:])))
+
+    printer('Mean value/std of error:                  {:8.7} / {:8.7}'.format(np.mean(differences),
+                                                                               np.std(differences)))
+    printer('First horizont length:                    {}'.format(len(labels_1)))
+    printer('Second horizont length:                   {}'.format(len(labels_2)))
+
+    printer('Number in 5 ms window:                    {}'.format(sum(np.array(differences) <= 5)))
+    printer('Rate in 5 ms window:                      {:8.7}'.format(sum(np.array(differences) <= 5) / len(differences)))
+
+    printer('Average height of FIRST horizont:         {:8.7}'.format(np.mean(vals_1)))
+    printer('Average height of SECOND horizont:        {:8.7}'.format(np.mean(vals_2)))
+
+    printer('In the FIRST, but not in the SECOND:      {}'.format(not_present_1))
+    printer('In the SECOND, but not in the FIRST:      {}'.format(not_present_2))
+    printer('\n\n')
+
 
 
 def main(dir_1, dir_2, printer=None):
@@ -100,25 +105,7 @@ def main(dir_1, dir_2, printer=None):
             printer('Horizonts {} \n          {} \nwere REJECTED\n'.format(horizont_1, horizont_2))
             continue
 
-        info = compare(horizont_1, horizont_2)
-
-        printer('First horizont:  {}'.format(info['name_1']))
-        printer('Second horizont: {}'.format(info['name_2']))
-
-        printer('Mean value/std of error:                  {:8.7} / {:8.7}'.format(info['mean_error'],
-                                                                                   info['std_error']))
-        printer('First horizont length:                    {}'.format(info['len_1']))
-        printer('Second horizont length:                   {}'.format(info['len_2']))
-
-        printer('Number in 5 ms window:                    {}'.format(info['in_window']))
-        printer('Rate in 5 ms window:                      {:8.7}'.format(info['rate_in_window']))
-
-        printer('Average height of FIRST horizont:         {:8.7}'.format(info['mean_1']))
-        printer('Average height of SECOND horizont:        {:8.7}'.format(info['mean_2']))
-
-        printer('In the FIRST, but not in the SECOND:      {}'.format(info['not_present_1']))
-        printer('In the SECOND, but not in the FIRST:      {}'.format(info['not_present_2']))
-        printer('\n\n')
+        info = compare(horizont_1, horizont_2, printer)
 
 
 if __name__ == '__main__':
