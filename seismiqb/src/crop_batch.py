@@ -311,7 +311,8 @@ class SeismicCropBatch(Batch):
         getattr(self, dst)[pos] = crop
         return self
 
-
+    @action
+    @inbatch_parallel(init='_init_component', target='threads')
     def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', single_horizon=False):
         """ Create masks from labels-dictionary in given positions.
 
