@@ -164,26 +164,38 @@ def make_labels_dict(point_cloud):
 @njit
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, geom_ilines, geom_xlines, geom_depth,
-                mode, width, max_horizons):
+                mode, width, single_horizon=False):
     """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
     This function is usually called inside SeismicCropBatch's method `load_masks`.
     """
-    #pylint: disable=too-many-nested-blocks
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+    if single_horizon:
+        single_idx = -1
+
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
             il_, xl_ = geom_ilines[iline_], geom_xlines[xline_]
             if il_xl_h.get((il_, xl_)) is None:
                 continue
             m_temp = np.zeros(geom_depth)
-            sorted_heights = sorted(il_xl_h[(il_, xl_)])
             if mode == 'horizon':
-                for height_ in il_xl_h[(il_, xl_)]:
-                    if height_ != FILL_VALUE:
-                        m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
+                filtered_idx = [idx for idx, height_ in enumerate(il_xl_h[(il_, xl_)]) if height_ != FILL_VALUE]
+                filtered_idx = [idx for idx in filtered_idx if il_xl_h[(il_, xl_)][idx] > hs_[0] and il_xl_h[(il_, xl_)][idx] < hs_[-1]]
+                if len(filtered_idx) == 0:
+                    continue
+                if single_horizon:
+                    if single_idx == -1:
+                        single_idx = np.random.choice(filtered_idx)
+                        single_idx = filtered_idx[np.random.randint(len(filtered_idx))]
+                    value = il_xl_h[(il_, xl_)][single_idx]
+                    m_temp[max(0, value - width):min(value + width, geom_depth)] = 1
+                else:
+                    for idx in filtered_idx:
+                        m_temp[max(0, il_xl_h[(il_, xl_)][idx] - width):min(il_xl_h[(il_, xl_)][idx] + width, geom_depth)] = 1
             elif mode == 'stratum':
                 current_col = 1
                 start = 0
+                sorted_heights = sorted(il_xl_h[(il_, xl_)])
                 for height_ in sorted_heights:
                     if height_ != FILL_VALUE:
                         if start > hs_[-1]:
@@ -191,12 +203,11 @@ def create_mask(ilines_, xlines_, hs_,
                         m_temp[start:height_ + 1] = current_col
                         start = height_ + 1
                         current_col += 1
-                        m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
+                m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
             else:
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
     return mask
-
 
 def _get_horizons(mask, threshold, averaging, transforms, separate=False):
     """ Compute horizons from a mask.
