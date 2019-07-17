@@ -71,10 +71,10 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def convert_to_h5py(self):
+    def convert_to_h5py(self, postfix='', dtype=np.float32):
         """ Converts every cube in dataset from `.sgy` to `.hdf5`. """
         for ix in self.indices:
-            self.geometries[ix].make_h5py()
+            self.geometries[ix].make_h5py(postfix=postfix, dtype=dtype)
         return self
 
 
