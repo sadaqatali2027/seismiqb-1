@@ -78,7 +78,7 @@ def main(path_to_cube, path_to_model, path_to_predictions, gpu_device,
     area = (cube_crop[0][1] - cube_crop[0][0]) * (cube_crop[1][1] - cube_crop[1][0])
 
     ctr = 0
-    for h in ds.horizons[:10]:
+    for h in ds.horizons:
         if len(h) / area >= area_share:
             dump_horizon(h, ds.geometries[ds.indices[0]],
                          path_to_predictions, 'Horizon_' + str(ctr))
