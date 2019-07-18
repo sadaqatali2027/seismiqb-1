@@ -346,7 +346,8 @@ class SeismicCropBatch(Batch):
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-        mask = create_mask(ilines_, xlines_, hs_, il_xl_h, geom.ilines, geom.xlines, geom.depth, mode, width, single_horizon)
+        mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
+                           geom.ilines, geom.xlines, geom.depth, mode, width, single_horizon)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
