@@ -299,7 +299,7 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
     return horizons
 
 
-def dump_horizon(horizon, transform, path_save):
+def dump_horizon(horizon, geometry, path_save, offset=1):
     """ Save horizon as point cloud.
 
     Parameters
@@ -307,20 +307,27 @@ def dump_horizon(horizon, transform, path_save):
     horizon : dict
         Mapping from pairs (iline, xline) to height.
 
-    transform : callable
-        Mapping from (iline, xline, height). Must accept and return ndarray.
+    geometry : SeismicGeometry
+        Information about cube
 
     path_save : str
         Path for the horizon to be saved to.
+
+    offset : int, float
+        Shift horizont before applying inverse transform.
+        Usually is used to take into account different numeration bases:
+        Petrel uses 1-based numeration, whilst Python uses 0-based numberation.
     """
     ixh = []
     for (i, x), h in horizon.items():
         ixh.append([i, x, h])
     ixh = np.asarray(ixh)
 
-    cdp_xy = transform(ixh)
+    cdp_xy = geometry.lines_to_abs(ixh)
 
-    data = np.hstack([ixh[:, :2], cdp_xy])
+    h = (ixh[:, -1] + offset) * geometry.sample_rate + geometry.delay
+
+    data = np.hstack([ixh[:, :2], cdp_xy[:, :2]])
     data[:, -1] += 1 # take into account that initial horizonts are 1-based
 
     df = pd.DataFrame(data, columns=['iline', 'xline', 'cdp_y', 'cdp_x', 'height'])
