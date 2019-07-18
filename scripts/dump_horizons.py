@@ -16,7 +16,7 @@ from seismiqb.batchflow.models.tf import TFModel
 
 
 
-def dump_horizon(horizon, geometry, path, name):
+def dump_horizon(horizon, geometry, path, name, offset=1):
     """ Convert horizon to point cloud and save it to desired place. """
     ixhs = []
     for k, v in horizon.items():
@@ -24,7 +24,7 @@ def dump_horizon(horizon, geometry, path, name):
     labels = pd.DataFrame(ixhs, columns=['inline', 'xline', 'height'])
     labels.sort_values(['inline', 'xline'], inplace=True)
     sample_rate, delay = geometry.sample_rate, geometry.delay
-    inverse = lambda h: (h + 1) * sample_rate + delay
+    inverse = lambda h: (h + offset) * sample_rate + delay
     labels.loc[:, 'height'] = inverse(labels.loc[:, 'height'])
     labels.to_csv(os.path.join(path, name + '.csv'), sep=' ', index=False, header=False)
 

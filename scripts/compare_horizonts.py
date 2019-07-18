@@ -17,6 +17,19 @@ from seismiqb import read_point_cloud, make_labels_dict
 
 
 def matcher(horizont_1, horizont_2, eps=400):
+    """ Check if horizonts are close to each other.
+
+    Parameters
+    horizont_1, horizont_2 : str
+        Paths to the respective horizonts.
+
+    eps : int, float
+        Distance threshold.
+
+    Returns
+        True, if horizonts are on average closer to each other than eps.
+        False otherwise
+    """
     mean_1 = pd.read_csv(horizont_1, names=['ilines', 'xlines', 'heights'],
                          sep='\s+', usecols=['heights'])['heights'].mean()
 
@@ -72,8 +85,8 @@ def compare(horizont_1, horizont_2, printer):
     printer('First horizont length:                    {}'.format(len(labels_1)))
     printer('Second horizont length:                   {}'.format(len(labels_2)))
 
-    printer('Number in 5 ms window:                    {}'.format(sum(np.array(differences) <= 5)))
-    printer('Rate in 5 ms window:                      {:8.7}'.format(sum(np.array(differences) <= 5) / len(differences)))
+    printer('Number in 5 ms window:                    {}'.format(np.sum(np.array(differences) <= 5)))
+    printer('Rate in 5 ms window:                      {:8.7}'.format(np.sum(np.array(differences) <= 5) / len(differences)))
 
     printer('Average height of FIRST horizont:         {:8.7}'.format(np.mean(vals_1)))
     printer('Average height of SECOND horizont:        {:8.7}'.format(np.mean(vals_2)))
