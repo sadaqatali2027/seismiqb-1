@@ -310,7 +310,6 @@ def dump_horizon(horizon, geometry, path_save, offset=1):
     h = (ixh[:, -1] + offset) * geometry.sample_rate + geometry.delay
 
     data = np.hstack([ixh[:, :2], cdp_xy[:, :2], h.reshape(-1, 1)])
-    data[:, -1] += 1 # take into account that initial horizonts are 1-based
 
     df = pd.DataFrame(data, columns=['iline', 'xline', 'cdp_y', 'cdp_x', 'height'])
     df.sort_values(['iline', 'xline'], inplace=True)
