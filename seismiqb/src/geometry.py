@@ -162,7 +162,7 @@ class SeismicGeometry():
                     self.value_max = np.max(trace_)
 
 
-    def make_h5py(self, path_h5py=None, postfix=None, dtype=np.float32):
+    def make_h5py(self, path_h5py=None, postfix='', dtype=np.float32):
         """ Converts `.sgy` cube to `.hdf5` format.
 
         Parameters
