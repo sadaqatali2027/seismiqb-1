@@ -20,6 +20,7 @@ def matcher(horizont_1, horizont_2, eps=400):
     """ Check if horizonts are close to each other.
 
     Parameters
+    ----------
     horizont_1, horizont_2 : str
         Paths to the respective horizonts.
 
