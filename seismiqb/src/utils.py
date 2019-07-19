@@ -139,37 +139,15 @@ def make_labels_dict(point_cloud):
     """
     # round and cast
     ilines_xlines = np.round(point_cloud[:, :2]).astype(np.int64)
+    max_count = int(point_cloud[-1, -1]) + 1
 
-    # make dict-types
+    # make typed Dict
     key_type = types.Tuple((types.int64, types.int64))
     value_type = types.int64[:]
-
-    # find max array-length
-    counts = Dict.empty(key_type, types.int64)
-
-    @njit
-    def fill_counts_get_max(counts, ilines_xlines):
-        """ Fill in counts-dict.
-        """
-        max_count = 0
-        for i in range(len(ilines_xlines)):
-            il, xl = ilines_xlines[i, :2]
-            if counts.get((il, xl)) is None:
-                counts[(il, xl)] = 0
-
-            counts[(il, xl)] += 1
-            if counts[(il, xl)] > max_count:
-                max_count = counts[(il, xl)]
-
-        return max_count
-
-    max_count = fill_counts_get_max(counts, ilines_xlines)
-
-    # put key-value pairs into numba-dict
     labels = Dict.empty(key_type, value_type)
 
     @njit
-    def fill_labels(labels, ilines_xlines, max_count):
+    def fill_labels(labels, ilines_xlines, point_cloud, max_count):
         """ Fill in labels-dict.
         """
         for i in range(len(ilines_xlines)):
@@ -180,7 +158,7 @@ def make_labels_dict(point_cloud):
             idx = int(point_cloud[i, 3])
             labels[(il, xl)][idx] = point_cloud[i, 2]
 
-    fill_labels(labels, ilines_xlines, max_count)
+    fill_labels(labels, ilines_xlines, point_cloud, max_count)
     return labels
 
 
@@ -191,6 +169,7 @@ def create_mask(ilines_, xlines_, hs_,
     """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
     This function is usually called inside SeismicCropBatch's method `load_masks`.
     """
+    #pylint: disable=too-many-nested-blocks
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
 
     for i, iline_ in enumerate(ilines_):
@@ -201,12 +180,15 @@ def create_mask(ilines_, xlines_, hs_,
             m_temp = np.zeros(geom_depth)
             if mode == 'horizon':
                 for height_ in il_xl_h[(il_, xl_)]:
-                    m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
+                    if height_ != FILL_VALUE:
+                        m_temp[max(0, height_ - width):min(height_ + width, geom_depth)] = 1
             elif mode == 'stratum':
                 current_col = 1
                 start = 0
                 sorted_heights = sorted(il_xl_h[(il_, xl_)])
                 for height_ in sorted_heights:
+                    if height_ == FILL_VALUE:
+                        height_ = start
                     if start > hs_[-1]:
                         break
                     m_temp[start:height_ + 1] = current_col
