@@ -22,7 +22,7 @@ def make_data_extension(batch, **kwargs):
         data_x.append(np.concatenate([cube, cut_mask_], axis=-1))
 
     data_y = []
-    
+
     for cube in batch.mask_crops:
         data_y.append(cube)
     return {"feed_dict": {'cubes': data_x,
@@ -85,4 +85,67 @@ def show_extension_results(val_batch, val_pipeline, cubes_numbers):
         plt.imshow(predicted_img, cmap="Blues", alpha=0.1)
 
         plt.title('Extension model prediction', fontsize=20)
+
+
+def load(dataset, p=None, postfix=None):
+    postfix = postfix or '/FORMAT_HORIZONTS/*'
+
+    paths_txt = {ds.indices[i]: glob('/'.join(ds.get_fullpath(ds.indices[i])))}
+
+    paths_txt = {}
+    for i in range(len(dataset)):
+        dir_path = '/'.join(dataset.index.get_fullpath(dataset.indices[i]).split('/')[:-1])
+        dir_ = dir_path + postfix
+        paths_txt[dataset.indices[i]] = glob(dir_)
+
+    dataset = (dataset.load_geometries()
+                      .load_point_clouds(paths=paths_txt)
+                      .load_labels()
+                      .load_samplers(p=p))
+    return dataset
+
+
+def plot_loss(*lst, title=None):
+    lst = lst if isinstance(lst[0], (tuple, list)) else [lst]
+
+    plt.figure(figsize=(8, 5))
+    for loss_history in lst:
+        plt.plot(loss_history)
+
+    plt.grid(True)
+    plt.xlabel('Iterations', fontdict={'fontsize': 15})
+    plt.ylabel('Loss', fontdict={'fontsize': 15})
+    if title:
+        plt.title(title, fontdict={'fontsize': 15})
+    plt.show()
+
+
+
+def plot_batch_components(batch, *components, n=5):
+    n_comp = len(components)
+    n_crops = len(getattr(batch, components[0]))
+
+    indices = np.random.choice(n_crops, n)
+
+    for idx in indices:
+        print('Images from {}'.format(batch.indices[idx][:-10]))
+        fig, ax = plt.subplots(1, n_comp, figsize=(8*n_comp, 10))
+        for i, comp in enumerate(components):
+            data = getattr(batch, comp)[idx]
+
+            shape = data.shape
+            if len(shape) == 2:
+                data = data[:, :].T
+            elif len(shape) == 3:
+                data = data[:, :, 0].T
+            elif len(shape) == 4:
+                data = data[:, :, 0, 0].T
+
+            ax[i].imshow(data)
+            ax[i].set_title(comp)
+
+        plt.show()
+
+
+
 
