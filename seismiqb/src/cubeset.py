@@ -1,4 +1,5 @@
 """ Contains container for storing dataset of seismic crops. """
+from glob import glob
 import dill
 
 import numpy as np
@@ -360,6 +361,32 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.samplers, file)
+        return self
+
+
+    def load(self, horizon_dir=None, p=None):
+        """ Load everything: geometries, point clouds, labels, samplers.
+
+        Parameters
+        ----------
+        horizon_dir : str
+            Relative path from each cube to directory with horizons.
+
+        p : sequence of numbers
+            Proportions of different cubes in sampler.
+        """
+        horizon_dir = horizon_dir or '/FORMAT_HORIZONTS/*'
+
+        paths_txt = {}
+        for i in range(len(self)):
+            dir_path = '/'.join(self.index.get_fullpath(self.indices[i]).split('/')[:-1])
+            dir_ = dir_path + horizon_dir
+            paths_txt[self.indices[i]] = glob(dir_)
+
+        self.load_geometries()
+        self.load_point_clouds(paths=paths_txt)
+        self.load_labels()
+        self.load_samplers(p=p)
         return self
 
 
