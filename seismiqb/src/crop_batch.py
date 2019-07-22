@@ -702,7 +702,6 @@ class SeismicCropBatch(Batch):
         return distorted_img
 
 
-
     def _bandwidth_filter_(self, crop, lowcut=None, highcut=None, fs=1, order=3):
         """ Keep only frequences between lowcut and highcut.
         Notes
