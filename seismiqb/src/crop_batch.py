@@ -11,7 +11,7 @@ from scipy.signal import butter, lfilter, hilbert
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 from .utils import create_mask, aggregate, make_labels_dict, _get_horizons
-
+from .plot_utils import plot_batch_components
 
 
 AFFIX = '___'
@@ -753,3 +753,27 @@ class SeismicCropBatch(Batch):
         if 'freq' in mode:
             return np.diff(phase, axis=axis) / (2*np.pi)
         raise ValueError('Unknown `mode` parameter.')
+
+
+    def plot_components(self, idx=0, overlap=True, *components, cmaps=None, alphas=None):
+        """ Plot components of batch.
+
+        Parameters
+        ----------
+        idx : int or None
+            If int, then index of desired image in list.
+            If None, then no indexing is applied.
+
+        overlap : bool
+            Whether to draw images one over the other or not.
+
+        components : str or sequence of str
+            Components to get from batch and draw.
+
+        cmaps : str or sequence of str
+            Color maps for showing images.
+
+        alphas : number or sequence of numbers
+            Opacity for showing images.
+        """
+        plot_batch_components(self, idx, overlap, *components, cmaps=cmaps, alphas=alphas)
