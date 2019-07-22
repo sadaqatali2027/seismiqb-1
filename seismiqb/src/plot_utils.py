@@ -2,10 +2,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-
+from numba import njit
+from ..batchflow import Pipeline, D
 
 def plot_loss(*lst, title=None):
-	""" Loss. """
+    """ Loss. """
     plt.figure(figsize=(8, 5))
     for loss_history in lst:
         plt.plot(loss_history)
@@ -18,41 +19,75 @@ def plot_loss(*lst, title=None):
     plt.show()
 
 
-def plot_batch_components(batch, idx=0, *components):
-	""" Batch. """
-    n_comp = len(components)
-    n_crops = len(getattr(batch, components[0]))
+def plot_batch_components(batch, idx=0, overlap=True, *components, cmaps=None, alphas=None):
+    """ Plot components of batch.
 
+    Parameters
+    ----------
+    batch : Batch
+        Batch to get data from.
+
+    idx : int or None
+        If int, then index of desired image in list.
+        If None, then no indexing is applied.
+
+    overlap : bool
+        Whether to draw images one over the other or not.
+
+    components : str or sequence of str
+        Components to get from batch and draw.
+
+    cmaps : str or sequence of str
+        Color maps for showing images.
+
+    alphas : number or sequence of numbers
+        Opacity for showing images.
+    """
     print('Images from {}'.format(batch.indices[idx][:-10]))
-    fig, ax = plt.subplots(1, n_comp, figsize=(8*n_comp, 10))
-    for i, comp in enumerate(components):
-        data = getattr(batch, comp)[idx]
-        data = _to_img(data)
+    if idx is not None:
+        imgs = [getattr(batch, comp)[idx] for comp in components]
+    else:
+        imgs = [getattr(batch, comp) for comp in components]
 
-        ax[i].imshow(data)
-        ax[i].set_title(comp, fontdict={'fontsize': 15})
+    if overlap:
+        plot_images_o(imgs, ', '.join(components), cmaps=cmaps, alphas=alphas)
+    else:
+        plot_images_s(imgs, components, cmaps=cmaps, alphas=alphas)
+
+
+def plot_images_s(imgs, titles, cmaps=None, alphas=None):
+    """ Plot one or more images on separate layouts. """
+    cmaps = cmaps or ['gray'] + ['viridis']*len(imgs)
+    cmaps = cmaps if isinstance(cmaps, (tuple, list)) else [cmaps]
+
+    alphas = alphas or [1**-i for i in range(len(imgs))]
+    alphas = alphas if isinstance(alphas, (tuple, list)) else [alphas**-i for i in range(len(imgs))]
+
+    _, ax = plt.subplots(1, len(imgs), figsize=(8*len(imgs), 10))
+    for i, (img, title, cmap, alpha) in enumerate(zip(imgs, titles, cmaps, alphas)):
+        img = _to_img(img)
+
+        ax_ = ax[i] if len(imgs) > 1 else ax
+        ax_.imshow(img, alpha=alpha, cmap=cmap)
+        ax_.set_title(title, fontdict={'fontsize': 15})
     plt.show()
 
 
-def plot_batch_components_o(batch, idx=0, *components):
-    """ Batch with overlap. """
-    n_comp = len(components)
-    n_crops = len(getattr(batch, components[0]))
-    alphas = [4**-i for i in range(n_comp)]
-    cmaps = ['gray'] + ['plasma']*n_comp
+def plot_images_o(imgs, title, cmaps=None, alphas=None):
+    """ Plot one or more images with overlap. """
+    cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
+    alphas = alphas or [1**-i for i in range(len(imgs))]
 
-    print('Image from {}'.format(batch.indices[idx][:-10]))
     plt.figure(figsize=(15, 15))
-    for i, comp in enumerate(components):
-        data = getattr(batch, comp)[idx]
-        data = _to_img(data)
-        plt.imshow(data, alpha=alphas[i], cmap=cmaps[i])
+    for i, (img, cmap, alpha) in enumerate(zip(imgs, cmaps, alphas)):
+        img = _to_img(img, convert=(i > 0))
+        plt.imshow(img, alpha=alpha, cmap=cmap)
 
-    plt.title(comp, fontdict={'fontsize': 15})
+    plt.title(title, fontdict={'fontsize': 15})
     plt.show()
 
 
-def _to_img(data):
+def _to_img(data, convert=False):
     shape = data.shape
     if len(shape) == 2:
         data = data[:, :].T
@@ -60,37 +95,61 @@ def _to_img(data):
         data = data[:, :, 0].T
     elif len(shape) == 4:
         data = data[:, :, 0, 0].T
+
+    if convert:
+        background = np.zeros((*data.shape, 4))
+        background[:, :, 0] = data
+        background[:, :, -1] = (data != 0).astype(int)
+        return background
     return data
 
 
-def plot_slide(dataset, idx=0, iline=0, components):
-
+def plot_slide(dataset, idx=0, iline=0, *components, overlap=True):
+    """ Slidify! """
     cube_name = dataset.indices[idx]
     cube_shape = dataset.geometries[cube_name].cube_shape
-    points = np.array([[cube_name, iline, 0, 0]], dtype=object)
+    point = np.array([[cube_name, iline, 0, 0]], dtype=object)
 
-    flag = int('mask_crops' in components)
-    config = {'create_masks': flag,
-              'load_src': [D('geometries')] + [D('labels')]*flag,
-              'load_dst': ['geometries'] + ['labels']*flag}
-
-    pipeline = (Pipeline(config=config)
-                 .load_component(src=C('load_src'),
-                                 dst=C('load_dst'))
-                 .crop(points=point,
-                       shape=[1] + cube_shape[1:])
-                 .load_cubes(dst='data_crops')
-                 .create_masks(dst='mask_crops', width=3, p=C('create_masks'))
-                 .scale(mode='normalize', src='data_crops')
-                 )
+    pipeline = (Pipeline()
+                .load_component(src=[D('geometries'), D('labels')],
+                                dst=['geometries', 'labels'])
+                .crop(points=point,
+                      shape=[1] + cube_shape[1:])
+                .load_cubes(dst='data_crops')
+                .create_masks(dst='mask_crops', width=2)
+                .rotate_axes(src=['data_crops', 'mask_crops'])
+                .scale(mode='normalize', src='data_crops')
+                .add_axis(src='mask_crops', dst='mask_crops'))
 
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
-
-    plot_batch_components(batch, *components)
-
-
+    plot_batch_components(batch, 0, overlap, *components)
+    return batch
 
 
+def show_labels(dataset, ix=0):
+    """ Not empty! """
+    name = dataset.indices[ix]
+    geom = dataset.geometries[name]
+    labels = dataset.labels[name]
+    possible_coordinates = [[il, xl] for il in geom.ilines for xl in geom.xlines]
 
+    background = np.zeros((geom.ilines_len, geom.xlines_len))
+    img = labels_matrix(background, np.array(possible_coordinates), labels,
+                        geom.ilines_offset, geom.xlines_offset)
 
+    _, ax = plt.subplots(figsize=(12, 7))
+    ax.imshow(img)
+    ax.set_title('Known labels for cube (yellow is known)', fontdict={'fontsize': 20})
+    plt.xlabel('XLINES', fontdict={'fontsize': 20})
+    plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    plt.show()
 
+@njit
+def labels_matrix(background, possible_coordinates, labels,
+                  ilines_offset, xlines_offset):
+    """ Jitify! """
+    for i in range(len(possible_coordinates)):
+        point = possible_coordinates[i, :]
+        if labels.get((point[0], point[1])) is not None:
+            background[point[0] - ilines_offset, point[1] - xlines_offset] += len(labels.get((point[0], point[1])))
+    return background
