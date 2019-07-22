@@ -10,23 +10,10 @@ import pandas as pd
 from tqdm import tqdm
 
 sys.path.append('..')
-from seismiqb import SeismicCubeset
+from seismiqb import SeismicCubeset, dump_horizon
 from seismiqb.batchflow import Pipeline, FilesIndex, B, V, L, D
 from seismiqb.batchflow.models.tf import TFModel
 
-
-
-def dump_horizon(horizon, geometry, path, name, offset=1):
-    """ Convert horizon to point cloud and save it to desired place. """
-    ixhs = []
-    for k, v in horizon.items():
-        ixhs.append([k[0], k[1], v])
-    labels = pd.DataFrame(ixhs, columns=['inline', 'xline', 'height'])
-    labels.sort_values(['inline', 'xline'], inplace=True)
-    sample_rate, delay = geometry.sample_rate, geometry.delay
-    inverse = lambda h: (h + offset) * sample_rate + delay
-    labels.loc[:, 'height'] = inverse(labels.loc[:, 'height'])
-    labels.to_csv(os.path.join(path, name + '.csv'), sep=' ', index=False, header=False)
 
 
 def main(path_to_cube, path_to_model, path_to_predictions, gpu_device,
@@ -81,7 +68,7 @@ def main(path_to_cube, path_to_model, path_to_predictions, gpu_device,
     for h in ds.horizons:
         if len(h) / area >= area_share:
             dump_horizon(h, ds.geometries[ds.indices[0]],
-                         path_to_predictions, 'Horizon_' + str(ctr))
+                         os.path.join(path_to_predictions, 'Horizon_' + str(ctr)))
             printer('Horizont {} is saved'.format(ctr))
             ctr += 1
 

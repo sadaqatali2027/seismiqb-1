@@ -74,22 +74,59 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
         pass
 
 
-def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), transforms=None, **kwargs):
+def convert_point_cloud(path, path_save, names=None, order=None):
+    """ Change set of columns in file with point cloud labels.
+    Usually is used to remove redundant columns.
+
+    Parameters
+    ----------
+    path : str
+        Path to file to convert.
+
+    path_save : str
+        Path for the new file to be saved to.
+
+    names : str or sequence of str
+        Names of columns in the original file. Default is Petrel's export format, which is
+        ('_', '_', 'iline', '_', '_', 'xline', 'cdp_x', 'cdp_y', 'height'), where `_` symbol stands for
+        redundant keywords like `INLINE`.
+
+    order : str or sequence of str
+        Names and order of columns to keep. Default is ('iline', 'xline', 'cdp_x', 'cdp_y', 'height').
+    """
+    #pylint: disable=anomalous-backslash-in-string
+    names = names or ['_', '_', 'iline', '_', '_', 'xline',
+                      'cdp_x', 'cdp_y', 'height']
+    order = order or ['iline', 'xline', 'cdp_x', 'cdp_y', 'height']
+
+    names = [names] if isinstance(names, str) else names
+    order = [order] if isinstance(order, str) else order
+
+    df = pd.read_csv(path, sep='\s+', names=names, usecols=set(order))
+    df.dropna(inplace=True)
+
+    if 'iline' in order and 'xline' in order:
+        df.sort_values(['iline', 'xline'], inplace=True)
+
+    to_save = df.loc[:, order]
+    to_save.to_csv(path_save, sep=' ', index=False, header=False)
+
+
+def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
     """ Read point cloud of labels from files using pandas.
 
     Parameters
     ----------
     paths : str or tuple or list
         array-like of paths to files containing point clouds (table of floats with several columns).
-    default : dict
-        dict containing arguments of pandas parser; will be used for parsing all supplied files.
+    names : sequence
+        sequence of column names in files.
     order : array-like
-        specifies the order of columns of the resulting array.
+        specifies the order of columns to keep in the resulting array.
     transforms : array-like
         contains list of vectorized transforms. Each transform is applied to a column of the resulting array.
     **kwargs
-        file-specific arguments of pandas parser in format `{paths[0]: args_0, paths[1]: args_1, ...}`.
-        Each dict updates `default`-args and then usef for parsing a specific file.
+        file-specific arguments of pandas parser.
 
     Returns
     -------
@@ -97,18 +134,17 @@ def read_point_cloud(paths, default=None, order=('iline', 'xline', 'height'), tr
         resulting point-cloud. First three columns contain `(x, y, z)`-coords while the last one stores
         horizon-number.
     """
-    paths = (paths, ) if isinstance(paths, str) else paths
+    #pylint: disable=anomalous-backslash-in-string
+    paths = [paths] if isinstance(paths, str) else paths
 
     # default params of pandas-parser
-    if default is None:
-        default = dict(sep='\s+', names=['xline', 'iline', 'height']) #pylint: disable=anomalous-backslash-in-string
+    names = names or ['iline', 'xline', 'cdp_x', 'cdp_y', 'height']
+    order = order or ['cdp_y', 'cdp_x', 'height']
 
     # read point clouds
     point_clouds = []
     for ix, path in enumerate(paths):
-        copy = default.copy()
-        copy.update(kwargs.get(path, dict()))
-        cloud = pd.read_csv(path, **copy)
+        cloud = pd.read_csv(path, sep='\s+', names=names, usecols=set(order), **kwargs)
 
         temp = np.hstack([cloud.loc[:, order].values,
                           np.ones((cloud.shape[0], 1)) * ix])
@@ -255,6 +291,42 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
                     horizons[key] = [h]
 
     return horizons
+
+
+def dump_horizon(horizon, geometry, path_save, offset=1):
+    """ Save horizon as point cloud.
+
+    Parameters
+    ----------
+    horizon : dict
+        Mapping from pairs (iline, xline) to height.
+
+    geometry : SeismicGeometry
+        Information about cube
+
+    path_save : str
+        Path for the horizon to be saved to.
+
+    offset : int, float
+        Shift horizont before applying inverse transform.
+        Usually is used to take into account different numeration bases:
+        Petrel uses 1-based numeration, whilst Python uses 0-based numberation.
+    """
+    ixh = []
+    for (i, x), h in horizon.items():
+        ixh.append([i, x, h])
+    ixh = np.asarray(ixh)
+
+    cdp_xy = geometry.lines_to_abs(ixh)
+
+    h = (ixh[:, -1] + offset) * geometry.sample_rate + geometry.delay
+
+    data = np.hstack([ixh[:, :2], cdp_xy[:, :2], h.reshape(-1, 1)])
+
+    df = pd.DataFrame(data, columns=['iline', 'xline', 'cdp_y', 'cdp_x', 'height'])
+    df.sort_values(['iline', 'xline'], inplace=True)
+    df.to_csv(path_save, sep=' ', columns=['iline', 'xline', 'cdp_x', 'cdp_y', 'height'],
+              index=False, header=False)
 
 
 @njit

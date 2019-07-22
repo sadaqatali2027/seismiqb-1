@@ -298,11 +298,12 @@ class SeismicCropBatch(Batch):
         """ Load data from .hdf5-cube in given positions. """
         geom = self.get(ix, 'geometries')
         h5py_cube = geom.h5py_file['cube']
+        dtype = h5py_cube.dtype
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
 
-        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)), dtype=dtype)
         for i, iline_ in enumerate(ilines_):
             slide = h5py_cube[iline_, :, :]
             crop[i, :, :] = slide[xlines_, :][:, hs_]
