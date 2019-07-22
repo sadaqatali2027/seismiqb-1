@@ -19,7 +19,7 @@ def plot_loss(*lst, title=None):
     plt.show()
 
 
-def plot_batch_components(batch, idx=0, overlap=True, *components, cmaps=None, alphas=None):
+def plot_batch_components(batch, idx=0, *components, overlap=True, rotate_axes=0, cmaps=None, alphas=None):
     """ Plot components of batch.
 
     Parameters
@@ -50,12 +50,12 @@ def plot_batch_components(batch, idx=0, overlap=True, *components, cmaps=None, a
         imgs = [getattr(batch, comp) for comp in components]
 
     if overlap:
-        plot_images_o(imgs, ', '.join(components), cmaps=cmaps, alphas=alphas)
+        plot_images_o(imgs, ', '.join(components), rotate_axes=rotate_axes, cmaps=cmaps, alphas=alphas)
     else:
-        plot_images_s(imgs, components, cmaps=cmaps, alphas=alphas)
+        plot_images_s(imgs, components, rotate_axes=rotate_axes, cmaps=cmaps, alphas=alphas)
 
 
-def plot_images_s(imgs, titles, cmaps=None, alphas=None):
+def plot_images_s(imgs, titles, rotate_axes, cmaps=None, alphas=None):
     """ Plot one or more images on separate layouts. """
     cmaps = cmaps or ['gray'] + ['viridis']*len(imgs)
     cmaps = cmaps if isinstance(cmaps, (tuple, list)) else [cmaps]
@@ -65,7 +65,7 @@ def plot_images_s(imgs, titles, cmaps=None, alphas=None):
 
     _, ax = plt.subplots(1, len(imgs), figsize=(8*len(imgs), 10))
     for i, (img, title, cmap, alpha) in enumerate(zip(imgs, titles, cmaps, alphas)):
-        img = _to_img(img)
+        img = _to_img(img, rotate_axes=rotate_axes, convert=False)
 
         ax_ = ax[i] if len(imgs) > 1 else ax
         ax_.imshow(img, alpha=alpha, cmap=cmap)
@@ -73,21 +73,24 @@ def plot_images_s(imgs, titles, cmaps=None, alphas=None):
     plt.show()
 
 
-def plot_images_o(imgs, title, cmaps=None, alphas=None):
+def plot_images_o(imgs, title, rotate_axes, cmaps=None, alphas=None):
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
     alphas = alphas or [1**-i for i in range(len(imgs))]
 
     plt.figure(figsize=(15, 15))
     for i, (img, cmap, alpha) in enumerate(zip(imgs, cmaps, alphas)):
-        img = _to_img(img, convert=(i > 0))
+        img = _to_img(img, rotate_axes=rotate_axes, convert=(i > 0))
         plt.imshow(img, alpha=alpha, cmap=cmap)
 
     plt.title(title, fontdict={'fontsize': 15})
     plt.show()
 
 
-def _to_img(data, convert=False):
+def _to_img(data, rotate_axes=0, convert=False):
+    for _ in range(rotate_axes):
+        data = np.moveaxis(data, 0, -1)
+
     shape = data.shape
     if len(shape) == 2:
         data = data[:, :].T

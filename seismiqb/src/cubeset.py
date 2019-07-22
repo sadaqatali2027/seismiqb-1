@@ -10,6 +10,8 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
 from .utils import read_point_cloud, make_labels_dict, _get_horizons, compare_horizons, round_to_array
+from .plot_utils import show_labels
+
 
 
 class SeismicCubeset(Dataset):
@@ -162,6 +164,11 @@ class SeismicCubeset(Dataset):
             except TypeError:
                 raise NotImplementedError("Numba dicts are yet to support serializing")
         return self
+
+
+    def show_labels(self, idx=0):
+        """ Draw points with hand-labeled horizons from above. """
+        show_labels(self, ix=idx)
 
 
     def load_samplers(self, path=None, mode='hist', p=None,
