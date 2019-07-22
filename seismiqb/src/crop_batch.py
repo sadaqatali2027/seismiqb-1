@@ -750,7 +750,7 @@ class SeismicCropBatch(Batch):
         if mode == 'phase':
             return phase
         if 'freq' in mode:
-            return np.diff(phase, axis=axis) / (2*np.pi)
+            return np.diff(phase, axis=axis, prepend=0) / (2*np.pi)
         raise ValueError('Unknown `mode` parameter.')
 
 

@@ -1,0 +1,11 @@
+{
+  "modelPath": "/notebooks/SEISMIC_DATA/SAVED/MODELS/CUBE_3_ONLY/",
+  "cubePath": "/notebooks/SEISMIC_DATA/CUBE_3/P_cube.hdf5",
+  "predictionsPath": "/notebooks/SEISMIC_DATA/CUBE_3/SCRIPT/",
+  "gpuDevice": 5,
+  "cubeCrop":  [[0, 2730], [0, 2590], [500, 600]],
+  "cropShape": [3, 400, 400],
+  "cropStride": [3, 400, 400],
+  "areaShare": 0.01,
+  "threshold": 0.99
+}

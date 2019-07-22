@@ -147,7 +147,7 @@ def make_labels_dict(point_cloud):
     labels = Dict.empty(key_type, value_type)
 
     @njit
-    def fill_labels(labels, ilines_xlines, max_count):
+    def fill_labels(labels, ilines_xlines, point_cloud, max_count):
         """ Fill in labels-dict.
         """
         for i in range(len(ilines_xlines)):
@@ -158,7 +158,7 @@ def make_labels_dict(point_cloud):
             idx = int(point_cloud[i, 3])
             labels[(il, xl)][idx] = point_cloud[i, 2]
 
-    fill_labels(labels, ilines_xlines, max_count)
+    fill_labels(labels, ilines_xlines, point_cloud, max_count)
     return labels
 
 @njit
@@ -200,13 +200,14 @@ def create_mask(ilines_, xlines_, hs_,
                 start = 0
                 sorted_heights = sorted(il_xl_h[(il_, xl_)])
                 for height_ in sorted_heights:
-                    if height_ != FILL_VALUE:
-                        if start > hs_[-1]:
-                            break
-                        m_temp[start:height_ + 1] = current_col
-                        start = height_ + 1
-                        current_col += 1
-                m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
+                    if height_ == FILL_VALUE:
+                        height_ = start
+                    if start > hs_[-1]:
+                        break
+                    m_temp[start:height_ + 1] = current_col
+                    start = height_ + 1
+                    current_col += 1
+                    m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
             else:
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
