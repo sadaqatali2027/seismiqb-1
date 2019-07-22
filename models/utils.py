@@ -1,4 +1,6 @@
 """ Util functions for tutorials. """
+from glob import glob
+
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -69,7 +71,7 @@ def show_extension_results(val_batch, val_pipeline, cubes_numbers):
 
         plt.title('Input mask', fontsize=20)
 
-        fig.add_subplot(1, 5, 3)Extension model prediction
+        fig.add_subplot(1, 5, 3)
         plt.imshow(truth_labels, cmap="Blues")
         plt.imshow(truth_img, cmap="gray", alpha=0.5)
         plt.title('True mask', fontsize=20)
@@ -90,8 +92,6 @@ def show_extension_results(val_batch, val_pipeline, cubes_numbers):
 def load(dataset, p=None, postfix=None):
     postfix = postfix or '/FORMAT_HORIZONTS/*'
 
-    paths_txt = {ds.indices[i]: glob('/'.join(ds.get_fullpath(ds.indices[i])))}
-
     paths_txt = {}
     for i in range(len(dataset)):
         dir_path = '/'.join(dataset.index.get_fullpath(dataset.indices[i]).split('/')[:-1])
@@ -105,47 +105,32 @@ def load(dataset, p=None, postfix=None):
     return dataset
 
 
-def plot_loss(*lst, title=None):
-    lst = lst if isinstance(lst[0], (tuple, list)) else [lst]
+def compare(dataset, horizont, cube_idx=0, offset=1):
+    sample_rate = dataset.geometries[dataset.indices[cube_idx]].sample_rate
+    labels = dataset.labels[dataset.indices[cube_idx]]
 
-    plt.figure(figsize=(8, 5))
-    for loss_history in lst:
-        plt.plot(loss_history)
+    res, not_present = [], 0
+    vals, vals_true = [], []
 
-    plt.grid(True)
-    plt.xlabel('Iterations', fontdict={'fontsize': 15})
-    plt.ylabel('Loss', fontdict={'fontsize': 15})
-    if title:
-        plt.title(title, fontdict={'fontsize': 15})
-    plt.show()
+    for key, val in horizont.items():
+        if labels.get(key) is not None:
+            true_horizonts = labels[key]
+            diff = abs(true_horizonts - (val+offset))
+            idx = np.argmin(diff)
 
+            res.append(diff[idx])
+            vals_true.append(true_horizonts[idx])
+            vals.append(val)
+        else:
+            not_present += 1
 
+    print('Mean value/std of error:                  {:8.7} / {:8.7}'.format(np.mean(res), np.std(res)))
+    print('Horizont length:                          {}'.format(len(horizont)))
+    print('Rate in 5 ms window:                      {:8.7}'.format(sum(np.array(res) < 5/sample_rate) / len(res)))
+    print('Average height/std of true horizont:      {:8.7}'.format(np.mean(vals_true)))
+    print('Average height/std of predicted horizont: {:8.7}'.format(np.mean(vals)))
+    print('Number of values that were labeled by model and not labeled by experts: {}'.format(not_present))
 
-def plot_batch_components(batch, *components, n=5):
-    n_comp = len(components)
-    n_crops = len(getattr(batch, components[0]))
-
-    indices = np.random.choice(n_crops, n)
-
-    for idx in indices:
-        print('Images from {}'.format(batch.indices[idx][:-10]))
-        fig, ax = plt.subplots(1, n_comp, figsize=(8*n_comp, 10))
-        for i, comp in enumerate(components):
-            data = getattr(batch, comp)[idx]
-
-            shape = data.shape
-            if len(shape) == 2:
-                data = data[:, :].T
-            elif len(shape) == 3:
-                data = data[:, :, 0].T
-            elif len(shape) == 4:
-                data = data[:, :, 0, 0].T
-
-            ax[i].imshow(data)
-            ax[i].set_title(comp)
-
-        plt.show()
-
-
-
+    plt.title('Distribution of errors')
+    _ = plt.hist(res, bins=100)
 
