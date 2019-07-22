@@ -8,7 +8,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
-from .utils import read_point_cloud, make_labels_dict, _get_horizons, round_to_array
+from .utils import read_point_cloud, make_labels_dict, _get_horizons, compare_horizons, round_to_array
 
 
 class SeismicCubeset(Dataset):
@@ -523,4 +523,28 @@ class SeismicCubeset(Dataset):
             horizons.sort(key=len, reverse=True)
             for i, horizon in enumerate(horizons):
                 setattr(self, dst+'_'+str(i), horizon)
+        return self
+
+    def compare_to_labels(self, horizon, cube_idx=0, offset=1, plot=True):
+        """ Compare given horizon to labels in dataset.
+
+        Parameters
+        ----------
+        horizon : dict
+            Mapping from (iline, xline) to heights.
+
+        cube_idx : int
+            Index of cube in the dataset to work with.
+
+        offset : number
+            Value to shift horizon up. Can be used to take into account different counting bases.
+
+        plot : bool
+            Whether to plot histogram of errors.
+        """
+        labels = self.labels[self.indices[cube_idx]]
+        sample_rate = self.geometries[self.indices[cube_idx]].sample_rate
+
+        compare_horizons(horizon, labels, printer=print, plot=plot,
+                         sample_rate=sample_rate, offset=offset)
         return self

@@ -6,6 +6,7 @@ from tqdm import tqdm
 from skimage.measure import label, regionprops
 from numba import njit, types
 from numba.typed import Dict
+import matplotlib.pyplot as plt
 
 
 FILL_VALUE = -999
@@ -327,6 +328,74 @@ def dump_horizon(horizon, geometry, path_save, offset=1):
     df.sort_values(['iline', 'xline'], inplace=True)
     df.to_csv(path_save, sep=' ', columns=['iline', 'xline', 'cdp_x', 'cdp_y', 'height'],
               index=False, header=False)
+
+
+def compare_horizons(dict_1, dict_2, printer=print, plot=False, sample_rate=1, offset=0):
+    """ Compare two horizons in dictionary format.
+
+    Parameters
+    ----------
+    dict_1, dict_2 : dict
+        Mappings from (iline, xline) to heights. Value can be either array or one number.
+
+    printer : callable
+        Function to output results with, for example `print` or `log.info`.
+
+    plot : bool
+        Whether to plot histogram of errors.
+
+    sample_rate : number
+        Frequency of taking measures. Used to normalize 5ms window.
+
+    offset : number
+        Value to shift horizon up. Can be used to take into account different counting bases.
+    """
+    differences = []
+    not_present_1, not_present_2 = 0, 0
+    vals_1, vals_2 = [], []
+
+    for key, val_1 in dict_1.items():
+        try:
+            val_1 = val_1[0]
+        except IndexError:
+            pass
+
+        val_2 = dict_2.get(key)
+        if val_2 is not None:
+            diff_ = abs(val_2 - val_1 - offset)
+            idx = np.argmin(diff_)
+            diff = diff_[idx]
+            differences.append(diff)
+
+            vals_1.append(val_1)
+            vals_2.append(val_2[idx])
+        else:
+            not_present_1 += 1
+
+    for key, val_2 in dict_2.items():
+        if dict_1.get(key) is None:
+            not_present_2 += 1
+
+    printer('First horizont length:                    {}'.format(len(dict_1)))
+    printer('Second horizont length:                   {}'.format(len(dict_2)))
+    printer('Mean value/std of error:                  {:8.7} / {:8.7}' \
+            .format(np.mean(differences), np.std(differences)))
+    printer('Number in 5 ms window:                    {}' \
+            .format(np.sum(np.array(differences) <= 5/sample_rate)))
+    printer('Rate in 5 ms window:                      {:8.7}' \
+            .format(np.sum(np.array(differences) <= 5/sample_rate) / len(differences)))
+
+    printer('Average height of FIRST horizont:         {:8.7}'.format(np.mean(vals_1)))
+    printer('Average height of SECOND horizont:        {:8.7}'.format(np.mean(vals_2)))
+
+    printer('In the FIRST, but not in the SECOND:      {}'.format(not_present_1))
+    printer('In the SECOND, but not in the FIRST:      {}'.format(not_present_2))
+    printer('\n\n')
+
+    if plot:
+        plt.title('Distribution of errors', fontdict={'fontsize': 15})
+        _ = plt.hist(differences, bins=100)
+
 
 
 @njit
