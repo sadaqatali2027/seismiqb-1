@@ -79,11 +79,10 @@ class SeismicGeometry():
 
         iline_to_y = self._get_linear(self.ilines, self.cdp_y)
         xline_to_x = self._get_linear(self.xlines, self.cdp_x)
-        depth_to_h = lambda depth: (depth*self.sample_rate + self.delay).astype(np.int64)
+        depth_to_h = lambda depth: (depth*self.sample_rate + self.delay)
         self.lines_to_abs = (lambda array: np.stack([iline_to_y(array[:, 0]),
                                                      xline_to_x(array[:, 1]),
-                                                     depth_to_h(array[:, 2]),
-                                                     array[:, 3]],
+                                                     depth_to_h(array[:, 2])],
                                                     axis=-1))
 
         # Callable to transform cube values to [0, 1] (and vice versa)
@@ -163,7 +162,7 @@ class SeismicGeometry():
                     self.value_max = np.max(trace_)
 
 
-    def make_h5py(self, path_h5py=None):
+    def make_h5py(self, path_h5py=None, postfix='', dtype=np.float32):
         """ Converts `.sgy` cube to `.hdf5` format.
 
         Parameters
@@ -173,7 +172,7 @@ class SeismicGeometry():
         """
         if os.path.splitext(self.path)[1][1:] not in ['sgy', 'segy']:
             raise TypeError('Format should be `sgy`')
-        path_h5py = path_h5py or (os.path.splitext(self.path)[0] + '.hdf5')
+        path_h5py = path_h5py or (os.path.splitext(self.path)[0] + postfix + '.hdf5')
 
         # Recreate file. h5py can't do that
         if os.path.exists(path_h5py):
@@ -196,7 +195,7 @@ class SeismicGeometry():
                     tr_ = self.il_xl_trace.get((iline, xline))
                     if tr_ is not None:
                         slide[0, xl_, :] = segyfile.trace[tr_]
-                cube_h5py[il_, :, :] = slide
+                cube_h5py[il_, :, :] = slide.astype(dtype)
 
         # Save all the necessary attributes to the `info` group
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
