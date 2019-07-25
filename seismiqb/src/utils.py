@@ -205,8 +205,11 @@ def filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
                 to_remove[c, 1] = xl
                 c = c + 1
 
-        for i in range(n_zeros):
-            labels.pop((to_remove[i, 0], to_remove[i, 1]))
+        for i in range(c):
+            try:
+                labels.pop((to_remove[i, 0], to_remove[i, 1]))
+            except KeyError:
+                pass
 
 
 @njit

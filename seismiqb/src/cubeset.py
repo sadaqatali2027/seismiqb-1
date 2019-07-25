@@ -189,9 +189,7 @@ class SeismicCubeset(Dataset):
             for idx, path in enumerate(geom.horizon_list):
                 name = path.split('/')[-1]
                 name = '/'.join([save_dir, name])
-                dump_horizon(labels, geom, name, idx=idx)
-
-
+                dump_horizon(labels, geom, name, idx=idx, offset=0)
 
 
     def show_labels(self, idx=0):
