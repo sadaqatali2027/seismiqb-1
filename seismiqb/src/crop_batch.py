@@ -486,7 +486,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='run_once')
-    def assemble_crops(self, src, dst, grid_info):
+    def assemble_crops(self, src, dst, grid_info, order=None):
         """ Glue crops together in accordance to the grid.
         Note
         ----
@@ -508,12 +508,13 @@ class SeismicCropBatch(Batch):
         if len(src) != len(grid_info['grid_array']):
             return self
 
+        order = order or (2, 0, 1)
         # Since we know that cube is 3-d entity, we can get rid of
         # unneccessary dimensions
         src = np.array(src)
         src = src if len(src.shape) == 4 else np.squeeze(src, axis=-1)
         assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
-                              grid_info['predict_shape'])
+                              grid_info['predict_shape'], order)
         setattr(self, dst, assembled)
         return self
 

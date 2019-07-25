@@ -409,7 +409,7 @@ def count_nonfill(array):
 
 
 @njit
-def aggregate(array_crops, array_grid, crop_shape, predict_shape):
+def aggregate(array_crops, array_grid, crop_shape, predict_shape, order):
     """ Jit-accelerated function to glue together crops according to grid.
     At positions, where different crops overlap, only the maximum value is saved.
     This function is usually called inside SeismicCropBatch's method `assemble_crops`.
@@ -424,7 +424,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape):
         xl_end = min(background.shape[1], xl+crop_shape[1])
         h_end = min(background.shape[2], h+crop_shape[2])
 
-        crop = np.transpose(array_crops[i], (2, 0, 1))
+        crop = np.transpose(array_crops[i], order)
         crop = crop[:(il_end-il), :(xl_end-xl), :(h_end-h)]
         previous = background[il:il_end, xl:xl_end, h:h_end]
         background[il:il_end, xl:xl_end, h:h_end] = np.maximum(crop, previous)
