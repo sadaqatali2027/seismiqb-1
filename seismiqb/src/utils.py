@@ -75,7 +75,7 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
         pass
 
 
-def convert_point_cloud(path, path_save, names=None, order=None):
+def convert_point_cloud(path, path_save, names=None, order=None, transform=None):
     """ Change set of columns in file with point cloud labels.
     Usually is used to remove redundant columns.
 
@@ -98,7 +98,7 @@ def convert_point_cloud(path, path_save, names=None, order=None):
     #pylint: disable=anomalous-backslash-in-string
     names = names or ['_', '_', 'iline', '_', '_', 'xline',
                       'cdp_x', 'cdp_y', 'height']
-    order = order or ['iline', 'xline', 'cdp_x', 'cdp_y', 'height']
+    order = order or ['iline', 'xline', 'height']
 
     names = [names] if isinstance(names, str) else names
     order = [order] if isinstance(order, str) else order
@@ -109,11 +109,13 @@ def convert_point_cloud(path, path_save, names=None, order=None):
     if 'iline' in order and 'xline' in order:
         df.sort_values(['iline', 'xline'], inplace=True)
 
-    to_save = df.loc[:, order]
-    to_save.to_csv(path_save, sep=' ', index=False, header=False)
+    data = df.loc[:, order]
+    if transform:
+        data = data.apply(transform)
+    data.to_csv(path_save, sep=' ', index=False, header=False)
 
 
-def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
+def read_point_cloud(paths, names=None, order=None, **kwargs):
     """ Read point cloud of labels from files using pandas.
 
     Parameters
@@ -124,8 +126,6 @@ def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
         sequence of column names in files.
     order : array-like
         specifies the order of columns to keep in the resulting array.
-    transforms : array-like
-        contains list of vectorized transforms. Each transform is applied to a column of the resulting array.
     **kwargs
         file-specific arguments of pandas parser.
 
@@ -139,8 +139,8 @@ def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
     paths = [paths] if isinstance(paths, str) else paths
 
     # default params of pandas-parser
-    names = names or ['iline', 'xline', 'cdp_x', 'cdp_y', 'height']
-    order = order or ['cdp_y', 'cdp_x', 'height']
+    names = names or ['iline', 'xline', 'height']
+    order = order or ['iline', 'xline', 'height']
 
     # read point clouds
     point_clouds = []
@@ -150,15 +150,7 @@ def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
         temp = np.hstack([cloud.loc[:, order].values,
                           np.ones((cloud.shape[0], 1)) * ix])
         point_clouds.append(temp)
-
-    points = np.concatenate(point_clouds)
-
-    # apply transforms
-    if transforms is not None:
-        for i in range(points.shape[-1] - 1):
-            points[:, i] = transforms[i](points[:, i])
-
-    return points
+    return np.concatenate(point_clouds)
 
 
 def make_labels_dict(point_cloud):
@@ -175,7 +167,7 @@ def make_labels_dict(point_cloud):
         dict of labels `{(x, y): [z_1, z_2, ...]}`.
     """
     # round and cast
-    ilines_xlines = np.round(point_cloud[:, :2]).astype(np.int64)
+    point_cloud = point_cloud.astype(np.int64)
     max_count = int(point_cloud[-1, -1]) + 1
 
     # make typed Dict
@@ -184,18 +176,18 @@ def make_labels_dict(point_cloud):
     labels = Dict.empty(key_type, value_type)
 
     @njit
-    def fill_labels(labels, ilines_xlines, point_cloud, max_count):
+    def fill_labels(labels, point_cloud, max_count):
         """ Fill in labels-dict.
         """
-        for i in range(len(ilines_xlines)):
-            il, xl = ilines_xlines[i, :2]
+        for i in range(len(point_cloud)):
+            il, xl = point_cloud[i, :2]
             if labels.get((il, xl)) is None:
                 labels[(il, xl)] = np.full((max_count, ), FILL_VALUE, np.int64)
 
             idx = int(point_cloud[i, 3])
             labels[(il, xl)][idx] = point_cloud[i, 2]
 
-    fill_labels(labels, ilines_xlines, point_cloud, max_count)
+    fill_labels(labels, point_cloud, max_count)
     return labels
 
 @njit
@@ -212,7 +204,7 @@ def create_mask(ilines_, xlines_, hs_,
 
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
-            il_, xl_ = iline_ - ilines_offset, xline_ - xlines_offset
+            il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
             if il_xl_h.get((il_, xl_)) is None:
                 continue
             m_temp = np.zeros(geom_depth)
@@ -318,15 +310,11 @@ def dump_horizon(horizon, geometry, path_save, offset=1):
         ixh.append([i, x, h])
     ixh = np.asarray(ixh)
 
-    cdp_xy = geometry.lines_to_abs(ixh)
+    ixh[:, -1] = (ixh[:, -1] + offset) * geometry.sample_rate + geometry.delay
 
-    h = (ixh[:, -1] + offset) * geometry.sample_rate + geometry.delay
-
-    data = np.hstack([ixh[:, :2], cdp_xy[:, :2], h.reshape(-1, 1)])
-
-    df = pd.DataFrame(data, columns=['iline', 'xline', 'cdp_y', 'cdp_x', 'height'])
+    df = pd.DataFrame(ixh, columns=['iline', 'xline', 'height'])
     df.sort_values(['iline', 'xline'], inplace=True)
-    df.to_csv(path_save, sep=' ', columns=['iline', 'xline', 'cdp_x', 'cdp_y', 'height'],
+    df.to_csv(path_save, sep=' ', columns=['iline', 'xline', 'height'],
               index=False, header=False)
 
 

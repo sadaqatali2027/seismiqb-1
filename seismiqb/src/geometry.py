@@ -39,11 +39,11 @@ class SeismicGeometry():
         self.ilines_len, self.xlines_len = None, None
 
         self.cdp_x, self.cdp_y = set(), set()
-        self.abs_to_lines = None
-        self.lines_to_abs = None
+        self.height_correction = None
 
         self.value_min, self.value_max = np.inf, -np.inf
         self.scaler, self.descaler = None, None
+        self.zero_traces = None
 
 
     def load(self):
@@ -68,22 +68,10 @@ class SeismicGeometry():
         self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
 
         # Create transform from global coordinates to ilines/xlines/depth (and vice versa)
-        y_to_iline = self._get_linear(self.cdp_y, self.ilines)
-        x_to_xline = self._get_linear(self.cdp_x, self.xlines)
-        h_to_depth = lambda h: ((h - self.delay) / self.sample_rate).astype(np.int64)
-        self.abs_to_lines = (lambda array: np.stack([y_to_iline(array[:, 0]),
-                                                     x_to_xline(array[:, 1]),
-                                                     h_to_depth(array[:, 2]),
-                                                     array[:, 3]],
-                                                    axis=-1))
-
-        iline_to_y = self._get_linear(self.ilines, self.cdp_y)
-        xline_to_x = self._get_linear(self.xlines, self.cdp_x)
-        depth_to_h = lambda depth: (depth*self.sample_rate + self.delay)
-        self.lines_to_abs = (lambda array: np.stack([iline_to_y(array[:, 0]),
-                                                     xline_to_x(array[:, 1]),
-                                                     depth_to_h(array[:, 2])],
-                                                    axis=-1))
+        def transform(array):
+            array[:, 2] = (array[:, 2] - self.delay) / self.sample_rate
+            return array
+        self.height_correction = transform
 
         # Callable to transform cube values to [0, 1] (and vice versa)
         if self.value_min is not None:
@@ -171,7 +159,6 @@ class SeismicGeometry():
                     if max_ > self.value_max:
                         self.value_max = max_
         self.zero_traces = matrix
-
 
 
     def make_h5py(self, path_h5py=None, postfix='', dtype=np.float32):

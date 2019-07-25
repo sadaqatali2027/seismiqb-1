@@ -125,7 +125,7 @@ class SeismicCubeset(Dataset):
 
         transforms : dict
             Mapping from indices to callables. Each callable should define
-            way to map point from absolute coordinates (X, Y world-wise) to
+            way to map point from absolute coordinates (X, Y world-wise, H, ) to
             cube specific (ILINE, XLINE) and take array of shape (N, 4) as input.
 
         src : str
@@ -150,7 +150,7 @@ class SeismicCubeset(Dataset):
             for ix in self.indices:
                 point_cloud = point_clouds.get(ix)
                 geom = getattr(self, 'geometries').get(ix)
-                transform = transforms.get(ix) or geom.abs_to_lines
+                transform = transforms.get(ix) or geom.height_correction
                 getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
         return self
 
@@ -226,7 +226,7 @@ class SeismicCubeset(Dataset):
                     offsets = np.array([geom.ilines_offset, geom.xlines_offset, 0])
                     cube_shape = np.array(geom.cube_shape)
                     to_cube = lambda points: (points[:, :3] - offsets)/cube_shape
-                    default = lambda points: to_cube(geom.abs_to_lines(points))
+                    default = lambda points: to_cube(geom.height_correction(points))
 
                     transform = transforms.get(ix) or default
                     cube_array = transform(point_cloud)
@@ -382,7 +382,7 @@ class SeismicCubeset(Dataset):
         p : sequence of numbers
             Proportions of different cubes in sampler.
         """
-        horizon_dir = horizon_dir or '/FORMAT_HORIZONTS/*'
+        horizon_dir = horizon_dir or '/BEST_HORIZONS/*'
 
         paths_txt = {}
         for i in range(len(self)):
@@ -403,7 +403,6 @@ class SeismicCubeset(Dataset):
             with open(save_to, 'wb') as file:
                 dill.dump(getattr(self, name), file)
         return self
-
 
     def make_grid(self, cube_name, crop_shape,
                   ilines_range, xlines_range, h_range,
