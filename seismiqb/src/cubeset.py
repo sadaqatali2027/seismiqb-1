@@ -1,15 +1,17 @@
 """ Contains container for storing dataset of seismic crops. """
+import os
 from glob import glob
-import dill
 
+import dill
 import numpy as np
 
 from ..batchflow import Dataset, Sampler
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
+
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
-
-from .utils import read_point_cloud, make_labels_dict, _get_horizons, compare_horizons, round_to_array
+from .utils import read_point_cloud, make_labels_dict, filter_labels
+from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
 from .plot_utils import show_labels
 
 
@@ -103,6 +105,7 @@ class SeismicCubeset(Dataset):
         else:
             for ix in self.indices:
                 self.point_clouds[ix] = read_point_cloud(paths[ix], **kwargs)
+                self.geometries[ix].horizon_list = paths[ix]
         return self
 
 
@@ -115,7 +118,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load_labels(self, path=None, transforms=None, src='point_clouds', dst='labels'):
+    def load_labels(self, path=None, transforms=None, drop_zeros=True, src='point_clouds', dst='labels'):
         """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
 
         Parameters
@@ -152,6 +155,11 @@ class SeismicCubeset(Dataset):
                 geom = getattr(self, 'geometries').get(ix)
                 transform = transforms.get(ix) or geom.height_correction
                 getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
+
+                if drop_zeros:
+                    ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
+                    zero_matrix = geom.zero_traces
+                    filter_labels(getattr(self, dst)[ix], zero_matrix, ilines_offset, xlines_offset)
         return self
 
 
@@ -164,6 +172,26 @@ class SeismicCubeset(Dataset):
             except TypeError:
                 raise NotImplementedError("Numba dicts are yet to support serializing")
         return self
+
+
+    def dump_labels(self, dir_name=None, src_labels='labels'):
+        """ TEMPORAL. """
+        for ix in self.indices:
+            labels = getattr(self, src_labels).get(ix)
+            geom = self.geometries[ix]
+
+            save_dir = '/'.join(geom.path.split('/')[:-1] + [dir_name])
+            try:
+                os.mkdir(save_dir)
+            except FileExistsError:
+                pass
+
+            for idx, path in enumerate(geom.horizon_list):
+                name = path.split('/')[-1]
+                name = '/'.join([save_dir, name])
+                dump_horizon(labels, geom, name, idx=idx)
+
+
 
 
     def show_labels(self, idx=0):

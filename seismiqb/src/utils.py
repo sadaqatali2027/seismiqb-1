@@ -167,8 +167,8 @@ def make_labels_dict(point_cloud):
         dict of labels `{(x, y): [z_1, z_2, ...]}`.
     """
     # round and cast
-    point_cloud = point_cloud.astype(np.int64)
-    max_count = int(point_cloud[-1, -1]) + 1
+    point_cloud = np.rint(point_cloud).astype(np.int64)
+    max_count = point_cloud[-1, -1] + 1
 
     # make typed Dict
     key_type = types.Tuple((types.int64, types.int64))
@@ -189,6 +189,25 @@ def make_labels_dict(point_cloud):
 
     fill_labels(labels, point_cloud, max_count)
     return labels
+
+
+@njit
+def filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
+    """ TEMPORAL. """
+    n_zeros = int(np.sum(zero_matrix))
+    if n_zeros > 0:
+        c = 0
+        to_remove = np.zeros((n_zeros, 2), dtype=np.int64)
+
+        for il, xl in labels.keys():
+            if zero_matrix[il - ilines_offset, xl - xlines_offset] == 1:
+                to_remove[c, 0] = il
+                to_remove[c, 1] = xl
+                c = c + 1
+
+        for i in range(n_zeros):
+            labels.pop((to_remove[i, 0], to_remove[i, 1]))
+
 
 @njit
 def create_mask(ilines_, xlines_, hs_,
@@ -286,8 +305,8 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
     return horizons
 
 
-def dump_horizon(horizon, geometry, path_save, offset=1):
-    """ Save horizon as point cloud.
+def dump_horizon(horizon, geometry, path_save, idx=None, offset=1):
+    """ Save horizon in a point cloud format.
 
     Parameters
     ----------
@@ -307,6 +326,8 @@ def dump_horizon(horizon, geometry, path_save, offset=1):
     """
     ixh = []
     for (i, x), h in horizon.items():
+        if idx is not None:
+            h = h[idx]
         ixh.append([i, x, h])
     ixh = np.asarray(ixh)
 
