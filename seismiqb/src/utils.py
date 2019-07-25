@@ -200,7 +200,7 @@ def make_labels_dict(point_cloud):
 
 @njit
 def create_mask(ilines_, xlines_, hs_,
-                il_xl_h, geom_ilines, geom_xlines, geom_depth,
+                il_xl_h, ilines_offset, xlines_offset, geom_depth,
                 mode, width, single_horizon=False):
     """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
     This function is usually called inside SeismicCropBatch's method `load_masks`.
@@ -212,7 +212,7 @@ def create_mask(ilines_, xlines_, hs_,
 
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
-            il_, xl_ = geom_ilines[iline_], geom_xlines[xline_]
+            il_, xl_ = iline_ - ilines_offset, xline_ - xlines_offset
             if il_xl_h.get((il_, xl_)) is None:
                 continue
             m_temp = np.zeros(geom_depth)
@@ -283,7 +283,7 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
 
         if separate:
             for key, h in zip(zip(ilines_, xlines_), heights_):
-                horizons[n_horizon][key] = h
+                horizons[n_horizon][key] = [h]
         else:
             for key, h in zip(zip(ilines_, xlines_), heights_):
                 if key in horizons:

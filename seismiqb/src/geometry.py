@@ -54,7 +54,7 @@ class SeismicGeometry():
         ext = os.path.splitext(self.path)[1][1:]
         if ext in ['sgy', 'segy']:
             self._load_sgy()
-            self.make_scalers()
+            self.sweep()
         elif ext in ['hdf5']:
             self._load_h5py()
         else:
@@ -133,7 +133,7 @@ class SeismicGeometry():
         """
         self.h5py_file = h5py.File(self.path, "r")
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
-                      'ilines', 'xlines', 'cdp_x', 'cdp_y']
+                      'ilines', 'xlines', 'cdp_x', 'cdp_y', 'zero_traces']
 
         for item in attributes:
             value = self.h5py_file['/info/' + item][()]
@@ -147,19 +147,31 @@ class SeismicGeometry():
         return lambda x: a * x + b
 
 
-    def make_scalers(self):
-        """ Get scaling constants. """
+    def sweep(self):
+        """ One additional pass through the file. """
+        matrix = np.zeros((len(self.ilines), len(self.xlines)))
+        ilines_offset = min(self.ilines)
+        xlines_offset = min(self.xlines)
+
         with segyio.open(self.path, 'r', strict=False) as segyfile:
             segyfile.mmap()
 
-            description = 'Making scalers for {}'.format('/'.join(self.path.split('/')[-2:]))
-            for i in tqdm(range(len(self.il_xl_trace)), desc=description):
-                trace_ = segyfile.trace[i]
+            description = 'Sweeping through {}'.format('/'.join(self.path.split('/')[-2:]))
+            for (il, xl), i in tqdm(self.il_xl_trace.items(), desc=description):
+                trace = segyfile.trace[i]
 
-                if np.min(trace_) < self.value_min:
-                    self.value_min = np.min(trace_)
-                if np.max(trace_) > self.value_max:
-                    self.value_max = np.max(trace_)
+                min_ = np.min(trace)
+                max_ = np.max(trace)
+
+                if min_ == max_ == 0:
+                    matrix[il - ilines_offset, xl - xlines_offset] = 1
+                else:
+                    if min_ < self.value_min:
+                        self.value_min = min_
+                    if max_ > self.value_max:
+                        self.value_max = max_
+        self.zero_traces = matrix
+
 
 
     def make_h5py(self, path_h5py=None, postfix='', dtype=np.float32):
@@ -199,7 +211,7 @@ class SeismicGeometry():
 
         # Save all the necessary attributes to the `info` group
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
-                      'ilines', 'xlines', 'cdp_x', 'cdp_y']
+                      'ilines', 'xlines', 'cdp_x', 'cdp_y', 'zero_traces']
 
         for item in attributes:
             h5py_file['/info/' + item] = getattr(self, item)
