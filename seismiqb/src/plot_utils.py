@@ -43,8 +43,8 @@ def plot_batch_components(batch, idx=0, *components, overlap=True, rotate_axes=0
     alphas : number or sequence of numbers
         Opacity for showing images.
     """
-    print('Images from {}'.format(batch.indices[idx][:-10]))
     if idx is not None:
+        print('Images from {}'.format(batch.indices[idx][:-10]))
         imgs = [getattr(batch, comp)[idx] for comp in components]
     else:
         imgs = [getattr(batch, comp) for comp in components]
