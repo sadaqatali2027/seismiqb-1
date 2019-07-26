@@ -5,19 +5,18 @@ import matplotlib.pyplot as plt
 from numba import njit
 from ..batchflow import Pipeline, D
 
-def plot_loss(*lst, title=None):
-    """ Loss. """
-    plt.figure(figsize=(8, 5))
-    for loss_history in lst:
-        plt.plot(loss_history)
-
+def plot_loss(graph_lists, labels, ylabel='Loss', figsize=(10,10), title=None):
+    """ Plot losses"""
+    plt.figure(figsize=figsize)
+    for i, arr in enumerate(graph_lists):
+        plt.plot(arr, label=labels[i])
+    plt.xlabel('Iterations')
+    plt.ylabel(ylabel, fontdict={'fontsize': 15})
     plt.grid(True)
-    plt.xlabel('Iterations', fontdict={'fontsize': 15})
-    plt.ylabel('Loss', fontdict={'fontsize': 15})
     if title:
         plt.title(title, fontdict={'fontsize': 15})
+    plt.legend()
     plt.show()
-
 
 def plot_batch_components(batch, idx=0, *components, overlap=True, rotate_axes=0, cmaps=None, alphas=None):
     """ Plot components of batch.
