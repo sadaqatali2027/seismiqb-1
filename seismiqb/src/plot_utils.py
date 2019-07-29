@@ -108,7 +108,7 @@ def _to_img(data, rotate_axes=0, convert=False):
 
 
 def plot_slide(dataset, idx=0, iline=0, *components, overlap=True):
-    """ Slidify! """
+    """ Plot full slide of the given cube on the given iline. """
     cube_name = dataset.indices[idx]
     cube_shape = dataset.geometries[cube_name].cube_shape
     point = np.array([[cube_name, iline, 0, 0]], dtype=object)
@@ -130,7 +130,7 @@ def plot_slide(dataset, idx=0, iline=0, *components, overlap=True):
 
 
 def show_labels(dataset, ix=0):
-    """ Not empty! """
+    """ Show labeled ilines/xlines from above: yellow stands for labeled regions. """
     name = dataset.indices[ix]
     geom = dataset.geometries[name]
     labels = dataset.labels[name]
@@ -139,6 +139,7 @@ def show_labels(dataset, ix=0):
     background = np.zeros((geom.ilines_len, geom.xlines_len))
     img = labels_matrix(background, np.array(possible_coordinates), labels,
                         geom.ilines_offset, geom.xlines_offset)
+    img[0, 0] = 0
 
     _, ax = plt.subplots(figsize=(12, 7))
     ax.imshow(img)
@@ -150,7 +151,7 @@ def show_labels(dataset, ix=0):
 @njit
 def labels_matrix(background, possible_coordinates, labels,
                   ilines_offset, xlines_offset):
-    """ Jitify! """
+    """ Jit-accelerated function to check which ilines/xlines are labeled. """
     for i in range(len(possible_coordinates)):
         point = possible_coordinates[i, :]
         if labels.get((point[0], point[1])) is not None:

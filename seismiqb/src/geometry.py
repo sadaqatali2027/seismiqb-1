@@ -54,7 +54,7 @@ class SeismicGeometry():
         ext = os.path.splitext(self.path)[1][1:]
         if ext in ['sgy', 'segy']:
             self._load_sgy()
-            self.sweep()
+            self._sweep()
         elif ext in ['hdf5']:
             self._load_h5py()
         else:
@@ -67,7 +67,7 @@ class SeismicGeometry():
         self.xlines_len = len(self.xlines)
         self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
 
-        # Create transform from global coordinates to ilines/xlines/depth (and vice versa)
+        # Create transform to correct height with time-delay and sample rate
         def transform(array):
             array[:, 2] = (array[:, 2] - self.delay) / self.sample_rate
             return array
@@ -114,28 +114,7 @@ class SeismicGeometry():
         self.delay = header_.get(segyio.TraceField.DelayRecordingTime)
         self.sample_rate = header_.get(segyio.TraceField.TRACE_SAMPLE_INTERVAL) // 1000
 
-
-    def _load_h5py(self):
-        """ Put info from `.hdf5` groups to attributes.
-        No passing through data whatsoever.
-        """
-        self.h5py_file = h5py.File(self.path, "r")
-        attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
-                      'ilines', 'xlines', 'cdp_x', 'cdp_y', 'zero_traces']
-
-        for item in attributes:
-            value = self.h5py_file['/info/' + item][()]
-            setattr(self, item, value)
-
-
-    def _get_linear(self, set_x, set_y):
-        """ Get linear-transformation that maps range of set_x into range of set_y. """
-        a = (max(set_y) - min(set_y)) / (max(set_x) - min(set_x))
-        b = max(set_y) - a * max(set_x)
-        return lambda x: a * x + b
-
-
-    def sweep(self):
+    def _sweep(self):
         """ One additional pass through the file. """
         matrix = np.zeros((len(self.ilines), len(self.xlines)))
         ilines_offset = min(self.ilines)
@@ -160,6 +139,18 @@ class SeismicGeometry():
                         self.value_max = max_
         self.zero_traces = matrix
 
+
+    def _load_h5py(self):
+        """ Put info from `.hdf5` groups to attributes.
+        No passing through data whatsoever.
+        """
+        self.h5py_file = h5py.File(self.path, "r")
+        attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
+                      'ilines', 'xlines', 'cdp_x', 'cdp_y', 'zero_traces']
+
+        for item in attributes:
+            value = self.h5py_file['/info/' + item][()]
+            setattr(self, item, value)
 
     def make_h5py(self, path_h5py=None, postfix='', dtype=np.float32):
         """ Converts `.sgy` cube to `.hdf5` format.

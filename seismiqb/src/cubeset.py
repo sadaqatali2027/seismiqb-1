@@ -66,6 +66,11 @@ class SeismicCubeset(Dataset):
                     self.geometries[ix].log()
         return self
 
+    def convert_to_h5py(self, postfix='', dtype=np.float32):
+        """ Converts every cube in dataset from `.sgy` to `.hdf5`. """
+        for ix in self.indices:
+            self.geometries[ix].make_h5py(postfix=postfix, dtype=dtype)
+        return self
 
     def save_geometries(self, save_to):
         """ Save dill-serialized geometries for a dataset of seismic-cubes on disk.
@@ -73,13 +78,6 @@ class SeismicCubeset(Dataset):
         if isinstance(save_to, str):
             with open(save_to, 'wb') as file:
                 dill.dump(self.geometries, file)
-        return self
-
-
-    def convert_to_h5py(self, postfix='', dtype=np.float32):
-        """ Converts every cube in dataset from `.sgy` to `.hdf5`. """
-        for ix in self.indices:
-            self.geometries[ix].make_h5py(postfix=postfix, dtype=dtype)
         return self
 
 
@@ -108,7 +106,6 @@ class SeismicCubeset(Dataset):
                 self.geometries[ix].horizon_list = paths[ix]
         return self
 
-
     def save_point_clouds(self, save_to):
         """ Save dill-serialized point clouds for a dataset of seismic-cubes on disk.
         """
@@ -118,7 +115,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load_labels(self, path=None, transforms=None, drop_zeros=True, src='point_clouds', dst='labels'):
+    def create_labels(self, path=None, transforms=None, src='point_clouds', dst='labels'):
         """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
 
         Parameters
@@ -155,13 +152,14 @@ class SeismicCubeset(Dataset):
                 geom = getattr(self, 'geometries').get(ix)
                 transform = transforms.get(ix) or geom.height_correction
                 getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
-
-                if drop_zeros:
-                    ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
-                    zero_matrix = geom.zero_traces
-                    filter_labels(getattr(self, dst)[ix], zero_matrix, ilines_offset, xlines_offset)
         return self
 
+    def filter_labels(self, src='labels'):
+        for ix in self.indices:
+            geom = getattr(self, 'geometries').get(ix)
+            ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
+            zero_matrix = geom.zero_traces
+            filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
 
     def save_labels(self, save_to, src='labels'):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
@@ -172,7 +170,6 @@ class SeismicCubeset(Dataset):
             except TypeError:
                 raise NotImplementedError("Numba dicts are yet to support serializing")
         return self
-
 
     def dump_labels(self, dir_name=None, src_labels='labels'):
         """ Dump labels-dict into separate txt files.
@@ -206,7 +203,7 @@ class SeismicCubeset(Dataset):
         show_labels(self, ix=idx)
 
 
-    def load_samplers(self, path=None, mode='hist', p=None,
+    def create_sampler(self, path=None, mode='hist', p=None,
                       transforms=None, dst='sampler', **kwargs):
         """ Create samplers for every cube and store it in `samplers`
         attribute of passed dataset. Also creates one combined sampler
@@ -285,7 +282,6 @@ class SeismicCubeset(Dataset):
             sampler = sampler | (p[i] & sampler_)
         setattr(self, dst, sampler)
         return self
-
 
     def modify_sampler(self, dst, mode='iline', low=None, high=None,
                        each=None, each_start=None,
@@ -396,7 +392,6 @@ class SeismicCubeset(Dataset):
         else:
             setattr(self, dst, sampler)
 
-
     def save_samplers(self, save_to):
         """ Save dill-serialized samplers for a dataset of seismic-cubes on disk.
         """
@@ -406,7 +401,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def load(self, horizon_dir=None, p=None):
+    def load(self, horizon_dir=None, p=None, filter_zeros=True):
         """ Load everything: geometries, point clouds, labels, samplers.
 
         Parameters
@@ -427,10 +422,11 @@ class SeismicCubeset(Dataset):
 
         self.load_geometries()
         self.load_point_clouds(paths=paths_txt)
-        self.load_labels()
-        self.load_samplers(p=p)
+        self.create_labels()
+        if filter_zeros:
+            self.filter_labels()
+        self.create_sampler(p=p)
         return self
-
 
     def save_attr(self, name, save_to):
         """ Save attribute of dataset to disk. """
@@ -438,6 +434,7 @@ class SeismicCubeset(Dataset):
             with open(save_to, 'wb') as file:
                 dill.dump(getattr(self, name), file)
         return self
+
 
     def make_grid(self, cube_name, crop_shape,
                   ilines_range, xlines_range, h_range,
@@ -533,6 +530,7 @@ class SeismicCubeset(Dataset):
                           'range': [ilines_range, xlines_range, h_range]}
         return self
 
+
     def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates='cubic', separate=True):
         """ Compute point cloud of horizons from a mask, save it into the 'cubeset'-attribute.
 
@@ -592,6 +590,7 @@ class SeismicCubeset(Dataset):
             for i, horizon in enumerate(horizons):
                 setattr(self, dst+'_'+str(i), horizon)
         return self
+
 
     def compare_to_labels(self, horizon, cube_idx=0, offset=1, plot=True):
         """ Compare given horizon to labels in dataset.
