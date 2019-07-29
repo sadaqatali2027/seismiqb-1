@@ -155,6 +155,7 @@ class SeismicCubeset(Dataset):
         return self
 
     def filter_labels(self, src='labels'):
+        """ Remove labels corresponding to zero-traces. """
         for ix in self.indices:
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
@@ -204,7 +205,7 @@ class SeismicCubeset(Dataset):
 
 
     def create_sampler(self, path=None, mode='hist', p=None,
-                      transforms=None, dst='sampler', **kwargs):
+                       transforms=None, dst='sampler', **kwargs):
         """ Create samplers for every cube and store it in `samplers`
         attribute of passed dataset. Also creates one combined sampler
         and stores it in `sampler` attribute of passed dataset.
