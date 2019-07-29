@@ -5,8 +5,11 @@ import matplotlib.pyplot as plt
 from numba import njit
 from ..batchflow import Pipeline, D
 
-def plot_loss(graph_lists, labels, ylabel='Loss', figsize=(10,10), title=None):
-    """ Plot losses"""
+def plot_loss(graph_lists, labels, ylabel='Loss', figsize=(10, 10), title=None):
+    """ Plot losses. """
+    if not isinstance(graph_lists[0], (tuple, list)):
+        graph_lists = [graph_lists]
+
     plt.figure(figsize=figsize)
     for i, arr in enumerate(graph_lists):
         plt.plot(arr, label=labels[i])
