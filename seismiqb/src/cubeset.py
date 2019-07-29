@@ -175,7 +175,17 @@ class SeismicCubeset(Dataset):
 
 
     def dump_labels(self, dir_name=None, src_labels='labels'):
-        """ TEMPORAL. """
+        """ Dump labels-dict into separate txt files.
+
+        Parameters
+        ----------
+        src_labels : str
+            Attribute with dictionary: (iline, xline) -> array of heights.
+            Each entry in the array is saved into separate file.
+
+        dir_name : str
+            Relative (to cube location) path to directory with saved horizons.
+        """
         for ix in self.indices:
             labels = getattr(self, src_labels).get(ix)
             geom = self.geometries[ix]
@@ -190,7 +200,6 @@ class SeismicCubeset(Dataset):
                 name = path.split('/')[-1]
                 name = '/'.join([save_dir, name])
                 dump_horizon(labels, geom, name, idx=idx, offset=0)
-
 
     def show_labels(self, idx=0):
         """ Draw points with hand-labeled horizons from above. """

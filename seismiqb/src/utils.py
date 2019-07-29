@@ -193,7 +193,19 @@ def make_labels_dict(point_cloud):
 
 @njit
 def filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
-    """ TEMPORAL. """
+    """ Remove (inplace) keys from labels dictionary according to zero_matrix.
+
+    Parameters
+    ----------
+    labels : dict
+        Dictionary with keys in (iline, xline) format.
+
+    zero_matrix : ndarray
+        Matrix of (n_ilines, n_xlines) shape with 1 on positions of zero-traces.
+
+    ilines_offset, xlines_offset : int
+        Offset of numeration.
+    """
     n_zeros = int(np.sum(zero_matrix))
     if n_zeros > 0:
         c = 0
@@ -206,10 +218,9 @@ def filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
                 c = c + 1
 
         for i in range(c):
-            try:
-                labels.pop((to_remove[i, 0], to_remove[i, 1]))
-            except KeyError:
-                pass
+            key = (to_remove[i, 0], to_remove[i, 1])
+            if key in labels:
+                labels.pop(key)
 
 
 @njit
@@ -304,7 +315,6 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
                     horizons[key].append(h)
                 else:
                     horizons[key] = [h]
-
     return horizons
 
 
