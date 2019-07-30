@@ -12,7 +12,7 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
-from .plot_utils import show_labels
+from .plot_utils import show_labels, plot_slide
 
 
 
@@ -593,7 +593,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def compare_to_labels(self, horizon, cube_idx=0, offset=1, plot=True):
+    def compare_to_labels(self, horizon, idx=0, offset=1, plot=True):
         """ Compare given horizon to labels in dataset.
 
         Parameters
@@ -601,7 +601,7 @@ class SeismicCubeset(Dataset):
         horizon : dict
             Mapping from (iline, xline) to heights.
 
-        cube_idx : int
+        idx : int
             Index of cube in the dataset to work with.
 
         offset : number
@@ -610,9 +610,14 @@ class SeismicCubeset(Dataset):
         plot : bool
             Whether to plot histogram of errors.
         """
-        labels = self.labels[self.indices[cube_idx]]
-        sample_rate = self.geometries[self.indices[cube_idx]].sample_rate
+        labels = self.labels[self.indices[idx]]
+        sample_rate = self.geometries[self.indices[idx]].sample_rate
 
         compare_horizons(horizon, labels, printer=print, plot=plot,
                          sample_rate=sample_rate, offset=offset)
         return self
+
+
+    def show_slide(self, idx=0, iline=0, *components, overlap=True):
+        """ Show full slide of the given cube on the given iline. """
+        plot_slide(self, idx=idx, iline=iline, *components, overlap=overlap)
