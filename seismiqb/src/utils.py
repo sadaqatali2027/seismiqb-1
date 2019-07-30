@@ -93,7 +93,7 @@ def convert_point_cloud(path, path_save, names=None, order=None, transform=None)
         redundant keywords like `INLINE`.
 
     order : str or sequence of str
-        Names and order of columns to keep. Default is ('iline', 'xline', 'cdp_x', 'cdp_y', 'height').
+        Names and order of columns to keep. Default is ('iline', 'xline', 'height').
     """
     #pylint: disable=anomalous-backslash-in-string
     names = names or ['_', '_', 'iline', '_', '_', 'xline',
@@ -132,8 +132,8 @@ def read_point_cloud(paths, names=None, order=None, **kwargs):
     Returns
     -------
     ndarray
-        resulting point-cloud. First three columns contain `(x, y, z)`-coords while the last one stores
-        horizon-number.
+        resulting point-cloud. First three columns contain (iline, xline, height) while the last one stores
+        horizon number.
     """
     #pylint: disable=anomalous-backslash-in-string
     paths = [paths] if isinstance(paths, str) else paths
@@ -192,7 +192,7 @@ def make_labels_dict(point_cloud):
 
 
 @njit
-def filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
+def _filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
     """ Remove (inplace) keys from labels dictionary according to zero_matrix.
 
     Parameters
@@ -204,7 +204,7 @@ def filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
         Matrix of (n_ilines, n_xlines) shape with 1 on positions of zero-traces.
 
     ilines_offset, xlines_offset : int
-        Offset of numeration.
+        Offsets of numeration.
     """
     n_zeros = int(np.sum(zero_matrix))
     if n_zeros > 0:
@@ -219,7 +219,7 @@ def filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
 
         for i in range(c):
             key = (to_remove[i, 0], to_remove[i, 1])
-            if key in labels:
+            if key in labels: # for some reason that is necessary
                 labels.pop(key)
 
 

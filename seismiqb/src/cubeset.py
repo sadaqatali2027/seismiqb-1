@@ -10,7 +10,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
-from .utils import read_point_cloud, make_labels_dict, filter_labels
+from .utils import read_point_cloud, make_labels_dict, _filter_labels
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
 from .plot_utils import show_labels
 
@@ -125,8 +125,8 @@ class SeismicCubeset(Dataset):
 
         transforms : dict
             Mapping from indices to callables. Each callable should define
-            way to map point from absolute coordinates (X, Y world-wise, H, ) to
-            cube specific (ILINE, XLINE) and take array of shape (N, 4) as input.
+            way to map point from (i, x, h, n) to (i, x, d, n) and take array of shape (N, 4) as input,
+            where d is corrected h (divided by sample rate and moved by time-delay value).
 
         src : str
             Attribute with saved point clouds.
@@ -160,7 +160,7 @@ class SeismicCubeset(Dataset):
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
             zero_matrix = geom.zero_traces
-            filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
+            _filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
 
     def save_labels(self, save_to, src='labels'):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
