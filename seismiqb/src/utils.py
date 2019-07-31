@@ -156,18 +156,20 @@ def read_point_cloud(paths, names=None, order=None, **kwargs):
 
 @njit
 def _filter_point_cloud(point_cloud, zero_matrix, ilines_offset, xlines_offset):
+    """ Great docstring. """
+    #pylint: disable=consider-using-enumerate
     mask = np.ones(len(point_cloud), dtype=np.int32)
 
-    for i, point in enumerate(point_cloud):
-        il, xl = point[0], point[1]
+    for i in range(len(point_cloud)):
+        il, xl = point_cloud[i, 0], point_cloud[i, 1]
         if zero_matrix[il-ilines_offset, xl-xlines_offset] == 1:
             mask[i] = 0
 
     filtered = np.empty((np.sum(mask), 4), dtype=np.int64)
     c = 0
-    for i, point in enumerate(point_cloud):
+    for i in range(len(point_cloud)):
         if mask[i] == 1:
-            filtered[c] = point
+            filtered[c] = point_cloud[i]
             c += 1
     return filtered
 
