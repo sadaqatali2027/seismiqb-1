@@ -10,7 +10,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
-from .utils import read_point_cloud, make_labels_dict, _filter_labels
+from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
 from .plot_utils import show_labels, plot_slide
 
@@ -105,6 +105,14 @@ class SeismicCubeset(Dataset):
                 self.point_clouds[ix] = read_point_cloud(paths[ix], **kwargs)
                 self.geometries[ix].horizon_list = paths[ix]
         return self
+
+    def filter_point_clouds(self, src='point_clouds'):
+        """ Remove points corresponding to zero-traces. """
+        for ix in self.indices:
+            geom = getattr(self, 'geometries').get(ix)
+            ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
+            zero_matrix = geom.zero_traces
+            _filter_point_cloud(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
 
     def save_point_clouds(self, save_to):
         """ Save dill-serialized point clouds for a dataset of seismic-cubes on disk.
@@ -201,6 +209,7 @@ class SeismicCubeset(Dataset):
 
     def show_labels(self, idx=0):
         """ Draw points with hand-labeled horizons from above. """
+        print('Labels for {}'.format(self.indices[idx]))
         show_labels(self, ix=idx)
 
 
@@ -423,9 +432,9 @@ class SeismicCubeset(Dataset):
 
         self.load_geometries()
         self.load_point_clouds(paths=paths_txt)
-        self.create_labels()
         if filter_zeros:
-            self.filter_labels()
+            self.filter_point_clouds()
+        self.create_labels()
         self.create_sampler(p=p)
         return self
 
@@ -620,4 +629,4 @@ class SeismicCubeset(Dataset):
 
     def show_slide(self, idx=0, iline=0, *components, overlap=True):
         """ Show full slide of the given cube on the given iline. """
-        plot_slide(self, idx=idx, iline=iline, *components, overlap=overlap)
+        plot_slide(self, idx, iline, *components, overlap=overlap)

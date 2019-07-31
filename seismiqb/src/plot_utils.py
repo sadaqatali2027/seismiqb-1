@@ -118,14 +118,14 @@ def plot_slide(dataset, idx=0, iline=0, *components, overlap=True):
                                 dst=['geometries', 'labels'])
                 .crop(points=point,
                       shape=[1] + cube_shape[1:])
-                .load_cubes(dst='data_crops')
-                .create_masks(dst='mask_crops', width=2)
-                .rotate_axes(src=['data_crops', 'mask_crops'])
-                .scale(mode='normalize', src='data_crops')
-                .add_axis(src='mask_crops', dst='mask_crops'))
+                .load_cubes(dst='images')
+                .create_masks(dst='masks', width=2)
+                .rotate_axes(src=['images', 'masks'])
+                .scale(mode='normalize', src='images')
+                .add_axis(src='masks', dst='masks'))
 
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
-    plot_batch_components(batch, 0, overlap, *components)
+    plot_batch_components(batch, 0, *components, overlap=overlap)
     return batch
 
 

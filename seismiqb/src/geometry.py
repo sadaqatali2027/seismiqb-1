@@ -7,6 +7,8 @@ import numpy as np
 import segyio
 from tqdm import tqdm
 
+from .utils import update_minmax
+
 
 
 class SeismicGeometry():
@@ -32,14 +34,12 @@ class SeismicGeometry():
         self.il_xl_trace = {}
         self.delay, self.sample_rate = None, None
         self.depth = None
+        self.height_correction = None
         self.cube_shape = None
 
         self.ilines, self.xlines = set(), set()
         self.ilines_offset, self.xlines_offset = None, None
         self.ilines_len, self.xlines_len = None, None
-
-        self.cdp_x, self.cdp_y = set(), set()
-        self.height_correction = None
 
         self.value_min, self.value_max = np.inf, -np.inf
         self.scaler, self.descaler = None, None
@@ -54,7 +54,6 @@ class SeismicGeometry():
         ext = os.path.splitext(self.path)[1][1:]
         if ext in ['sgy', 'segy']:
             self._load_sgy()
-            self._sweep()
         elif ext in ['hdf5']:
             self._load_h5py()
         else:
@@ -90,53 +89,43 @@ class SeismicGeometry():
 
             self.depth = len(segyfile.trace[0])
 
+            first_header = segyfile.header[0]
+            first_iline = first_header.get(segyio.TraceField.INLINE_3D)
+            first_xline = first_header.get(segyio.TraceField.CROSSLINE_3D)
+
+            last_header = segyfile.header[-1]
+            last_iline = last_header.get(segyio.TraceField.INLINE_3D)
+            last_xline = last_header.get(segyio.TraceField.CROSSLINE_3D)
+
+            ilines_offset, xlines_offset = first_iline, first_xline
+            ilines_len = last_iline - first_iline + 1
+            xlines_len = last_xline - first_xline + 1
+
+            matrix = np.zeros((ilines_len, xlines_len))
+
             description = 'Working with {}'.format('/'.join(self.path.split('/')[-2:]))
             for i in tqdm(range(len(segyfile.header)), desc=description):
-                header_ = segyfile.header[i]
-                iline_ = header_.get(segyio.TraceField.INLINE_3D)
-                xline_ = header_.get(segyio.TraceField.CROSSLINE_3D)
-                cdp_x_ = header_.get(segyio.TraceField.CDP_X)
-                cdp_y_ = header_.get(segyio.TraceField.CDP_Y)
+                header = segyfile.header[i]
+                iline = header.get(segyio.TraceField.INLINE_3D)
+                xline = header.get(segyio.TraceField.CROSSLINE_3D)
 
                 # Map:  (iline, xline) -> index of trace
-                self.il_xl_trace[(iline_, xline_)] = i
+                self.il_xl_trace[(iline, xline)] = i
 
                 # Set: all possible values for ilines/xlines
-                self.ilines.add(iline_)
-                self.xlines.add(xline_)
-                self.cdp_x.add(cdp_x_)
-                self.cdp_y.add(cdp_y_)
+                self.ilines.add(iline)
+                self.xlines.add(xline)
+
+                # Gather stats: min/max value, location of zero-traces
+                trace = segyfile.trace[i]
+                self.value_min, self.value_max, matrix = update_minmax(trace, self.value_min, self.value_max,
+                                                                       matrix, iline, xline,
+                                                                       ilines_offset, xlines_offset)
 
         self.ilines = sorted(list(self.ilines))
         self.xlines = sorted(list(self.xlines))
-        self.cdp_x = sorted(list(self.cdp_x))
-        self.cdp_y = sorted(list(self.cdp_y))
-        self.delay = header_.get(segyio.TraceField.DelayRecordingTime)
-        self.sample_rate = header_.get(segyio.TraceField.TRACE_SAMPLE_INTERVAL) // 1000
-
-    def _sweep(self):
-        """ One additional pass through the file. """
-        matrix = np.zeros((len(self.ilines), len(self.xlines)))
-        ilines_offset = min(self.ilines)
-        xlines_offset = min(self.xlines)
-
-        with segyio.open(self.path, 'r', strict=False) as segyfile:
-            segyfile.mmap()
-
-            description = 'Sweeping through {}'.format('/'.join(self.path.split('/')[-2:]))
-            for (il, xl), i in tqdm(self.il_xl_trace.items(), desc=description):
-                trace = segyfile.trace[i]
-
-                min_ = np.min(trace)
-                max_ = np.max(trace)
-
-                if min_ == max_ == 0:
-                    matrix[il - ilines_offset, xl - xlines_offset] = 1
-                else:
-                    if min_ < self.value_min:
-                        self.value_min = min_
-                    if max_ > self.value_max:
-                        self.value_max = max_
+        self.delay = header.get(segyio.TraceField.DelayRecordingTime)
+        self.sample_rate = header.get(segyio.TraceField.TRACE_SAMPLE_INTERVAL) / 1000
         self.zero_traces = matrix
 
 
@@ -221,8 +210,3 @@ class SeismicGeometry():
 
         printer('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
         printer('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
-
-        printer('CDP_X range from {} to {}'.format(min(self.cdp_x),
-                                                   max(self.cdp_x)))
-        printer('CDP_X range from {} to {}'.format(min(self.cdp_y),
-                                                   max(self.cdp_y)))

@@ -150,8 +150,26 @@ def read_point_cloud(paths, names=None, order=None, **kwargs):
         temp = np.hstack([cloud.loc[:, order].values,
                           np.ones((cloud.shape[0], 1)) * ix])
         point_clouds.append(temp)
-    return np.concatenate(point_clouds)
+    point_cloud = np.concatenate(point_clouds)
+    return np.rint(point_cloud).astype(np.int64)
 
+
+@njit
+def _filter_point_cloud(point_cloud, zero_matrix, ilines_offset, xlines_offset):
+    mask = np.ones(len(point_cloud), dtype=np.int32)
+
+    for i, point in enumerate(point_cloud):
+        il, xl = point[0], point[1]
+        if zero_matrix[il-ilines_offset, xl-xlines_offset] == 1:
+            mask[i] = 0
+
+    filtered = np.empty((np.sum(mask), 4), dtype=np.int64)
+    c = 0
+    for i, point in enumerate(point_cloud):
+        if mask[i] == 1:
+            filtered[c] = point
+            c += 1
+    return filtered
 
 def make_labels_dict(point_cloud):
     """ Make labels-dict using cloud of points.
@@ -485,3 +503,25 @@ def round_to_array(values, ticks):
             else:
                 values[i] = ticks_[ix-1]
     return values
+
+
+@njit
+def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines_offset):
+    """ Get both min and max values in just one pass through array. """
+    maximum = array[0]
+    minimum = array[0]
+    for i in array[1:]:
+        if i > maximum:
+            maximum = i
+        elif i < minimum:
+            minimum = i
+
+    if (minimum == 0) and (maximum == 0):
+        matrix[il - ilines_offset, xl - xlines_offset] = 1
+
+    if minimum < val_min:
+        val_min = minimum
+    if maximum > val_max:
+        val_max = maximum
+
+    return val_min, val_max, matrix
