@@ -112,7 +112,8 @@ class SeismicCubeset(Dataset):
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
             zero_matrix = geom.zero_traces
-            _filter_point_cloud(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
+            getattr(self, src)[ix] = _filter_point_cloud(getattr(self, src)[ix], zero_matrix,
+                                                         ilines_offset, xlines_offset)
 
     def save_point_clouds(self, save_to):
         """ Save dill-serialized point clouds for a dataset of seismic-cubes on disk.
