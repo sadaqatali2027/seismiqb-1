@@ -158,3 +158,24 @@ def labels_matrix(background, possible_coordinates, labels,
         if labels.get((point[0], point[1])) is not None:
             background[point[0] - ilines_offset, point[1] - xlines_offset] += len(labels.get((point[0], point[1])))
     return background
+
+def plot_stratum_predictions(cubes, targets, predictions, n_rows=None):
+    """ Plot a set of stratum predictions along with cubes and targets.
+    """
+    n_rows = n_rows or len(cubes)
+    cubes = np.squeeze(cubes)
+
+    # transform ohe to labels
+    targets, predictions = np.argmax(targets, axis=-1), np.argmax(predictions, axis=-1)
+
+    # plot crops
+    figs, axes = plt.subplots(n_rows, 3, figsize=(3 * 4, n_rows * 4))
+    for i, nr in enumerate(range(n_rows)):
+        vmin, vmax = np.min(targets[nr]) - 1, np.max(targets[nr]) + 1
+        axes[i, 0].imshow(cubes[nr].T)
+        axes[i, 1].imshow(targets[nr].T, vmin=vmin, vmax=vmax)
+        axes[i, 2].imshow(predictions[nr].T, vmin=vmin, vmax=vmax)
+
+        axes[i, 0].set_title('Input crop')
+        axes[i, 1].set_title('True mask')
+        axes[i, 2].set_title('Predicted mask')
