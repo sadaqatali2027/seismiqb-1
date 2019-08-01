@@ -160,8 +160,6 @@ def labels_matrix(background, possible_coordinates, labels,
             background[point[0] - ilines_offset, point[1] - xlines_offset] += len(labels.get((point[0], point[1])))
     return background
 
-<<<<<<< HEAD
-
 def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=3):
     """ Generate a lot of points and plot their (iline, xline) positions. """
     name = dataset.indices[idx]
@@ -185,7 +183,8 @@ def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=3):
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
     plt.show()
-=======
+
+
 def plot_stratum_predictions(cubes, targets, predictions, n_rows=None):
     """ Plot a set of stratum predictions along with cubes and targets.
     """
@@ -196,14 +195,13 @@ def plot_stratum_predictions(cubes, targets, predictions, n_rows=None):
     targets, predictions = np.argmax(targets, axis=-1), np.argmax(predictions, axis=-1)
 
     # plot crops
-    figs, axes = plt.subplots(n_rows, 3, figsize=(3 * 4, n_rows * 4))
-    for i, nr in enumerate(range(n_rows)):
-        vmin, vmax = np.min(targets[nr]) - 1, np.max(targets[nr]) + 1
-        axes[i, 0].imshow(cubes[nr].T)
-        axes[i, 1].imshow(targets[nr].T, vmin=vmin, vmax=vmax)
-        axes[i, 2].imshow(predictions[nr].T, vmin=vmin, vmax=vmax)
+    _, axes = plt.subplots(n_rows, 3, figsize=(3 * 4, n_rows * 4))
+    for i in range(n_rows):
+        vmin, vmax = np.min(targets[i]) - 1, np.max(targets[i]) + 1
+        axes[i, 0].imshow(cubes[i].T)
+        axes[i, 1].imshow(targets[i].T, vmin=vmin, vmax=vmax)
+        axes[i, 2].imshow(predictions[i].T, vmin=vmin, vmax=vmax)
 
         axes[i, 0].set_title('Input crop')
         axes[i, 1].set_title('True mask')
         axes[i, 2].set_title('Predicted mask')
->>>>>>> tutorials_update
