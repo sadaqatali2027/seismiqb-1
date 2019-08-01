@@ -12,13 +12,13 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
-from .plot_utils import show_labels, plot_slide
+from .plot_utils import show_labels, show_sampler, plot_slide
 
 
 
 class SeismicCubeset(Dataset):
-    """ Stores indexing structure for dataset of seismic cubes along with additional structures.
-    """
+    """ Stores indexing structure for dataset of seismic cubes along with additional structures. """
+    #pylint: disable=too-many-public-methods
     def __init__(self, index, batch_class=SeismicCropBatch, preloaded=None, *args, **kwargs):
         """ Initialize additional attributes.
         """
@@ -210,12 +210,10 @@ class SeismicCubeset(Dataset):
 
     def show_labels(self, idx=0):
         """ Draw points with hand-labeled horizons from above. """
-        print('Labels for {}'.format(self.indices[idx]))
-        show_labels(self, ix=idx)
+        show_labels(self, idx=idx)
 
 
-    def create_sampler(self, path=None, mode='hist', p=None,
-                       transforms=None, dst='sampler', **kwargs):
+    def create_sampler(self, path=None, mode='hist', p=None, transforms=None, dst='sampler', **kwargs):
         """ Create samplers for every cube and store it in `samplers`
         attribute of passed dataset. Also creates one combined sampler
         and stores it in `sampler` attribute of passed dataset.
@@ -274,7 +272,9 @@ class SeismicCubeset(Dataset):
                     transform = transforms.get(ix) or default
                     cube_array = transform(point_cloud)
 
-                    bins = kwargs.get('bins') or 100
+                    # Size of ticks along each respective axis
+                    default_bins = cube_shape // np.array([5, 20, 20])
+                    bins = kwargs.get('bins') or default_bins
                     sampler = HistoSampler(np.histogramdd(cube_array, bins=bins))
                 else:
                     sampler = NumpySampler('u', low=0, high=1, dim=3)
@@ -410,6 +410,26 @@ class SeismicCubeset(Dataset):
             with open(save_to, 'wb') as file:
                 dill.dump(self.samplers, file)
         return self
+
+    def show_sampler(self, idx=0, src_sampler='sampler', n=100000, eps=3):
+        """ Generate a lot of points and look at their (iline, xline) positions.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to show sampler on.
+
+        src_sampler : str
+            Name of attribute with sampler in it.
+            Must generate points in cubic coordinates, which can be achieved by `modify_sampler` method.
+
+        n : int
+            Number of points to generate.
+
+        eps : int
+            Window of painting.
+        """
+        show_sampler(self, idx=idx, src_sampler=src_sampler, n=n, eps=eps)
 
 
     def load(self, horizon_dir=None, p=None, filter_zeros=True):

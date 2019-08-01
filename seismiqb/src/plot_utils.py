@@ -131,9 +131,9 @@ def plot_slide(dataset, idx=0, iline=0, *components, overlap=True):
     return batch
 
 
-def show_labels(dataset, ix=0):
+def show_labels(dataset, idx=0):
     """ Show labeled ilines/xlines from above: yellow stands for labeled regions. """
-    name = dataset.indices[ix]
+    name = dataset.indices[idx]
     geom = dataset.geometries[name]
     labels = dataset.labels[name]
     possible_coordinates = [[il, xl] for il in geom.ilines for xl in geom.xlines]
@@ -143,9 +143,9 @@ def show_labels(dataset, ix=0):
                         geom.ilines_offset, geom.xlines_offset)
     img[0, 0] = 0
 
-    _, ax = plt.subplots(figsize=(12, 7))
-    ax.imshow(img)
-    ax.set_title('Known labels for cube (yellow is known)', fontdict={'fontsize': 20})
+    plt.figure(figsize=(12, 7))
+    plt.imshow(img)
+    plt.title('Known labels for cube {} (yellow is known)'.format(name), fontdict={'fontsize': 20})
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
     plt.show()
@@ -159,3 +159,28 @@ def labels_matrix(background, possible_coordinates, labels,
         if labels.get((point[0], point[1])) is not None:
             background[point[0] - ilines_offset, point[1] - xlines_offset] += len(labels.get((point[0], point[1])))
     return background
+
+
+def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=3):
+    """ Generate a lot of points and plot their (iline, xline) positions. """
+    name = dataset.indices[idx]
+    geom = dataset.geometries[name]
+
+    background = np.zeros((geom.ilines_len, geom.xlines_len))
+
+    sampler = getattr(dataset, src_sampler)
+    if not callable(sampler):
+        sampler = sampler.sample
+
+    array = sampler(n)
+
+    for point in array:
+        if point[0] == name:
+            background[point[1]-eps:point[1]+eps, point[2]-eps:point[2]+eps] += 1
+
+    plt.figure(figsize=(12, 7))
+    plt.imshow(background)
+    plt.title('Sampled points for cube {}'.format(name), fontdict={'fontsize': 20})
+    plt.xlabel('XLINES', fontdict={'fontsize': 20})
+    plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    plt.show()

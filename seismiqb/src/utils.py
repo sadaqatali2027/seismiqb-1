@@ -509,7 +509,9 @@ def round_to_array(values, ticks):
 
 @njit
 def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines_offset):
-    """ Get both min and max values in just one pass through array. """
+    """ Get both min and max values in just one pass through array.
+    Simultaneously updates matrix if the trace is filled with zeros.
+    """
     maximum = array[0]
     minimum = array[0]
     for i in array[1:]:
