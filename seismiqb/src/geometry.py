@@ -68,8 +68,10 @@ class SeismicGeometry():
 
         # Create transform to correct height with time-delay and sample rate
         def transform(array):
-            array[:, 2] = (array[:, 2] - self.delay) / self.sample_rate
-            return array
+            return np.stack([array[:, 0],
+                             array[:, 1],
+                             (array[:, 2] - self.delay) / self.sample_rate,
+                             array[:, 3]])
         self.height_correction = transform
 
         # Callable to transform cube values to [0, 1] (and vice versa)
