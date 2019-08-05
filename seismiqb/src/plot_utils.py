@@ -5,14 +5,17 @@ import matplotlib.pyplot as plt
 from numba import njit
 from ..batchflow import Pipeline, D
 
-def plot_loss(graph_lists, labels, ylabel='Loss', figsize=(10, 10), title=None):
+def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=None):
     """ Plot losses. """
     if not isinstance(graph_lists[0], (tuple, list)):
         graph_lists = [graph_lists]
 
+    labels = labels or 'loss'
+    labels = labels if isinstance(labels, (tuple, list)) else [labels]
+
     plt.figure(figsize=figsize)
-    for i, arr in enumerate(graph_lists):
-        plt.plot(arr, label=labels[i])
+    for arr, label in zip(graph_lists, labels):
+        plt.plot(arr, label=label)
     plt.xlabel('Iterations')
     plt.ylabel(ylabel, fontdict={'fontsize': 15})
     plt.grid(True)
@@ -21,7 +24,7 @@ def plot_loss(graph_lists, labels, ylabel='Loss', figsize=(10, 10), title=None):
     plt.legend()
     plt.show()
 
-def plot_batch_components(batch, idx=0, *components, overlap=True, rotate_axes=0, cmaps=None, alphas=None):
+def plot_batch_components(batch, idx=0, *components, overlap=True, order_axes=None, cmaps=None, alphas=None):
     """ Plot components of batch.
 
     Parameters
@@ -46,18 +49,18 @@ def plot_batch_components(batch, idx=0, *components, overlap=True, rotate_axes=0
         Opacity for showing images.
     """
     if idx is not None:
-        print('Images from {}'.format(batch.indices[idx][:-10]))
+        print('Image from {}'.format(batch.indices[idx][:-10]))
         imgs = [getattr(batch, comp)[idx] for comp in components]
     else:
         imgs = [getattr(batch, comp) for comp in components]
 
     if overlap:
-        plot_images_o(imgs, ', '.join(components), rotate_axes=rotate_axes, cmaps=cmaps, alphas=alphas)
+        plot_images_o(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas)
     else:
-        plot_images_s(imgs, components, rotate_axes=rotate_axes, cmaps=cmaps, alphas=alphas)
+        plot_images_s(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas)
 
 
-def plot_images_s(imgs, titles, rotate_axes, cmaps=None, alphas=None):
+def plot_images_s(imgs, titles, order_axes, cmaps=None, alphas=None):
     """ Plot one or more images on separate layouts. """
     cmaps = cmaps or ['gray'] + ['viridis']*len(imgs)
     cmaps = cmaps if isinstance(cmaps, (tuple, list)) else [cmaps]
@@ -67,7 +70,7 @@ def plot_images_s(imgs, titles, rotate_axes, cmaps=None, alphas=None):
 
     _, ax = plt.subplots(1, len(imgs), figsize=(8*len(imgs), 10))
     for i, (img, title, cmap, alpha) in enumerate(zip(imgs, titles, cmaps, alphas)):
-        img = _to_img(img, rotate_axes=rotate_axes, convert=False)
+        img = _to_img(img, order_axes=order_axes, convert=False)
 
         ax_ = ax[i] if len(imgs) > 1 else ax
         ax_.imshow(img, alpha=alpha, cmap=cmap)
@@ -75,23 +78,23 @@ def plot_images_s(imgs, titles, rotate_axes, cmaps=None, alphas=None):
     plt.show()
 
 
-def plot_images_o(imgs, title, rotate_axes, cmaps=None, alphas=None):
+def plot_images_o(imgs, title, order_axes, cmaps=None, alphas=None):
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
     alphas = alphas or [1**-i for i in range(len(imgs))]
 
     plt.figure(figsize=(15, 15))
     for i, (img, cmap, alpha) in enumerate(zip(imgs, cmaps, alphas)):
-        img = _to_img(img, rotate_axes=rotate_axes, convert=(i > 0))
+        img = _to_img(img, order_axes=order_axes, convert=(i > 0))
         plt.imshow(img, alpha=alpha, cmap=cmap)
 
     plt.title(title, fontdict={'fontsize': 15})
     plt.show()
 
 
-def _to_img(data, rotate_axes=0, convert=False):
-    for _ in range(rotate_axes):
-        data = np.moveaxis(data, 0, -1)
+def _to_img(data, order_axes=None, convert=False):
+    if order_axes:
+        data = np.transpose(data, order_axes)
 
     shape = data.shape
     if len(shape) == 2:
@@ -160,6 +163,7 @@ def labels_matrix(background, possible_coordinates, labels,
             background[point[0] - ilines_offset, point[1] - xlines_offset] += len(labels.get((point[0], point[1])))
     return background
 
+
 def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=3):
     """ Generate a lot of points and plot their (iline, xline) positions. """
     name = dataset.indices[idx]
@@ -182,6 +186,12 @@ def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=3):
     plt.title('Sampled points for cube {}'.format(name), fontdict={'fontsize': 20})
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    plt.show()
+
+    plt.figure(figsize=(10, 4))
+    plt.hist(array[:, -1].astype(float), bins=n//1000)
+    plt.title('Height distribution of sampled points for cube {}'.format(name),
+              fontdict={'fontsize': 20})
     plt.show()
 
 

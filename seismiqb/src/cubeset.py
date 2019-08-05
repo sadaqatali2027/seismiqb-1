@@ -135,7 +135,7 @@ class SeismicCubeset(Dataset):
         transforms : dict
             Mapping from indices to callables. Each callable should define
             way to map point from (i, x, h, n) to (i, x, d, n) and take array of shape (N, 4) as input,
-            where d is corrected h (divided by sample rate and moved by time-delay value).
+            where d (depth) is corrected h (height) (divided by sample rate and moved by time-delay value).
 
         src : str
             Attribute with saved point clouds.
@@ -467,9 +467,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def make_grid(self, cube_name, crop_shape,
-                  ilines_range, xlines_range, h_range,
-                  strides=None, batch_size=16):
+    def make_grid(self, cube_name, crop_shape, ilines_range, xlines_range, h_range, strides=None, batch_size=16):
         """ Create regular grid of points in cube.
         This method is usually used with `assemble_predict` action of SeismicCropBatch.
 

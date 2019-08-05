@@ -756,7 +756,7 @@ class SeismicCropBatch(Batch):
         raise ValueError('Unknown `mode` parameter.')
 
 
-    def plot_components(self, idx=0, *components, overlap=True, rotate_axes=0, cmaps=None, alphas=None):
+    def plot_components(self, idx=0, *components, overlap=True, order_axes=None, cmaps=None, alphas=None):
         """ Plot components of batch.
 
         Parameters
@@ -778,4 +778,4 @@ class SeismicCropBatch(Batch):
             Opacity for showing images.
         """
         plot_batch_components(self, idx, *components, overlap=overlap,
-                              rotate_axes=rotate_axes, cmaps=cmaps, alphas=alphas)
+                              order_axes=order_axes, cmaps=cmaps, alphas=alphas)

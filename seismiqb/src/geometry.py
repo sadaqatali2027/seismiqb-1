@@ -71,7 +71,8 @@ class SeismicGeometry():
             return np.stack([array[:, 0],
                              array[:, 1],
                              (array[:, 2] - self.delay) / self.sample_rate,
-                             array[:, 3]])
+                             array[:, 3]],
+                            axis=-1)
         self.height_correction = transform
 
         # Callable to transform cube values to [0, 1] (and vice versa)
