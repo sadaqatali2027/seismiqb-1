@@ -765,11 +765,14 @@ class SeismicCropBatch(Batch):
             If int, then index of desired image in list.
             If None, then no indexing is applied.
 
+        components : str or sequence of str
+            Components to get from batch and draw.
+
         overlap : bool
             Whether to draw images one over the other or not.
 
-        components : str or sequence of str
-            Components to get from batch and draw.
+        order_axes : sequence of int
+            Determines desired order of the axis. The first two are plotted.
 
         cmaps : str or sequence of str
             Color maps for showing images.
