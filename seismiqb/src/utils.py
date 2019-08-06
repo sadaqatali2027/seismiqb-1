@@ -164,14 +164,8 @@ def _filter_point_cloud(point_cloud, zero_matrix, ilines_offset, xlines_offset):
         il, xl = point_cloud[i, 0], point_cloud[i, 1]
         if zero_matrix[il-ilines_offset, xl-xlines_offset] == 1:
             mask[i] = 0
+    return point_cloud[mask == 1, :]
 
-    filtered = np.empty((np.sum(mask), 4), dtype=np.int64)
-    c = 0
-    for i in range(len(point_cloud)):
-        if mask[i] == 1:
-            filtered[c] = point_cloud[i]
-            c += 1
-    return filtered
 
 def make_labels_dict(point_cloud):
     """ Make labels-dict using cloud of points.

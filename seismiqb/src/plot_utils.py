@@ -39,6 +39,9 @@ def plot_batch_components(batch, idx=0, *components, overlap=True, order_axes=No
     overlap : bool
         Whether to draw images one over the other or not.
 
+    order_axes : sequence of int
+        Determines desired order of the axis. The first two are plotted.
+
     components : str or sequence of str
         Components to get from batch and draw.
 
