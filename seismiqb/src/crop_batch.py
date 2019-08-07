@@ -348,7 +348,7 @@ class SeismicCropBatch(Batch):
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
         mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
-                           geom.ilines, geom.xlines, geom.depth, mode, width, single_horizon)
+                           geom.ilines_offset, geom.xlines_offset, geom.depth, mode, width, single_horizon)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
@@ -756,7 +756,7 @@ class SeismicCropBatch(Batch):
         raise ValueError('Unknown `mode` parameter.')
 
 
-    def plot_components(self, idx=0, *components, overlap=True, rotate_axes=0, cmaps=None, alphas=None):
+    def plot_components(self, idx=0, *components, overlap=True, order_axes=None, cmaps=None, alphas=None):
         """ Plot components of batch.
 
         Parameters
@@ -765,11 +765,14 @@ class SeismicCropBatch(Batch):
             If int, then index of desired image in list.
             If None, then no indexing is applied.
 
+        components : str or sequence of str
+            Components to get from batch and draw.
+
         overlap : bool
             Whether to draw images one over the other or not.
 
-        components : str or sequence of str
-            Components to get from batch and draw.
+        order_axes : sequence of int
+            Determines desired order of the axis. The first two are plotted.
 
         cmaps : str or sequence of str
             Color maps for showing images.
@@ -778,4 +781,4 @@ class SeismicCropBatch(Batch):
             Opacity for showing images.
         """
         plot_batch_components(self, idx, *components, overlap=overlap,
-                              rotate_axes=rotate_axes, cmaps=cmaps, alphas=alphas)
+                              order_axes=order_axes, cmaps=cmaps, alphas=alphas)

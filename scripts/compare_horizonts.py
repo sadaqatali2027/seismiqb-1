@@ -31,10 +31,10 @@ def matcher(horizont_1, horizont_2, eps=400):
         True, if horizonts are on average closer to each other than eps.
         False otherwise
     """
-    mean_1 = pd.read_csv(horizont_1, names=['iline', 'xline', 'cdp_x', 'cdp_y', 'height'],
+    mean_1 = pd.read_csv(horizont_1, names=['iline', 'xline', 'height'],
                          sep='\s+', usecols=['height'])['height'].mean()
 
-    mean_2 = pd.read_csv(horizont_2, names=['iline', 'xline', 'cdp_x', 'cdp_y', 'height'],
+    mean_2 = pd.read_csv(horizont_2, names=['iline', 'xline', 'height'],
                          sep='\s+', usecols=['height'])['height'].mean()
     return np.abs((mean_1 - mean_2)) < eps
 
