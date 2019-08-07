@@ -106,7 +106,7 @@ class SeismicGeometry():
 
             matrix = np.zeros((ilines_len, xlines_len))
 
-            description = 'Working with {}'.format('/'.join(self.path.split('/')[-2:]))
+            description = 'Working with {}'.format(os.path.basename(self.path))
             for i in tqdm(range(len(segyfile.header)), desc=description):
                 header = segyfile.header[i]
                 iline = header.get(segyio.TraceField.INLINE_3D)
@@ -138,7 +138,7 @@ class SeismicGeometry():
         """
         self.h5py_file = h5py.File(self.path, "r")
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
-                      'ilines', 'xlines', 'cdp_x', 'cdp_y', 'zero_traces']
+                      'ilines', 'xlines', 'zero_traces']
 
         for item in attributes:
             value = self.h5py_file['/info/' + item][()]
@@ -181,7 +181,7 @@ class SeismicGeometry():
 
         # Save all the necessary attributes to the `info` group
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
-                      'ilines', 'xlines', 'cdp_x', 'cdp_y', 'zero_traces']
+                      'ilines', 'xlines', 'zero_traces']
 
         for item in attributes:
             h5py_file['/info/' + item] = getattr(self, item)

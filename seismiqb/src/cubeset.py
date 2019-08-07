@@ -156,7 +156,13 @@ class SeismicCubeset(Dataset):
         return self
 
     def filter_labels(self, src='labels'):
-        """ Remove labels corresponding to zero-traces. """
+        """ Remove labels corresponding to zero-traces.
+
+        Parameters
+        ----------
+        src : str
+            Attribute with labels-dictionary.
+        """
         for ix in self.indices:
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
@@ -189,15 +195,15 @@ class SeismicCubeset(Dataset):
             labels = getattr(self, src_labels).get(ix)
             geom = self.geometries[ix]
 
-            save_dir = '/'.join(geom.path.split('/')[:-1] + [dir_name])
+            save_dir = os.path.join(os.path.dirname(geom.path), dir_name)
             try:
                 os.mkdir(save_dir)
             except FileExistsError:
                 pass
 
             for idx, path in enumerate(geom.horizon_list):
-                name = path.split('/')[-1]
-                name = '/'.join([save_dir, name])
+                name = os.path.basename(path)
+                name = os.path.join(save_dir, os.path.basename(path))
                 dump_horizon(labels, geom, name, idx=idx, offset=0)
 
     def show_labels(self, idx=0):
@@ -418,6 +424,9 @@ class SeismicCubeset(Dataset):
 
         p : sequence of numbers
             Proportions of different cubes in sampler.
+
+        filter_zeros : bool
+            Whether to remove labels on zero-traces.
         """
         horizon_dir = horizon_dir or '/BEST_HORIZONS/*'
 

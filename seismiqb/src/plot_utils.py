@@ -138,7 +138,13 @@ def plot_slide(dataset, idx=0, iline=0, *components, overlap=True):
 
 
 def show_labels(dataset, idx=0):
-    """ Show labeled ilines/xlines from above: yellow stands for labeled regions. """
+    """ Show labeled ilines/xlines from above: yellow stands for labeled regions.
+
+    Parameters
+    ----------
+    idx : int
+        Number of cube to show labels for.
+    """
     name = dataset.indices[idx]
     geom = dataset.geometries[name]
     labels = dataset.labels[name]
