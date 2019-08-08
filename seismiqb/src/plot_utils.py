@@ -24,7 +24,7 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
     plt.legend()
     plt.show()
 
-def plot_batch_components(batch, idx=0, *components, overlap=True, order_axes=None, cmaps=None, alphas=None):
+def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None):
     """ Plot components of batch.
 
     Parameters
@@ -115,7 +115,7 @@ def _to_img(data, order_axes=None, convert=False):
     return data
 
 
-def plot_slide(dataset, idx=0, iline=0, *components, overlap=True):
+def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
     """ Plot full slide of the given cube on the given iline. """
     cube_name = dataset.indices[idx]
     cube_shape = dataset.geometries[cube_name].cube_shape
@@ -133,7 +133,7 @@ def plot_slide(dataset, idx=0, iline=0, *components, overlap=True):
                 .add_axis(src='masks', dst='masks'))
 
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
-    plot_batch_components(batch, 0, *components, overlap=overlap)
+    plot_batch_components(batch, *components, idx=idx, overlap=overlap)
     return batch
 
 
@@ -173,7 +173,7 @@ def labels_matrix(background, possible_coordinates, labels,
     return background
 
 
-def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=3):
+def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1):
     """ Generate a lot of points and plot their (iline, xline) positions. """
     name = dataset.indices[idx]
     geom = dataset.geometries[name]
@@ -185,12 +185,15 @@ def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=3):
         sampler = sampler.sample
 
     array = sampler(n)
+    array = array[array[:, 0] == name]
+
+    if not isinstance(array[0, 1], int):
+        array[:, 1:] = (array[:, 1:]*geom.cube_shape).astype(int)
 
     for point in array:
-        if point[0] == name:
-            background[point[1]-eps:point[1]+eps, point[2]-eps:point[2]+eps] += 1
+        background[point[1]-eps:point[1]+eps, point[2]-eps:point[2]+eps] += 1
 
-    plt.figure(figsize=(12, 7))
+    plt.figure(figsize=(10, 7))
     plt.imshow(background)
     plt.title('Sampled points for cube {}'.format(name), fontdict={'fontsize': 20})
     plt.xlabel('XLINES', fontdict={'fontsize': 20})

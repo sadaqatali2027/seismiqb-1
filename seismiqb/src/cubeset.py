@@ -631,6 +631,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def show_slide(self, idx=0, iline=0, *components, overlap=True):
+    def show_slide(self, idx=0, iline=0, overlap=True):
         """ Show full slide of the given cube on the given iline. """
-        plot_slide(self, idx, iline, *components, overlap=overlap)
+        components = ('images', 'masks') if list(self.labels.values())[0] else ('images')
+        plot_slide(self, *components, idx=idx, iline=iline, overlap=overlap)
