@@ -75,7 +75,7 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
         pass
 
 
-def convert_point_cloud(path, path_save, names=None, order=None):
+def convert_point_cloud(path, path_save, names=None, order=None, transform=None):
     """ Change set of columns in file with point cloud labels.
     Usually is used to remove redundant columns.
 
@@ -93,12 +93,12 @@ def convert_point_cloud(path, path_save, names=None, order=None):
         redundant keywords like `INLINE`.
 
     order : str or sequence of str
-        Names and order of columns to keep. Default is ('iline', 'xline', 'cdp_x', 'cdp_y', 'height').
+        Names and order of columns to keep. Default is ('iline', 'xline', 'height').
     """
     #pylint: disable=anomalous-backslash-in-string
     names = names or ['_', '_', 'iline', '_', '_', 'xline',
                       'cdp_x', 'cdp_y', 'height']
-    order = order or ['iline', 'xline', 'cdp_x', 'cdp_y', 'height']
+    order = order or ['iline', 'xline', 'height']
 
     names = [names] if isinstance(names, str) else names
     order = [order] if isinstance(order, str) else order
@@ -109,11 +109,13 @@ def convert_point_cloud(path, path_save, names=None, order=None):
     if 'iline' in order and 'xline' in order:
         df.sort_values(['iline', 'xline'], inplace=True)
 
-    to_save = df.loc[:, order]
-    to_save.to_csv(path_save, sep=' ', index=False, header=False)
+    data = df.loc[:, order]
+    if transform:
+        data = data.apply(transform)
+    data.to_csv(path_save, sep=' ', index=False, header=False)
 
 
-def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
+def read_point_cloud(paths, names=None, order=None, **kwargs):
     """ Read point cloud of labels from files using pandas.
 
     Parameters
@@ -124,23 +126,21 @@ def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
         sequence of column names in files.
     order : array-like
         specifies the order of columns to keep in the resulting array.
-    transforms : array-like
-        contains list of vectorized transforms. Each transform is applied to a column of the resulting array.
     **kwargs
         file-specific arguments of pandas parser.
 
     Returns
     -------
     ndarray
-        resulting point-cloud. First three columns contain `(x, y, z)`-coords while the last one stores
-        horizon-number.
+        resulting point-cloud. First three columns contain (iline, xline, height) while the last one stores
+        horizon number.
     """
     #pylint: disable=anomalous-backslash-in-string
     paths = [paths] if isinstance(paths, str) else paths
 
     # default params of pandas-parser
-    names = names or ['iline', 'xline', 'cdp_x', 'cdp_y', 'height']
-    order = order or ['cdp_y', 'cdp_x', 'height']
+    names = names or ['iline', 'xline', 'height']
+    order = order or ['iline', 'xline', 'height']
 
     # read point clouds
     point_clouds = []
@@ -150,15 +150,21 @@ def read_point_cloud(paths, names=None, order=None, transforms=None, **kwargs):
         temp = np.hstack([cloud.loc[:, order].values,
                           np.ones((cloud.shape[0], 1)) * ix])
         point_clouds.append(temp)
+    point_cloud = np.concatenate(point_clouds)
+    return np.rint(point_cloud).astype(np.int64)
 
-    points = np.concatenate(point_clouds)
 
-    # apply transforms
-    if transforms is not None:
-        for i in range(points.shape[-1] - 1):
-            points[:, i] = transforms[i](points[:, i])
+@njit
+def _filter_point_cloud(point_cloud, zero_matrix, ilines_offset, xlines_offset):
+    """ Great docstring. """
+    #pylint: disable=consider-using-enumerate
+    mask = np.ones(len(point_cloud), dtype=np.int32)
 
-    return points
+    for i in range(len(point_cloud)):
+        il, xl = point_cloud[i, 0], point_cloud[i, 1]
+        if zero_matrix[il-ilines_offset, xl-xlines_offset] == 1:
+            mask[i] = 0
+    return point_cloud[mask == 1, :]
 
 
 def make_labels_dict(point_cloud):
@@ -175,8 +181,8 @@ def make_labels_dict(point_cloud):
         dict of labels `{(x, y): [z_1, z_2, ...]}`.
     """
     # round and cast
-    ilines_xlines = np.round(point_cloud[:, :2]).astype(np.int64)
-    max_count = int(point_cloud[-1, -1]) + 1
+    point_cloud = np.rint(point_cloud).astype(np.int64)
+    max_count = point_cloud[-1, -1] + 1
 
     # make typed Dict
     key_type = types.Tuple((types.int64, types.int64))
@@ -184,23 +190,56 @@ def make_labels_dict(point_cloud):
     labels = Dict.empty(key_type, value_type)
 
     @njit
-    def fill_labels(labels, ilines_xlines, point_cloud, max_count):
+    def fill_labels(labels, point_cloud, max_count):
         """ Fill in labels-dict.
         """
-        for i in range(len(ilines_xlines)):
-            il, xl = ilines_xlines[i, :2]
+        for i in range(len(point_cloud)):
+            il, xl = point_cloud[i, :2]
             if labels.get((il, xl)) is None:
                 labels[(il, xl)] = np.full((max_count, ), FILL_VALUE, np.int64)
 
             idx = int(point_cloud[i, 3])
             labels[(il, xl)][idx] = point_cloud[i, 2]
 
-    fill_labels(labels, ilines_xlines, point_cloud, max_count)
+    fill_labels(labels, point_cloud, max_count)
     return labels
+
+
+@njit
+def _filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
+    """ Remove (inplace) keys from labels dictionary according to zero_matrix.
+
+    Parameters
+    ----------
+    labels : dict
+        Dictionary with keys in (iline, xline) format.
+
+    zero_matrix : ndarray
+        Matrix of (n_ilines, n_xlines) shape with 1 on positions of zero-traces.
+
+    ilines_offset, xlines_offset : int
+        Offsets of numeration.
+    """
+    n_zeros = int(np.sum(zero_matrix))
+    if n_zeros > 0:
+        c = 0
+        to_remove = np.zeros((n_zeros, 2), dtype=np.int64)
+
+        for il, xl in labels.keys():
+            if zero_matrix[il - ilines_offset, xl - xlines_offset] == 1:
+                to_remove[c, 0] = il
+                to_remove[c, 1] = xl
+                c = c + 1
+
+        for i in range(c):
+            key = (to_remove[i, 0], to_remove[i, 1])
+            if key in labels: # for some reason that is necessary
+                labels.pop(key)
+
 
 @njit
 def create_mask(ilines_, xlines_, hs_,
-                il_xl_h, geom_ilines, geom_xlines, geom_depth,
+                il_xl_h, ilines_offset, xlines_offset, geom_depth,
                 mode, width, single_horizon=False):
     """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
     This function is usually called inside SeismicCropBatch's method `load_masks`.
@@ -212,7 +251,7 @@ def create_mask(ilines_, xlines_, hs_,
 
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
-            il_, xl_ = geom_ilines[iline_], geom_xlines[xline_]
+            il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
             if il_xl_h.get((il_, xl_)) is None:
                 continue
             m_temp = np.zeros(geom_depth)
@@ -283,19 +322,18 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
 
         if separate:
             for key, h in zip(zip(ilines_, xlines_), heights_):
-                horizons[n_horizon][key] = h
+                horizons[n_horizon][key] = [h]
         else:
             for key, h in zip(zip(ilines_, xlines_), heights_):
                 if key in horizons:
                     horizons[key].append(h)
                 else:
                     horizons[key] = [h]
-
     return horizons
 
 
-def dump_horizon(horizon, geometry, path_save, offset=1):
-    """ Save horizon as point cloud.
+def dump_horizon(horizon, geometry, path_save, idx=None, offset=1):
+    """ Save horizon in a point cloud format.
 
     Parameters
     ----------
@@ -315,18 +353,16 @@ def dump_horizon(horizon, geometry, path_save, offset=1):
     """
     ixh = []
     for (i, x), h in horizon.items():
+        if idx is not None:
+            h = h[idx]
         ixh.append([i, x, h])
     ixh = np.asarray(ixh)
 
-    cdp_xy = geometry.lines_to_abs(ixh)
+    ixh[:, -1] = (ixh[:, -1] + offset) * geometry.sample_rate + geometry.delay
 
-    h = (ixh[:, -1] + offset) * geometry.sample_rate + geometry.delay
-
-    data = np.hstack([ixh[:, :2], cdp_xy[:, :2], h.reshape(-1, 1)])
-
-    df = pd.DataFrame(data, columns=['iline', 'xline', 'cdp_y', 'cdp_x', 'height'])
+    df = pd.DataFrame(ixh, columns=['iline', 'xline', 'height'])
     df.sort_values(['iline', 'xline'], inplace=True)
-    df.to_csv(path_save, sep=' ', columns=['iline', 'xline', 'cdp_x', 'cdp_y', 'height'],
+    df.to_csv(path_save, sep=' ', columns=['iline', 'xline', 'height'],
               index=False, header=False)
 
 
@@ -463,3 +499,27 @@ def round_to_array(values, ticks):
             else:
                 values[i] = ticks_[ix-1]
     return values
+
+
+@njit
+def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines_offset):
+    """ Get both min and max values in just one pass through array.
+    Simultaneously updates matrix if the trace is filled with zeros.
+    """
+    maximum = array[0]
+    minimum = array[0]
+    for i in array[1:]:
+        if i > maximum:
+            maximum = i
+        elif i < minimum:
+            minimum = i
+
+    if (minimum == 0) and (maximum == 0):
+        matrix[il - ilines_offset, xl - xlines_offset] = 1
+
+    if minimum < val_min:
+        val_min = minimum
+    if maximum > val_max:
+        val_max = maximum
+
+    return val_min, val_max, matrix
