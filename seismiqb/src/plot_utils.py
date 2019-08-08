@@ -16,7 +16,7 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
     plt.figure(figsize=figsize)
     for arr, label in zip(graph_lists, labels):
         plt.plot(arr, label=label)
-    plt.xlabel('Iterations')
+    plt.xlabel('Iterations', fontdict={'fontsize': 15})
     plt.ylabel(ylabel, fontdict={'fontsize': 15})
     plt.grid(True)
     if title:
@@ -133,7 +133,7 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
                 .add_axis(src='masks', dst='masks'))
 
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
-    plot_batch_components(batch, *components, idx=idx, overlap=overlap)
+    plot_batch_components(batch, *components, overlap=overlap)
     return batch
 
 
