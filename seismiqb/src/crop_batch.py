@@ -147,53 +147,6 @@ class SeismicCropBatch(Batch):
         super().__setattr__(name, value)
 
     @action
-    def add_components(self, components, init=None):
-        """ Add new components
-
-        Parameters
-        ----------
-        components : str or list
-            new component names
-        init : array-like
-            initial component data
-
-        Raises
-        ------
-        ValueError
-            If the component with the given name already exists
-        """
-        if isinstance(components, str):
-            components = (components,)
-            init = (init,)
-        elif isinstance(components, (tuple, list)):
-            components = tuple(components)
-            if init is None:
-                init = (None,) * len(components)
-            else:
-                init = tuple(init)
-
-        if any(hasattr(self, c) for c in components):
-            raise ValueError("An attribute with the same name exists")
-
-        data = self._data
-        if self.components is None:
-            self.components = tuple()
-            data = tuple()
-            warnings.warn("All batch data is erased")
-
-        exists_component = set(components) & set(self.components)
-        if exists_component:
-            raise ValueError("Component(s) with name(s) '{}' already exists".format("', '".join(exists_component)))
-
-        self.components = self.components + components
-        
-        self.make_item_class(local=True)
-        if data is not None:
-            self._data = data + init
-        print('in add components type of data is ', type(self._data))
-        return self
-
-    @action
     def load_component(self, src, dst):
         """ Store `src` data in `dst` component. """
         if isinstance(src, dict):

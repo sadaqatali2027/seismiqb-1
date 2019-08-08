@@ -283,7 +283,7 @@ def _get_horizons(mask, threshold, averaging, transforms, separate=False):
 
         if separate:
             for key, h in zip(zip(ilines_, xlines_), heights_):
-                horizons[n_horizon][key] = h
+                horizons[n_horizon][key] = [h]
         else:
             for key, h in zip(zip(ilines_, xlines_), heights_):
                 if key in horizons:
@@ -472,7 +472,7 @@ def convert_to_numba_dict(_labels):
     _labels : dict
         Designed for a dict with special format
         keys must be tuples of length 2 with int64 values;
-        dict's values must be arrays of int64.
+        dict's values must be arrays.
 
     Returns
     -------
@@ -483,5 +483,5 @@ def convert_to_numba_dict(_labels):
     value_type = types.int64[:]
     _type_labels = Dict.empty(key_type, value_type)
     for key, value in _labels.items():
-        _type_labels[key] = np.asarray(value, dtype=np.int64)
+        _type_labels[key] = np.asarray(np.rint(value), dtype=np.int64)
     return _type_labels
