@@ -156,7 +156,7 @@ def show_labels(dataset, idx=0):
     img[0, 0] = 0
 
     plt.figure(figsize=(12, 7))
-    plt.imshow(img)
+    plt.imshow(img, cmap='Paired')
     plt.title('Known labels for cube {} (yellow is known)'.format(name), fontdict={'fontsize': 20})
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})

@@ -156,7 +156,19 @@ def read_point_cloud(paths, names=None, order=None, **kwargs):
 
 @njit
 def _filter_point_cloud(point_cloud, zero_matrix, ilines_offset, xlines_offset):
-    """ Great docstring. """
+    """ Remove entries corresponding to zero traces.
+
+    Parameters
+    ----------
+    point_cloud : ndarray
+        Point cloud with labels.
+
+    zero_matrix : ndarray
+        Matrix of (n_ilines, n_xlines) shape with 1 on positions of zero-traces.
+
+    ilines_offset, xlines_offset : int
+        Offsets of numeration.
+    """
     #pylint: disable=consider-using-enumerate
     mask = np.ones(len(point_cloud), dtype=np.int32)
 
@@ -504,7 +516,7 @@ def round_to_array(values, ticks):
 @njit
 def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines_offset):
     """ Get both min and max values in just one pass through array.
-    Simultaneously updates matrix if the trace is filled with zeros.
+    Simultaneously updates (inplace) matrix if the trace is filled with zeros.
     """
     maximum = array[0]
     minimum = array[0]
