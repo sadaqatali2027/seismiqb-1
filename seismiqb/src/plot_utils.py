@@ -137,7 +137,7 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
     return batch
 
 
-def show_labels(dataset, idx=0):
+def show_labels(dataset, idx=0, hor_idx=None):
     """ Show labeled ilines/xlines from above: yellow stands for labeled regions.
 
     Parameters
@@ -152,7 +152,7 @@ def show_labels(dataset, idx=0):
 
     background = np.zeros((geom.ilines_len, geom.xlines_len))
     img = labels_matrix(background, np.array(possible_coordinates), labels,
-                        geom.ilines_offset, geom.xlines_offset)
+                        geom.ilines_offset, geom.xlines_offset, hor_idx)
     img[0, 0] = 0
 
     plt.figure(figsize=(12, 7))
@@ -164,12 +164,16 @@ def show_labels(dataset, idx=0):
 
 @njit
 def labels_matrix(background, possible_coordinates, labels,
-                  ilines_offset, xlines_offset):
+                  ilines_offset, xlines_offset, hor_idx):
     """ Jit-accelerated function to check which ilines/xlines are labeled. """
     for i in range(len(possible_coordinates)):
         point = possible_coordinates[i, :]
-        if labels.get((point[0], point[1])) is not None:
-            background[point[0] - ilines_offset, point[1] - xlines_offset] += len(labels.get((point[0], point[1])))
+        hor_arr = labels.get((point[0], point[1]))
+        if hor_arr is not None:
+            if hor_idx is None:
+                background[point[0] - ilines_offset, point[1] - xlines_offset] += 1
+            elif hor_arr[hor_idx] != -999:
+                background[point[0] - ilines_offset, point[1] - xlines_offset] += 1
     return background
 
 

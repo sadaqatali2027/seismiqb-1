@@ -206,9 +206,9 @@ class SeismicCubeset(Dataset):
                 name = os.path.join(save_dir, os.path.basename(path))
                 dump_horizon(labels, geom, name, idx=idx, offset=0)
 
-    def show_labels(self, idx=0):
+    def show_labels(self, idx=0, hor_idx=None):
         """ Draw points with hand-labeled horizons from above. """
-        show_labels(self, idx=idx)
+        show_labels(self, idx=idx, hor_idx=hor_idx)
 
 
     def create_sampler(self, mode='hist', p=None, transforms=None, dst='sampler', **kwargs):
