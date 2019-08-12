@@ -354,6 +354,35 @@ class SeismicCropBatch(Batch):
         getattr(self, dst)[pos] = mask
         return self
 
+
+    @action
+    @inbatch_parallel(init='_init_component', target='threads')
+    def concatenate(self, ix, *srcs, dst=None, axis=-1):
+        """ Concatenate batch components along specified axis.
+
+        Parameters
+        ----------
+        srcs : sequence of str
+            Components of batch to concatenate.
+
+        dst : str
+            Component of batch to put the resulting data in.
+
+        axis : int
+            Axis to concatenate along
+
+        Returns
+        -------
+        SeismicCropBatch
+            Batch with concatenated data in desired destination.
+        """
+        data = [getattr(self, src)[self.get_pos(None, src, ix)]
+                for src in srcs]
+        pos = self.get_pos(None, dst, ix)
+        getattr(self, dst)[pos] = np.concatenate(data, axis=axis)
+        return self
+
+
     @action
     @inbatch_parallel(init='indices', post='_assemble_labels', target='threads')
     def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',

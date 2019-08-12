@@ -12,7 +12,7 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
-from .plot_utils import show_labels, show_sampler, plot_slide
+from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above
 
 
 
@@ -635,3 +635,35 @@ class SeismicCubeset(Dataset):
         """ Show full slide of the given cube on the given iline. """
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images')
         plot_slide(self, *components, idx=idx, iline=iline, overlap=overlap)
+
+
+    def show_horizon(self, idx=0, labels_idx=0):
+        """ Show trace values on horizon.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        labels_idx : int
+            Index of used horizon from `labels` dictionary.
+        """
+        labels = self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+        i_o, x_o = geom.ilines_offset, geom.xlines_offset
+        h5py_cube = geom.h5py_file['cube']
+
+        background = np.zeros((geom.ilines_len, geom.xlines_len))
+        heights = []
+
+        for il in range(geom.ilines_len):
+            slide = h5py_cube[il, :, :]
+            for xl in range(geom.xlines_len):
+                arr = labels.get((il+i_o, xl+x_o))
+                if arr is not None:
+                    h = arr[labels_idx]
+                    background[il, xl] = slide[xl, h]
+                    heights.append(h)
+
+        plot_from_above(background, 'Horizon {} on cube {}'.format(labels_idx, self.indices[idx]), cmap='seismic')
+        print('Average height is: {}'.format(np.mean(heights)))

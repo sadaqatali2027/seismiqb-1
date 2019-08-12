@@ -137,6 +137,17 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
     return batch
 
 
+def plot_from_above(img, title, **kwargs):
+    """ Plot image with a given title with predifined axis labels."""
+    default_kwargs = dict(cmap='Paired')
+    plt.figure(figsize=(12, 7))
+    plt.imshow(img, **{**default_kwargs, **kwargs})
+    plt.title(title, fontdict={'fontsize': 20})
+    plt.xlabel('XLINES', fontdict={'fontsize': 20})
+    plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    plt.show()
+
+
 def show_labels(dataset, idx=0, hor_idx=None):
     """ Show labeled ilines/xlines from above: yellow stands for labeled regions.
 
