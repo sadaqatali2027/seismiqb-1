@@ -512,7 +512,6 @@ def round_to_array(values, ticks):
                 values[i] = ticks_[ix-1]
     return values
 
-
 @njit
 def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines_offset):
     """ Get both min and max values in just one pass through array.
@@ -535,3 +534,25 @@ def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines
         val_max = maximum
 
     return val_min, val_max, matrix
+
+def convert_to_numba_dict(_labels):
+    """ Convert a dict to Numba dict.
+
+    Parameters
+    ----------
+    _labels : dict
+        Designed for a dict with special format
+        keys must be tuples of length 2 with int64 values;
+        dict's values must be arrays.
+
+    Returns
+    -------
+    A Numba dict.
+    """
+    type_labels = {}
+    key_type = types.Tuple((types.int64, types.int64))
+    value_type = types.int64[:]
+    _type_labels = Dict.empty(key_type, value_type)
+    for key, value in _labels.items():
+        _type_labels[key] = np.asarray(np.rint(value), dtype=np.int64)
+    return _type_labels

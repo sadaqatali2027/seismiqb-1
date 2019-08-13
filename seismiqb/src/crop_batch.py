@@ -125,10 +125,26 @@ class SeismicCropBatch(Batch):
     def get_pos(self, data, component, index):
         """ Get correct slice/key of a component-item based on its type.
         """
-        if component in ('geometries', 'labels', 'segyfiles'):
+        candidates = self.components + ('segyfiles', )
+        if component in candidates and component != 'slices':
             return self.unsalt(index)
         return super().get_pos(data, component, index)
 
+    def __setattr__(self, name, value):
+        if self.components is not None:
+            if name == "_data":
+                super().__setattr__(name, value)
+                if self._item_class is None:
+                    self.make_item_class()
+                self._data_named = self._item_class(data=self._data)   # pylint: disable=not-callable
+                return
+            if name in self.components:    # pylint: disable=unsupported-membership-test
+                if self._data_named is None:
+                    _ = self.data
+                setattr(self._data_named, name, value)
+                super().__setattr__('_data', self._data_named.data)
+                return
+        super().__setattr__(name, value)
 
     @action
     def load_component(self, src, dst):
@@ -181,6 +197,8 @@ class SeismicCropBatch(Batch):
 
         for component in passdown:
             if hasattr(self, component):
+                if not component in new_batch.components:
+                    new_batch.add_components(component)
                 setattr(new_batch, component, getattr(self, component))
 
         dilations = dilations or [1, 1, 1]
