@@ -782,3 +782,25 @@ class SeismicCropBatch(Batch):
         """
         plot_batch_components(self, *components, idx=idx, overlap=overlap,
                               order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+
+    @action
+    @inbatch_parallel(init='_init_component', post='_assemble', target='threads')
+    def concat_components(self, ix, src=None, dst=None, axis=-1):
+        """ Concatenate a list of components and save results to `dst` component
+
+        Parameters
+        ----------
+        src : array-like
+            list of components to concatenate of length more than one
+        dst : str
+            Component of batch to put results in.
+        axis : int
+            The axis along which the arrays will be joined.
+        """
+        if not isinstance(src, (list, tuple, np.ndarray)) or len(src) < 2:
+            raise ValueError('Src must contain at least two components to concatenate')
+        result = []
+        for component in src:
+            pos = self.get_pos(None, component, ix)
+            result.append(getattr(self, component)[pos])
+        return np.concatenate(result, axis=axis)

@@ -17,20 +17,6 @@ def get_lines_range(batch, item):
     xr = (np.array(xr) - g.xlines[0]) / (g.xlines[-1] - g.xlines[0])
     return ir, xr
 
-
-def make_data_extension(batch, **kwargs):
-    data_x = []
-    for i, cube in enumerate(batch.images):
-        cut_mask_ = batch.cut_masks[i]
-        data_x.append(np.concatenate([cube, cut_mask_], axis=-1))
-
-    data_y = []
-
-    for cube in batch.masks:
-        data_y.append(cube)
-    return {"feed_dict": {'images': data_x,
-                          'masks': data_y}}
-
 def predictions(x):
     return tf.expand_dims(x, axis=-1, name='expand')
 
@@ -73,50 +59,3 @@ def show_extension_results(val_batch, val_pipeline, cubes_numbers, figsize=(25, 
 
         plt.title('Extension prediction', fontsize=20)
         plt.show()
-
-
-def load(dataset, p=None, postfix=None):
-    postfix = postfix or '/FORMAT_HORIZONTS/*'
-
-    paths_txt = {}
-    for i in range(len(dataset)):
-        dir_path = '/'.join(dataset.index.get_fullpath(dataset.indices[i]).split('/')[:-1])
-        dir_ = dir_path + postfix
-        paths_txt[dataset.indices[i]] = glob(dir_)
-
-    dataset = (dataset.load_geometries()
-                      .load_point_clouds(paths=paths_txt)
-                      .load_labels()
-                      .load_samplers(p=p))
-    return dataset
-
-
-def compare(dataset, horizont, cube_idx=0, offset=1):
-    sample_rate = dataset.geometries[dataset.indices[cube_idx]].sample_rate
-    labels = dataset.labels[dataset.indices[cube_idx]]
-
-    res, not_present = [], 0
-    vals, vals_true = [], []
-
-    for key, val in horizont.items():
-        if labels.get(key) is not None:
-            true_horizonts = labels[key]
-            diff = abs(true_horizonts - (val+offset))
-            idx = np.argmin(diff)
-
-            res.append(diff[idx])
-            vals_true.append(true_horizonts[idx])
-            vals.append(val)
-        else:
-            not_present += 1
-
-    print('Mean value/std of error:                  {:8.7} / {:8.7}'.format(np.mean(res), np.std(res)))
-    print('Horizont length:                          {}'.format(len(horizont)))
-    print('Rate in 5 ms window:                      {:8.7}'.format(sum(np.array(res) < 5/sample_rate) / len(res)))
-    print('Average height/std of true horizont:      {:8.7}'.format(np.mean(vals_true)))
-    print('Average height/std of predicted horizont: {:8.7}'.format(np.mean(vals)))
-    print('Number of values that were labeled by model and not labeled by experts: {}'.format(not_present))
-
-    plt.title('Distribution of errors')
-    _ = plt.hist(res, bins=100)
-
