@@ -797,6 +797,7 @@ class SeismicCropBatch(Batch):
         axis : int
             The axis along which the arrays will be joined.
         """
+        _ = dst
         if not isinstance(src, (list, tuple, np.ndarray)) or len(src) < 2:
             raise ValueError('Src must contain at least two components to concatenate')
         result = []
