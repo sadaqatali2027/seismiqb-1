@@ -168,9 +168,9 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def show_labels(self, idx=0):
+    def show_labels(self, src='labels', idx=0):
         """ Draw points with hand-labeled horizons from above. """
-        show_labels(self, ix=idx)
+        show_labels(self, src, ix=idx)
 
 
     def load_samplers(self, path=None, mode='hist', p=None,
@@ -591,15 +591,15 @@ class SeismicCubeset(Dataset):
         Parameters
         ----------
         points : tuple or list
-            lower left coordinates of the starting crop in the seismic cube coordinates
+            upper left coordinates of the starting crop in the seismic cube coordinates.
         crop_shape : tuple or list 
-            shape of the saved prior mask
+            shape of the saved prior mask.
         cube_index : int
             index of the cube in `ds.indices` list.
         show_prior_mask : bool
             whether to show prior mask
         """
-        ds_points = np.array([[self.index.indices[cube_index], *points, None]])[:, :4]
+        ds_points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
 
         start_predict_pipeline = (Pipeline()
                                     .load_component(src=[D('geometries'), D('labels')],
@@ -618,15 +618,15 @@ class SeismicCubeset(Dataset):
             plt.show()
 
         i_shift, x_shift, h_shift = [slices[0] for slices in batch.slices[0]]
-        transforms = [lambda i_: self.geometries[self.index.indices[cube_index]].ilines[i_ + i_shift],
-                          lambda x_: self.geometries[self.index.indices[cube_index]].xlines[x_ + x_shift],
+        transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + i_shift],
+                          lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
                           lambda h_: h_ + h_shift]
         self.get_point_cloud(np.moveaxis(batch.masks[0][:, :, :1, 0], -1, 0),
                                threshold=0.5, dst='prior_mask', coordinates=None, transforms=transforms, separate=True)
         if len(self.prior_mask[0]) == 0:
             raise ValueError("Prior mask is empty")
         numba_horizon = convert_to_numba_dict(self.prior_mask[0])
-        self.prior_mask = {self.index.indices[cube_index]: numba_horizon}
+        self.prior_mask = {self.indices[cube_index]: numba_horizon}
         return self
 
     def make_slice_prediction(self, train_pipeline, points, crop_shape, max_iters=10, WIDTH = 10, STRIDE = 32,
@@ -638,7 +638,7 @@ class SeismicCubeset(Dataset):
         ds : Cubeset
             Instance of the Cubeset. Must have non-empy attributes `predicted labels` and `labels` (for debugging plots)
         points : tuple or list
-            lower left coordinates of the starting crop in the seismic cube coordinates.
+            upper left coordinates of the starting crop in the seismic cube coordinates.
         crop_shape : tuple or list 
             shape of the crop fed to the model.
         max_iters : int
@@ -663,12 +663,17 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with updated `predicted_labels` attribute.
             grid_info : dict
-                grid info based on the grid array with lower left coordinates of the crops
+                grid info based on the grid array with upper left coordinates of the crops
         """
         show_count = max_iters if show_count is None else show_count
-
-        geom = self.geometries[self.index.indices[cube_index]]
+        geom = self.geometries[self.indices[cube_index]]
         grid_array = []
+        if isinstance(points[0], (list, tuple)):
+            max_iline = points[0][1] if points[0][1] is not None else geom.ilines_len
+            max_xline = points[1][1] if points[1][1] is not None else geom.xlines_len
+            points = [points[0][0], points[1][0], points[2][0]]
+        else:
+            max_iline, max_xline = geom.ilines_len, geom.xlines_len
 
         # compute strides for xline, iline cases
         line_stride = -STRIDE if mode == 'left' else STRIDE
@@ -703,40 +708,44 @@ class SeismicCubeset(Dataset):
                                        save_to=V('result_preds', mode='e')))
 
         for i in range(max_iters):
-            if (points[0] + crop_shape[0] > geom.ilines_len or 
-                points[1] + crop_shape[1] > geom.xlines_len or points[2] + crop_shape[2] > geom.depth):
-                print("End of the cube")
+            if (points[0] + crop_shape[0] > max_iline or
+                points[1] + crop_shape[1] > max_xline or points[2] + crop_shape[2] > geom.depth):
+                print("End of the cube or area")
                 break
 
             grid_array.append(points)
-            ds_points = np.array([[self.index.indices[cube_index], *points, None]])[:, :4]
+            ds_points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
             crop_ppl = Pipeline().crop(points=ds_points, shape=crop_shape, passdown='predicted_labels')
 
             next_predict_pipeline = (load_components_ppl + crop_ppl + predict_ppl) << self
-            btch = next_predict_pipeline.next_batch(len(self.index.indices), n_epochs=None)
+            btch = next_predict_pipeline.next_batch(len(self.indices), n_epochs=None)
             result = next_predict_pipeline.get_variable('result_preds')[0]
+            if np.sum(btch.images) < 1e-2:
+                print('Empty traces')
+                break
 
             # transform cube coordinates to ilines-xlines
             i_shift, x_shift, h_shift = [slices[0] for slices in btch.slices[0]]
-            transforms = [lambda i_: self.geometries[self.index.indices[cube_index]].ilines[i_ + i_shift],
-                          lambda x_: self.geometries[self.index.indices[cube_index]].xlines[x_ + x_shift],
+            transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + i_shift],
+                          lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
                           lambda h_: h_ + h_shift]
 
             if slide_direction == 'iline':
                 self.get_point_cloud(np.moveaxis(result, -1, 1), threshold=threshold, dst='predicted_mask', coordinates=None,
-                                   separate=True, transforms=transforms)
+                                     separate=True, transforms=transforms)
             else:
                 self.get_point_cloud(np.moveaxis(result, -1, 0), threshold=threshold, dst='predicted_mask', coordinates=None,
-                                   separate=True, transforms=transforms)
+                                     separate=True, transforms=transforms)
             try:
                 numba_horizons = convert_to_numba_dict(self.predicted_mask[0])
             except IndexError:
-                print('Empty predicted mask')
+                print('Empty predicted mask on step %s' % i)
+                plot_extension_history(next_predict_pipeline, btch)
                 break
 
-            assembled_horizon_dict = update_horizon_dict(self.predicted_labels[self.index.indices[cube_index]],
+            assembled_horizon_dict = update_horizon_dict(self.predicted_labels[self.indices[cube_index]],
                                                          numba_horizons)
-            self.predicted_labels = {self.index.indices[cube_index]: assembled_horizon_dict}
+            self.predicted_labels = {self.indices[cube_index]: assembled_horizon_dict}
 
             points, compared_slices_ = compute_next_points(points, result[:, :, 0].T,
                                                            crop_shape, strides_candidates, WIDTH)
@@ -753,14 +762,14 @@ class SeismicCubeset(Dataset):
                 break
 
         # assemble grid_info
-        self.grid_info = {self.index.indices[cube_index]:
-                          make_grid_info(grid_array, self.index.indices[cube_index], crop_shape)}
+        self.grid_info = {self.indices[cube_index]:
+                          make_grid_info(grid_array, self.indices[cube_index], crop_shape)}
         return self
 
     def show_metrics(self, src='predicted_labels', time_interval=2.5, cube_index=0):
-        predicted_hor = getattr(self, src)[self.index.indices[cube_index]]
+        predicted_hor = getattr(self, src)[self.indices[cube_index]]
 
-        labels = getattr(self, 'labels')[self.index.indices[cube_index]]
+        labels = getattr(self, 'labels')[self.indices[cube_index]]
         res, not_present = [], 0
         vals, vals_true = [], []
 
@@ -786,27 +795,40 @@ class SeismicCubeset(Dataset):
         plt.title('Distribution of errors')
         _ = plt.hist(res, bins=100)
 
-    def update_labels(self, src='predicted_labels', cube_index=0, update_src='prior_mask'):
-        dict_update = getattr(self, update_src)[self.index.indices[cube_index]]
+    def update_labels(self, src='predicted_labels', update_src='prior_mask', cube_index=0):
+        """ Update dict-like component with another dict
+        Parameters
+        ----------
+        src : str
+            Component to be updated.
+        update_src : str
+            Component with a dict to add. 
+        """
+        dict_update = getattr(self, update_src)[self.indices[cube_index]]
         if hasattr(self, src):
-            dict_update = update_horizon_dict(dict_update, getattr(self, src)[self.index.indices[cube_index]])
-        setattr(self, src, {self.index.indices[cube_index]: dict_update})
+            dict_update = update_horizon_dict(dict_update, getattr(self, src)[self.indices[cube_index]])
+        setattr(self, src, {self.indices[cube_index]: dict_update})
         return self
     
-    def show_saved_horizon(self, points, shape=None, cube_index=0, btch=None, width=1, show_image=True):
+    def show_saved_horizon(self, points, shape=None, cube_index=0, width=1, show_image=True):
+        """ Show saved horizon on a slice from `predicted_labels` attribute.
+
+        Parameters
+        ----------
+        points : tuple or list
+            Upper left coordinates of the starting crop in the seismic cube coordinates.
+        shape : tuple or list, optional
+            Shape of the crop to be shown
+            if None, then `predict_shape` from the `grid_info` attribute will be used.
+        cube_index : int
+            Index of the cube ds.indices.
+        width : int
+            Width of the horizon
+        show_image : bool
+            Whether to show initial seismic image on a separate plot.
+        """
         points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
         
-        if btch:
-            geom = self.geometries[self.indices[cube_index]]
-            i_shift, x_shift, h_shift = np.minimum(np.array(grid_info['offsets']), points[1:])
-            transforms = [lambda i_: geom.ilines[i_ + i_shift],
-                          lambda x_: geom.xlines[x_ + x_shift],
-                          lambda h_: h_ + h_shift]
-            self.get_point_cloud(btch.extension_assembled_pred, threshold=0.7, dst='predicted_labels', coordinates=None,
-                               separate=True, transforms=transforms)
-            numba_horizons = convert_to_numba_dict(self.predicted_labels[0])
-            self.predicted_labels = {self.indices[0]: numba_horizons}
-
         if not shape:
             shape = getattr(self, 'grid_info')[self.indices[cube_index]]['predict_shape']
 
@@ -838,5 +860,5 @@ class SeismicCubeset(Dataset):
         plt.imshow(batch.data_crops[0][0].T, cmap='gray', alpha=0.5)
         plt.title('Predicted mask', fontsize=20)
         plt.show()
-
+        setattr(self, 'img', batch.data_crops[0][0].T)
         return self
