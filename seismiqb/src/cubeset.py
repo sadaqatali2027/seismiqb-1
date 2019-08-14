@@ -677,11 +677,11 @@ class SeismicCubeset(Dataset):
         if len(self.prior_mask[0]) == 0:
             raise ValueError("Prior mask is empty")
         numba_horizon = convert_to_numba_dict(self.prior_mask[0])
-        setattr(self, prior_mask, {self.indices[cube_index]: numba_horizon})
+        setattr(self, 'prior_mask', {self.indices[cube_index]: numba_horizon})
         return self
 
     def make_slice_prediction(self, model_pipeline, points, crop_shape, max_iters=10, width=10, stride=32,
-                              cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'):    # pylint: disable=too-many-branches, too-many-statements
+                              cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'): #pylint: disable=too-many-branches, too-many-statements
         """ Extend horizon on one slice by sequential predict on overlapping crops.
 
         Parameters
@@ -777,10 +777,9 @@ class SeismicCubeset(Dataset):
                 break
 
             # transform cube coordinates to ilines-xlines
-            i_shift, x_shift, h_shift = points
-            transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + i_shift],
-                          lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
-                          lambda h_: h_ + h_shift]
+            transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + points[0]],
+                          lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + points[1]],
+                          lambda h_: h_ + points[2]]
 
             if slide_direction == 'iline':
                 self.get_point_cloud(np.moveaxis(result, -1, 1), threshold=threshold, dst='predicted_mask',
@@ -797,7 +796,7 @@ class SeismicCubeset(Dataset):
 
             assembled_horizon_dict = update_horizon_dict(self.predicted_labels[self.indices[cube_index]],
                                                          numba_horizons)
-            setattr(self, predicted_labels, {self.indices[cube_index]: assembled_horizon_dict})
+            setattr(self, 'predicted_labels', {self.indices[cube_index]: assembled_horizon_dict})
             points, compared_slices_ = compute_next_points(points, result[:, :, 0].T,
                                                            crop_shape, strides_candidates, width)
 
