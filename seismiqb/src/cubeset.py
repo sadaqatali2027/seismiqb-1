@@ -15,7 +15,7 @@ from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array, convert_to_numba_dict
 from .plot_utils import show_labels, show_sampler, plot_slide
-from .extension_utils import make_data_extension, update_horizon_dict, plot_extension_history, make_grid_info, compute_next_points
+from .extension_utils import update_horizon_dict, plot_extension_history, make_grid_info, compute_next_points
 
 
 class SeismicCubeset(Dataset):
@@ -657,7 +657,7 @@ class SeismicCubeset(Dataset):
                                                     dst=['geometries', 'labels'])
                                     .crop(points=ds_points, shape=crop_shape)
                                     .load_cubes(dst='images')
-                                    .create_masks(dst='masks', width=1, single_horizon=True, src_labels='labels')
+                                    .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
                                     .rotate_axes(src=['images', 'masks'])
                                     .add_axis(src='masks', dst='masks')
                                     .scale(mode='normalize', src='images')) << self
@@ -680,7 +680,7 @@ class SeismicCubeset(Dataset):
         self.prior_mask = {self.indices[cube_index]: numba_horizon}
         return self
 
-    def make_slice_prediction(self, train_pipeline, points, crop_shape, max_iters=10, WIDTH = 10, STRIDE = 32,
+    def make_slice_prediction(self, model_pipeline, points, crop_shape, max_iters=10, WIDTH = 10, STRIDE = 32,
                               cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'):
         """ Extend horizon on one slice by sequential predict on overlapping crops.
 
@@ -746,16 +746,17 @@ class SeismicCubeset(Dataset):
         predict_ppl = (Pipeline()
                         .load_component(src=[D('predicted_labels')], dst=['predicted_labels'])
                         .load_cubes(dst='images')
-                        .create_masks(dst='masks', width=1, single_horizon=True, src_labels='labels')
-                        .create_masks(dst='cut_masks', width=1, single_horizon=True, src_labels='predicted_labels')
+                        .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
+                        .create_masks(dst='cut_masks', width=1, n_horizons=1, src_labels='predicted_labels')
                         .apply_transform(np.transpose, axes=axes, src=['images', 'masks', 'cut_masks'])
                         .rotate_axes(src=['images', 'masks', 'cut_masks'])
                         .scale(mode='normalize', src='images')
                         .add_axis(src='masks', dst='masks')
-                        .import_model('extension', train_pipeline)
+                        .import_model('extension', model_pipeline)
                         .init_variable('result_preds', init_on_each_run=list())
+                        .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
                         .predict_model('extension', fetches='sigmoid',
-                                       make_data=make_data_extension,
+                                       images=B('model_inputs'),
                                        save_to=V('result_preds', mode='e')))
 
         for i in range(max_iters):
@@ -891,8 +892,8 @@ class SeismicCubeset(Dataset):
                                     .load_component(src=[D('predicted_labels')],
                                                     dst=['predicted_labels'])
                                     .load_cubes(dst='data_crops')
-                                    .create_masks(dst='mask_crops', width=width, single_horizon=True, src_labels='labels')
-                                    .create_masks(dst='cut_mask_crops', width=width, single_horizon=True, src_labels='predicted_labels'))
+                                    .create_masks(dst='mask_crops', width=width, n_horizons=1, src_labels='labels')
+                                    .create_masks(dst='cut_mask_crops', width=width, n_horizons=1, src_labels='predicted_labels'))
 
         batch = (load_components_ppl << self).next_batch(3)
         if show_image:
