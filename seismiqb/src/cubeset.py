@@ -7,15 +7,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from ..batchflow import Dataset, Sampler, Pipeline
-from ..batchflow import B, V, C, L, F, D, P, R
+from ..batchflow import B, V, D
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array, convert_to_numba_dict
-from .plot_utils import show_labels, show_sampler, plot_slide
-from .utils import update_horizon_dict, plot_extension_history, make_grid_info, compute_next_points
+from .utils import update_horizon_dict, make_grid_info, compute_next_points
+from .plot_utils import show_labels, show_sampler, plot_slide, plot_extension_history
 
 
 class SeismicCubeset(Dataset):
@@ -677,11 +677,11 @@ class SeismicCubeset(Dataset):
         if len(self.prior_mask[0]) == 0:
             raise ValueError("Prior mask is empty")
         numba_horizon = convert_to_numba_dict(self.prior_mask[0])
-        self.prior_mask = {self.indices[cube_index]: numba_horizon}
+        setattr(self, prior_mask, {self.indices[cube_index]: numba_horizon})
         return self
 
     def make_slice_prediction(self, model_pipeline, points, crop_shape, max_iters=10, width=10, stride=32,
-                              cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'):
+                              cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'):    # pylint: disable=too-many-branches, too-many-statements
         """ Extend horizon on one slice by sequential predict on overlapping crops.
 
         Parameters
@@ -741,7 +741,7 @@ class SeismicCubeset(Dataset):
 
         load_components_ppl = (Pipeline()
                                .load_component(src=[D('geometries'), D('labels')],
-                                                dst=['geometries', 'labels'])
+                                               dst=['geometries', 'labels'])
                                .add_components('predicted_labels'))
         predict_ppl = (Pipeline()
                        .load_component(src=[D('predicted_labels')], dst=['predicted_labels'])
@@ -761,7 +761,7 @@ class SeismicCubeset(Dataset):
 
         for i in range(max_iters):
             if (points[0] + crop_shape[0] > max_iline or
-                points[1] + crop_shape[1] > max_xline or points[2] + crop_shape[2] > geom.depth):
+                    points[1] + crop_shape[1] > max_xline or points[2] + crop_shape[2] > geom.depth):
                 print("End of the cube or area")
                 break
 
@@ -797,8 +797,7 @@ class SeismicCubeset(Dataset):
 
             assembled_horizon_dict = update_horizon_dict(self.predicted_labels[self.indices[cube_index]],
                                                          numba_horizons)
-            self.predicted_labels = {self.indices[cube_index]: assembled_horizon_dict}
-
+            setattr(self, predicted_labels, {self.indices[cube_index]: assembled_horizon_dict})
             points, compared_slices_ = compute_next_points(points, result[:, :, 0].T,
                                                            crop_shape, strides_candidates, width)
 
