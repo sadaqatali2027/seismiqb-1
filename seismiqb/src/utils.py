@@ -553,3 +553,48 @@ def convert_to_numba_dict(_labels):
     for key, value in _labels.items():
         _type_labels[key] = np.asarray(np.rint(value), dtype=np.int64)
     return _type_labels
+
+def update_horizon_dict(first, second):
+    """ Left merge two dicts. """
+    for k, v in second.items():
+        if not k in first:
+            first.update({k: v})
+    return first
+
+def make_grid_info(grid_array, cube_name, crop_shape):
+    """ Create grid info based on the grid array with lower left coordinates of the crops. """
+    grid_array = np.array(grid_array)
+    offsets = np.array([min(grid_array[:, 0]),
+                        min(grid_array[:, 1]),
+                        min(grid_array[:, 2])])
+    grid_array = grid_array[:, :].astype(int) - offsets
+
+    # this is not ilines/xlines coords
+    ilines_range = [np.min(grid_array[:, 0]), np.max(grid_array[:, 0]) + 1]
+    xlines_range = [np.min(grid_array[:, 1]), np.max(grid_array[:, 1]) + crop_shape[1]]
+    h_range = [np.min(grid_array[:, 2]), np.max(grid_array[:, 2]) + crop_shape[2]]
+    predict_shape = (ilines_range[1] - ilines_range[0],
+                     xlines_range[1] - xlines_range[0],
+                     h_range[1] - h_range[0])
+
+    grid_info = {'grid_array': grid_array[:, :],
+                 'predict_shape': predict_shape,
+                 'crop_shape': crop_shape,
+                 'cube_name': cube_name,
+                 'range': [ilines_range, xlines_range, h_range],
+                 'offsets': offsets}
+    return grid_info
+
+def compute_next_points(points, prediction, crop_shape, strides_candidates, WIDTH):
+    """ Compute next point for extension procedure.
+    """
+    compared_slices_ = []
+    compared_slices_.append(np.sum(prediction[:WIDTH, crop_shape[1] - WIDTH:]))
+    compared_slices_.append(np.sum(prediction[crop_shape[2] - WIDTH:, crop_shape[1] - WIDTH:]))
+    compared_slices_.append(np.sum(prediction[crop_shape[2] // 2 - WIDTH // 2:crop_shape[2] // 2 + WIDTH // 2,
+                                              crop_shape[1] - WIDTH:]))
+    compared_slices_.append(np.sum(prediction[:WIDTH ** 2 // crop_shape[1], :]))
+    compared_slices_.append(np.sum(prediction[crop_shape[2] - WIDTH ** 2 // crop_shape[1]:, :]))
+    stride = strides_candidates[np.argmax(np.array(compared_slices_))]
+    points = [sum(x) for x in zip(points, stride)]
+    return points, compared_slices_

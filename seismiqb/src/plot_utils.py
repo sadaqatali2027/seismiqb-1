@@ -231,3 +231,52 @@ def plot_stratum_predictions(cubes, targets, predictions, n_rows=None):
         axes[i, 0].set_title('Input crop')
         axes[i, 1].set_title('True mask')
         axes[i, 2].set_title('Predicted mask')
+
+def plot_extension_history(next_predict_pipeline, btch):
+    """ Function to show single extension step. """
+    fig = plt.figure(figsize=(15, 10))
+    fig.add_subplot(1, 5, 1)
+    plt.imshow(btch.images[0][..., 0].T)
+    # Major ticks
+    ax = plt.gca()
+    ax.set_xticks(np.arange(0, 64, 10))
+    ax.set_yticks(np.arange(0, 64, 10))
+    ax.grid(color='w', linestyle='-', linewidth=.5)
+
+    fig.add_subplot(1, 5, 2)
+    plt.imshow(btch.masks[0][:, :, 0, 0].T)
+    plt.title('true mask')
+    # Major ticks
+    ax = plt.gca()
+    ax.set_xticks(np.arange(0, 64, 10))
+    ax.set_yticks(np.arange(0, 64, 10))
+    ax.grid(color='w', linestyle='-', linewidth=.5)
+
+    fig.add_subplot(1, 5, 3)
+    plt.imshow(btch.cut_masks[0][..., 0].T)
+    plt.title('Created mask using predictions')
+    # Major ticks
+    ax = plt.gca()
+    ax.set_xticks(np.arange(0, 64, 10))
+    ax.set_yticks(np.arange(0, 64, 10))
+    ax.grid(color='w', linestyle='-', linewidth=.5)
+
+    fig.add_subplot(1, 5, 4)
+    plt.imshow(next_predict_pipeline.get_variable('result_preds')[0][:, :, 0].T)
+    plt.title('predictions')
+    # Major ticks
+    ax = plt.gca()
+    ax.set_xticks(np.arange(0, 64, 10))
+    ax.set_yticks(np.arange(0, 64, 10))
+    ax.grid(color='w', linestyle='-', linewidth=.5)
+
+    fig.add_subplot(1, 5, 5)
+    plt.imshow(btch.cut_masks[0][..., 0].T + next_predict_pipeline.get_variable('result_preds')[0][:, :, 0].T)
+    plt.title('overlap')
+
+    # Major ticks
+    ax = plt.gca()
+    ax.set_xticks(np.arange(0, 64, 10))
+    ax.set_yticks(np.arange(0, 64, 10))
+    ax.grid(color='w', linestyle='-', linewidth=.5)
+    plt.show()

@@ -15,7 +15,7 @@ from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array, convert_to_numba_dict
 from .plot_utils import show_labels, show_sampler, plot_slide
-from .extension_utils import update_horizon_dict, plot_extension_history, make_grid_info, compute_next_points
+from .utils import update_horizon_dict, plot_extension_history, make_grid_info, compute_next_points
 
 
 class SeismicCubeset(Dataset):
@@ -545,7 +545,8 @@ class SeismicCubeset(Dataset):
                           'range': [ilines_range, xlines_range, h_range]}
         return self
 
-    def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates='cubic', separate=True, transforms=None):
+    def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates='cubic', separate=True,
+                        transforms=None):
         """ Compute point cloud of horizons from a mask, save it into the 'cubeset'-attribute.
 
         Parameters
@@ -606,7 +607,6 @@ class SeismicCubeset(Dataset):
                 setattr(self, dst+'_'+str(i), horizon)
         return self
 
-
     def compare_to_labels(self, horizon, idx=0, offset=1, plot=True):
         """ Compare given horizon to labels in dataset.
 
@@ -637,13 +637,13 @@ class SeismicCubeset(Dataset):
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images')
         plot_slide(self, *components, idx=idx, iline=iline, overlap=overlap)
 
-    def subset_labels(self, points, crop_shape=[2, 64, 64], cube_index=0, show_prior_mask=False):
+    def subset_labels(self, points, crop_shape=(2, 64, 64), cube_index=0, show_prior_mask=False):
         """Save prior mask to a cubeset attribute `prior_mask`.
         Parameters
         ----------
         points : tuple or list
             upper left coordinates of the starting crop in the seismic cube coordinates.
-        crop_shape : tuple or list 
+        crop_shape : tuple or list
             shape of the saved prior mask.
         cube_index : int
             index of the cube in `ds.indices` list.
@@ -653,14 +653,14 @@ class SeismicCubeset(Dataset):
         ds_points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
 
         start_predict_pipeline = (Pipeline()
-                                    .load_component(src=[D('geometries'), D('labels')],
-                                                    dst=['geometries', 'labels'])
-                                    .crop(points=ds_points, shape=crop_shape)
-                                    .load_cubes(dst='images')
-                                    .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
-                                    .rotate_axes(src=['images', 'masks'])
-                                    .add_axis(src='masks', dst='masks')
-                                    .scale(mode='normalize', src='images')) << self
+                                  .load_component(src=[D('geometries'), D('labels')],
+                                                  dst=['geometries', 'labels'])
+                                  .crop(points=ds_points, shape=crop_shape)
+                                  .load_cubes(dst='images')
+                                  .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
+                                  .rotate_axes(src=['images', 'masks'])
+                                  .add_axis(src='masks', dst='masks')
+                                  .scale(mode='normalize', src='images')) << self
 
         batch = start_predict_pipeline.next_batch(3, n_epochs=None)
 
@@ -670,17 +670,17 @@ class SeismicCubeset(Dataset):
 
         i_shift, x_shift, h_shift = [slices[0] for slices in batch.slices[0]]
         transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + i_shift],
-                          lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
-                          lambda h_: h_ + h_shift]
+                      lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
+                      lambda h_: h_ + h_shift]
         self.get_point_cloud(np.moveaxis(batch.masks[0][:, :, :1, 0], -1, 0),
-                               threshold=0.5, dst='prior_mask', coordinates=None, transforms=transforms, separate=True)
+                             threshold=0.5, dst='prior_mask', coordinates=None, transforms=transforms, separate=True)
         if len(self.prior_mask[0]) == 0:
             raise ValueError("Prior mask is empty")
         numba_horizon = convert_to_numba_dict(self.prior_mask[0])
         self.prior_mask = {self.indices[cube_index]: numba_horizon}
         return self
 
-    def make_slice_prediction(self, model_pipeline, points, crop_shape, max_iters=10, WIDTH = 10, STRIDE = 32,
+    def make_slice_prediction(self, model_pipeline, points, crop_shape, max_iters=10, width=10, stride=32,
                               cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'):
         """ Extend horizon on one slice by sequential predict on overlapping crops.
 
@@ -690,13 +690,13 @@ class SeismicCubeset(Dataset):
             Instance of the Cubeset. Must have non-empy attributes `predicted labels` and `labels` (for debugging plots)
         points : tuple or list
             upper left coordinates of the starting crop in the seismic cube coordinates.
-        crop_shape : tuple or list 
+        crop_shape : tuple or list
             shape of the crop fed to the model.
         max_iters : int
             max_number of extension steps. If we meet end of the cube we will make less steps.
-        WIDTH : int
+        width : int
             width of compared windows.
-        STRIDE : int
+        stride : int
             stride size.
         cube_index : int
             index of the cube ds.indices.
@@ -727,37 +727,37 @@ class SeismicCubeset(Dataset):
             max_iline, max_xline = geom.ilines_len, geom.xlines_len
 
         # compute strides for xline, iline cases
-        line_stride = -STRIDE if mode == 'left' else STRIDE
+        line_stride = -stride if mode == 'left' else stride
         if slide_direction == 'iline':
             axes = (1, 0, 2)
-            strides_candidates = [[line_stride, 0, -STRIDE], [line_stride, 0, STRIDE], [line_stride, 0, 0],
-                                  [0, 0, -STRIDE], [0, 0, STRIDE]]
+            strides_candidates = [[line_stride, 0, -stride], [line_stride, 0, stride], [line_stride, 0, 0],
+                                  [0, 0, -stride], [0, 0, stride]]
         elif slide_direction == 'xline':
             axes = (0, 1, 2)
-            strides_candidates = [[0, line_stride, -STRIDE], [0, line_stride, STRIDE], [0, line_stride, 0],
-                                  [0, 0, -STRIDE], [0, 0, STRIDE]]
+            strides_candidates = [[0, line_stride, -stride], [0, line_stride, stride], [0, line_stride, 0],
+                                  [0, 0, -stride], [0, 0, stride]]
         else:
             raise ValueError("Slide direction can be either iline or xline.")
 
         load_components_ppl = (Pipeline()
-                                .load_component(src=[D('geometries'), D('labels')],
+                               .load_component(src=[D('geometries'), D('labels')],
                                                 dst=['geometries', 'labels'])
-                                .add_components('predicted_labels'))
+                               .add_components('predicted_labels'))
         predict_ppl = (Pipeline()
-                        .load_component(src=[D('predicted_labels')], dst=['predicted_labels'])
-                        .load_cubes(dst='images')
-                        .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
-                        .create_masks(dst='cut_masks', width=1, n_horizons=1, src_labels='predicted_labels')
-                        .apply_transform(np.transpose, axes=axes, src=['images', 'masks', 'cut_masks'])
-                        .rotate_axes(src=['images', 'masks', 'cut_masks'])
-                        .scale(mode='normalize', src='images')
-                        .add_axis(src='masks', dst='masks')
-                        .import_model('extension', model_pipeline)
-                        .init_variable('result_preds', init_on_each_run=list())
-                        .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
-                        .predict_model('extension', fetches='sigmoid',
-                                       images=B('model_inputs'),
-                                       save_to=V('result_preds', mode='e')))
+                       .load_component(src=[D('predicted_labels')], dst=['predicted_labels'])
+                       .load_cubes(dst='images')
+                       .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
+                       .create_masks(dst='cut_masks', width=1, n_horizons=1, src_labels='predicted_labels')
+                       .apply_transform(np.transpose, axes=axes, src=['images', 'masks', 'cut_masks'])
+                       .rotate_axes(src=['images', 'masks', 'cut_masks'])
+                       .scale(mode='normalize', src='images')
+                       .add_axis(src='masks', dst='masks')
+                       .import_model('extension', model_pipeline)
+                       .init_variable('result_preds', init_on_each_run=list())
+                       .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
+                       .predict_model('extension', fetches='sigmoid',
+                                      images=B('model_inputs'),
+                                      save_to=V('result_preds', mode='e')))
 
         for i in range(max_iters):
             if (points[0] + crop_shape[0] > max_iline or
@@ -777,17 +777,17 @@ class SeismicCubeset(Dataset):
                 break
 
             # transform cube coordinates to ilines-xlines
-            i_shift, x_shift, h_shift = [slices[0] for slices in btch.slices[0]]
+            i_shift, x_shift, h_shift = points
             transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + i_shift],
                           lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
                           lambda h_: h_ + h_shift]
 
             if slide_direction == 'iline':
-                self.get_point_cloud(np.moveaxis(result, -1, 1), threshold=threshold, dst='predicted_mask', coordinates=None,
-                                     separate=True, transforms=transforms)
+                self.get_point_cloud(np.moveaxis(result, -1, 1), threshold=threshold, dst='predicted_mask',
+                                     coordinates=None, separate=True, transforms=transforms)
             else:
-                self.get_point_cloud(np.moveaxis(result, -1, 0), threshold=threshold, dst='predicted_mask', coordinates=None,
-                                     separate=True, transforms=transforms)
+                self.get_point_cloud(np.moveaxis(result, -1, 0), threshold=threshold, dst='predicted_mask',
+                                     coordinates=None, separate=True, transforms=transforms)
             try:
                 numba_horizons = convert_to_numba_dict(self.predicted_mask[0])
             except IndexError:
@@ -800,7 +800,7 @@ class SeismicCubeset(Dataset):
             self.predicted_labels = {self.indices[cube_index]: assembled_horizon_dict}
 
             points, compared_slices_ = compute_next_points(points, result[:, :, 0].T,
-                                                           crop_shape, strides_candidates, WIDTH)
+                                                           crop_shape, strides_candidates, width)
 
             if i < show_count:
                 print('----------------')
@@ -818,35 +818,6 @@ class SeismicCubeset(Dataset):
                           make_grid_info(grid_array, self.indices[cube_index], crop_shape)}
         return self
 
-    def show_metrics(self, src='predicted_labels', time_interval=2.5, cube_index=0):
-        predicted_hor = getattr(self, src)[self.indices[cube_index]]
-
-        labels = getattr(self, 'labels')[self.indices[cube_index]]
-        res, not_present = [], 0
-        vals, vals_true = [], []
-
-        for key, val in predicted_hor.items():
-            if labels.get(key) is not None:
-                true_horizonts = labels[key]
-                diff = abs(true_horizonts - (val[0]+1))
-                idx = np.argmin(diff)
-
-                res.append(diff[idx])
-                vals_true.append(true_horizonts[idx])
-                vals.append(val)
-            else:
-                not_present += 1
-
-        print('Mean value/std of error:                  {:8.7} / {:8.7}'.format(np.mean(res), np.std(res)))
-        print('Horizont length:                          {}'.format(len(predicted_hor)))
-        print('Rate in 5 ms window:                      {:8.7}'.format(sum(np.array(res) < time_interval) / len(res)))
-        print('Average height/std of true horizont:      {:8.7}'.format(np.mean(vals_true)))
-        print('Average height/std of predicted horizont: {:8.7}'.format(np.mean(vals)))
-        print('Number of values that were labeled by model and not labeled by experts: {}'.format(not_present))
-
-        plt.title('Distribution of errors')
-        _ = plt.hist(res, bins=100)
-
     def update_labels(self, src='predicted_labels', update_src='prior_mask', cube_index=0):
         """ Update dict-like component with another dict
         Parameters
@@ -854,14 +825,14 @@ class SeismicCubeset(Dataset):
         src : str
             Component to be updated.
         update_src : str
-            Component with a dict to add. 
+            Component with a dict to add.
         """
         dict_update = getattr(self, update_src)[self.indices[cube_index]]
         if hasattr(self, src):
             dict_update = update_horizon_dict(dict_update, getattr(self, src)[self.indices[cube_index]])
         setattr(self, src, {self.indices[cube_index]: dict_update})
         return self
-    
+
     def show_saved_horizon(self, points, shape=None, cube_index=0, width=1, show_image=True):
         """ Show saved horizon on a slice from `predicted_labels` attribute.
 
@@ -880,20 +851,21 @@ class SeismicCubeset(Dataset):
             Whether to show initial seismic image on a separate plot.
         """
         points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
-        
+
         if not shape:
             shape = getattr(self, 'grid_info')[self.indices[cube_index]]['predict_shape']
 
         load_components_ppl = (Pipeline()
-                                    .load_component(src=[D('geometries'), D('labels')],
-                                                    dst=['geometries', 'labels'])
-                                    .add_components('predicted_labels')
-                                    .crop(points=points, shape=(1, 900, 120), passdown='predicted_labels')
-                                    .load_component(src=[D('predicted_labels')],
-                                                    dst=['predicted_labels'])
-                                    .load_cubes(dst='data_crops')
-                                    .create_masks(dst='mask_crops', width=width, n_horizons=1, src_labels='labels')
-                                    .create_masks(dst='cut_mask_crops', width=width, n_horizons=1, src_labels='predicted_labels'))
+                               .load_component(src=[D('geometries'), D('labels')],
+                                               dst=['geometries', 'labels'])
+                               .add_components('predicted_labels')
+                               .crop(points=points, shape=(1, 900, 120), passdown='predicted_labels')
+                               .load_component(src=[D('predicted_labels')],
+                                               dst=['predicted_labels'])
+                               .load_cubes(dst='data_crops')
+                               .create_masks(dst='mask_crops', width=width, n_horizons=1, src_labels='labels')
+                               .create_masks(dst='cut_mask_crops', width=width, n_horizons=1,
+                                             src_labels='predicted_labels'))
 
         batch = (load_components_ppl << self).next_batch(3)
         if show_image:
