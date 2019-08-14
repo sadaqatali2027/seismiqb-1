@@ -681,7 +681,8 @@ class SeismicCubeset(Dataset):
         return self
 
     def make_slice_prediction(self, model_pipeline, points, crop_shape, max_iters=10, width=10, stride=32,
-                              cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'): # pylint: disable=too-many-branches
+                              cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'):
+        # pylint: disable=too-many-branches
         # pylint: disable=too-many-statements
         """ Extend horizon on one slice by sequential predict on overlapping crops.
 
