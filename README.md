@@ -19,14 +19,14 @@ git clone -- recursive https://github.com/analysiscenter/seismiqb.git
 
 ## Turorials
 
-### [Cube-preprocessing](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/2.%20Batch.ipynb)
+### [Cube-preprocessing](https://github.com/analysiscenter/seismiqb/blob/master/tutorials/2.%20Batch.ipynb)
 Seismic cube preprocessing: `load_cubes`, `create_masks`, `scale`, `cutout_2d`, `rotate` and others.
 
-### [Horizon segmentations](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/3.%20Horizonts_model.ipynb)
+### [Horizon segmentations](https://github.com/analysiscenter/seismiqb/blob/master/models/Horizons_detection.ipynb)
 Solving a task of binary segmentation to detect seismic horizons.
 
-### [Horizon extension](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/Horizon%20Extension.ipynb)
+### [Horizon extension](https://github.com/analysiscenter/seismiqb/blob/master/models/Horizons_extension.ipynb)
 Extending picked horizons on the area of interest given marked horizons on a couple of `ilines`/`xlines`.
 
-### [Interlayers segmentation](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/4.%20Segmenting_interlayers.ipynb)
+### [Interlayers segmentation](https://github.com/analysiscenter/seismiqb/blob/master/models/Segmenting_interlayers.ipynb)
 Performing multiclass segmentation.
