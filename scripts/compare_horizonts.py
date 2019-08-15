@@ -41,11 +41,14 @@ def matcher(horizont_1, horizont_2, eps=400):
 
 def compare(horizont_1, horizont_2, printer):
     """ Compare two horizonts by computing multiple simple metrics.
+    All of the results are logged via passed `printer`.
 
     Parameters
     ----------
     horizont_1, horizont_2 : str
         Path to horizont. Each line in the file must be in (iline, xline, height) format.
+    printer : callable
+        Function to log information with.
     """
     point_cloud_1 = read_point_cloud(horizont_1)
     labels_1 = make_labels_dict(point_cloud_1)

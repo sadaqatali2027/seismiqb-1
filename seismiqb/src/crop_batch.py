@@ -499,6 +499,8 @@ class SeismicCropBatch(Batch):
             Component of batch to put results in.
         grid_info : dict
             Dictionary with information about grid. Should be created by `make_grid` method.
+        order : tuple
+            Crop axes permutation.
         Returns
         -------
         SeismicCropBatch
