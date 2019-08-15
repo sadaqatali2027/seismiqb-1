@@ -231,7 +231,7 @@ def plot_stratum_predictions(cubes, targets, predictions, n_rows=None):
         axes[i, 0].set_title('Input crop')
         axes[i, 1].set_title('True mask')
         axes[i, 2].set_title('Predicted mask')
-        
+
 def show_extension_results(batch, val_pipeline, cubes_numbers, ext_result='ext_result',
                            baseline_result=None, figsize=(25, 10)):
     """ Demonstrate the results of the Horizon Extension model
@@ -252,10 +252,10 @@ def show_extension_results(batch, val_pipeline, cubes_numbers, ext_result='ext_r
         print(batch.indices[cube][:-10])
         iline = 0
 
-        truth_img =     val_pipeline.get_variable(ext_result)[0][cube, :, :, iline].T
-        truth_labels =  val_pipeline.get_variable(ext_result)[1][cube, :, :, iline, 0].T
+        truth_img = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline].T
+        truth_labels = val_pipeline.get_variable(ext_result)[1][cube, :, :, iline, 0].T
         predicted_img = val_pipeline.get_variable(ext_result)[2][cube, :, :, iline, 0].T
-        cut_mask =      val_pipeline.get_variable(ext_result)[0][cube, :, :, iline + 2].T
+        cut_mask = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline + 2].T
         if baseline_result:
             predicted_simple = val_pipeline.get_variable(baseline_result)[2][cube, :, :, iline, 0].T
 
@@ -273,7 +273,7 @@ def show_extension_results(batch, val_pipeline, cubes_numbers, ext_result='ext_r
         plt.imshow(truth_labels, cmap="Blues")
         plt.imshow(truth_img, cmap="gray", alpha=0.5)
         plt.title('True mask', fontsize=20)
-    
+
         if baseline_result:
             fig.add_subplot(1, 5, 4)
             plt.imshow(predicted_simple, cmap="Greens")
