@@ -6,7 +6,25 @@ from numba import njit
 from ..batchflow import Pipeline, D
 
 def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=None):
-    """ Plot losses. """
+    """ Plot losses.
+
+    Parameters
+    ----------
+    graph_lists : sequence of arrays
+        list of arrays to plot.
+
+    labels : sequence of str
+        labels for different graphs.
+
+    ylabel : str
+        y-axis label.
+
+    figsize : tuple of int
+        size of resulting figure.
+
+    title : str
+        title of resulting figure.
+    """
     if not isinstance(graph_lists[0], (tuple, list)):
         graph_lists = [graph_lists]
 
@@ -37,7 +55,7 @@ def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=No
         If None, then no indexing is applied.
 
     overlap : bool
-        Whether to draw images one over the other or not.
+        Whether to draw images one over the other or on separate layouts.
 
     order_axes : sequence of int
         Determines desired order of the axis. The first two are plotted.
@@ -58,17 +76,17 @@ def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=No
         imgs = [getattr(batch, comp) for comp in components]
 
     if overlap:
-        plot_images_o(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+        plot_images_overlap(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas)
     else:
-        plot_images_s(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+        plot_images_separate(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas)
 
 
-def plot_images_s(imgs, titles, order_axes, cmaps=None, alphas=None):
+def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None):
     """ Plot one or more images on separate layouts. """
     cmaps = cmaps or ['gray'] + ['viridis']*len(imgs)
     cmaps = cmaps if isinstance(cmaps, (tuple, list)) else [cmaps]
 
-    alphas = alphas or [1**-i for i in range(len(imgs))]
+    alphas = alphas or 1.0
     alphas = alphas if isinstance(alphas, (tuple, list)) else [alphas**-i for i in range(len(imgs))]
 
     _, ax = plt.subplots(1, len(imgs), figsize=(8*len(imgs), 10))
@@ -81,10 +99,10 @@ def plot_images_s(imgs, titles, order_axes, cmaps=None, alphas=None):
     plt.show()
 
 
-def plot_images_o(imgs, title, order_axes, cmaps=None, alphas=None):
+def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None):
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
-    alphas = alphas or [1**-i for i in range(len(imgs))]
+    alphas = alphas or [1.0 for i in range(len(imgs))]
 
     plt.figure(figsize=(15, 15))
     for i, (img, cmap, alpha) in enumerate(zip(imgs, cmaps, alphas)):
@@ -138,12 +156,15 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
 
 
 def show_labels(dataset, idx=0, hor_idx=None):
-    """ Show labeled ilines/xlines from above: yellow stands for labeled regions.
+    """ Show labeled ilines/xlines for a horizon from above: yellow stands for labeled regions.
 
     Parameters
     ----------
     idx : int
         Number of cube to show labels for.
+    hor_idx : int or None
+        if int, a pixel is labeled whenever it is covered by the horizon with number hor_idx.
+        if None, a pixel is labeled whenever it is covered by at least one horizon.
     """
     name = dataset.indices[idx]
     geom = dataset.geometries[name]
@@ -178,7 +199,19 @@ def labels_matrix(background, possible_coordinates, labels,
 
 
 def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1):
-    """ Generate a lot of points and plot their (iline, xline) positions. """
+    """ Generate a lot of points and plot their (iline, xline) positions.
+
+    Parameters
+    ----------
+    idx : int
+        cube-number to sample points for.
+    src_sampler : str
+        attribute to store the sampler.
+    n : int
+        size of generated sample.
+    eps : int
+        radius of a labeled point used for plotting.
+    """
     name = dataset.indices[idx]
     geom = dataset.geometries[name]
 

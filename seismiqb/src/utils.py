@@ -127,7 +127,7 @@ def read_point_cloud(paths, names=None, order=None, **kwargs):
     order : array-like
         specifies the order of columns to keep in the resulting array.
     **kwargs
-        file-specific arguments of pandas parser.
+        additional keyword-arguments of pandas parser.
 
     Returns
     -------
