@@ -7,6 +7,8 @@ import numpy as np
 import segyio
 from tqdm import tqdm
 
+from .utils import update_minmax
+
 
 
 class SeismicGeometry():
@@ -32,18 +34,16 @@ class SeismicGeometry():
         self.il_xl_trace = {}
         self.delay, self.sample_rate = None, None
         self.depth = None
+        self.height_correction = None
         self.cube_shape = None
 
         self.ilines, self.xlines = set(), set()
         self.ilines_offset, self.xlines_offset = None, None
         self.ilines_len, self.xlines_len = None, None
 
-        self.cdp_x, self.cdp_y = set(), set()
-        self.abs_to_lines = None
-        self.lines_to_abs = None
-
         self.value_min, self.value_max = np.inf, -np.inf
         self.scaler, self.descaler = None, None
+        self.zero_traces = None
 
 
     def load(self):
@@ -54,7 +54,6 @@ class SeismicGeometry():
         ext = os.path.splitext(self.path)[1][1:]
         if ext in ['sgy', 'segy']:
             self._load_sgy()
-            self.make_scalers()
         elif ext in ['hdf5']:
             self._load_h5py()
         else:
@@ -67,23 +66,14 @@ class SeismicGeometry():
         self.xlines_len = len(self.xlines)
         self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
 
-        # Create transform from global coordinates to ilines/xlines/depth (and vice versa)
-        y_to_iline = self._get_linear(self.cdp_y, self.ilines)
-        x_to_xline = self._get_linear(self.cdp_x, self.xlines)
-        h_to_depth = lambda h: ((h - self.delay) / self.sample_rate).astype(np.int64)
-        self.abs_to_lines = (lambda array: np.stack([y_to_iline(array[:, 0]),
-                                                     x_to_xline(array[:, 1]),
-                                                     h_to_depth(array[:, 2]),
-                                                     array[:, 3]],
-                                                    axis=-1))
-
-        iline_to_y = self._get_linear(self.ilines, self.cdp_y)
-        xline_to_x = self._get_linear(self.xlines, self.cdp_x)
-        depth_to_h = lambda depth: (depth*self.sample_rate + self.delay)
-        self.lines_to_abs = (lambda array: np.stack([iline_to_y(array[:, 0]),
-                                                     xline_to_x(array[:, 1]),
-                                                     depth_to_h(array[:, 2])],
-                                                    axis=-1))
+        # Create transform to correct height with time-delay and sample rate
+        def transform(array):
+            return np.stack([array[:, 0],
+                             array[:, 1],
+                             (array[:, 2] - self.delay) / self.sample_rate,
+                             array[:, 3]],
+                            axis=-1)
+        self.height_correction = transform
 
         # Callable to transform cube values to [0, 1] (and vice versa)
         if self.value_min is not None:
@@ -102,29 +92,44 @@ class SeismicGeometry():
 
             self.depth = len(segyfile.trace[0])
 
-            description = 'Working with {}'.format('/'.join(self.path.split('/')[-2:]))
+            first_header = segyfile.header[0]
+            first_iline = first_header.get(segyio.TraceField.INLINE_3D)
+            first_xline = first_header.get(segyio.TraceField.CROSSLINE_3D)
+
+            last_header = segyfile.header[-1]
+            last_iline = last_header.get(segyio.TraceField.INLINE_3D)
+            last_xline = last_header.get(segyio.TraceField.CROSSLINE_3D)
+
+            ilines_offset, xlines_offset = first_iline, first_xline
+            ilines_len = last_iline - first_iline + 1
+            xlines_len = last_xline - first_xline + 1
+
+            matrix = np.zeros((ilines_len, xlines_len))
+
+            description = 'Working with {}'.format(os.path.basename(self.path))
             for i in tqdm(range(len(segyfile.header)), desc=description):
-                header_ = segyfile.header[i]
-                iline_ = header_.get(segyio.TraceField.INLINE_3D)
-                xline_ = header_.get(segyio.TraceField.CROSSLINE_3D)
-                cdp_x_ = header_.get(segyio.TraceField.CDP_X)
-                cdp_y_ = header_.get(segyio.TraceField.CDP_Y)
+                header = segyfile.header[i]
+                iline = header.get(segyio.TraceField.INLINE_3D)
+                xline = header.get(segyio.TraceField.CROSSLINE_3D)
 
                 # Map:  (iline, xline) -> index of trace
-                self.il_xl_trace[(iline_, xline_)] = i
+                self.il_xl_trace[(iline, xline)] = i
 
                 # Set: all possible values for ilines/xlines
-                self.ilines.add(iline_)
-                self.xlines.add(xline_)
-                self.cdp_x.add(cdp_x_)
-                self.cdp_y.add(cdp_y_)
+                self.ilines.add(iline)
+                self.xlines.add(xline)
+
+                # Gather stats: min/max value, location of zero-traces
+                trace = segyfile.trace[i]
+                self.value_min, self.value_max, matrix = update_minmax(trace, self.value_min, self.value_max,
+                                                                       matrix, iline, xline,
+                                                                       ilines_offset, xlines_offset)
 
         self.ilines = sorted(list(self.ilines))
         self.xlines = sorted(list(self.xlines))
-        self.cdp_x = sorted(list(self.cdp_x))
-        self.cdp_y = sorted(list(self.cdp_y))
-        self.delay = header_.get(segyio.TraceField.DelayRecordingTime)
-        self.sample_rate = header_.get(segyio.TraceField.TRACE_SAMPLE_INTERVAL) // 1000
+        self.delay = header.get(segyio.TraceField.DelayRecordingTime)
+        self.sample_rate = header.get(segyio.TraceField.TRACE_SAMPLE_INTERVAL) / 1000
+        self.zero_traces = matrix
 
 
     def _load_h5py(self):
@@ -133,34 +138,11 @@ class SeismicGeometry():
         """
         self.h5py_file = h5py.File(self.path, "r")
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
-                      'ilines', 'xlines', 'cdp_x', 'cdp_y']
+                      'ilines', 'xlines', 'zero_traces']
 
         for item in attributes:
             value = self.h5py_file['/info/' + item][()]
             setattr(self, item, value)
-
-
-    def _get_linear(self, set_x, set_y):
-        """ Get linear-transformation that maps range of set_x into range of set_y. """
-        a = (max(set_y) - min(set_y)) / (max(set_x) - min(set_x))
-        b = max(set_y) - a * max(set_x)
-        return lambda x: a * x + b
-
-
-    def make_scalers(self):
-        """ Get scaling constants. """
-        with segyio.open(self.path, 'r', strict=False) as segyfile:
-            segyfile.mmap()
-
-            description = 'Making scalers for {}'.format('/'.join(self.path.split('/')[-2:]))
-            for i in tqdm(range(len(self.il_xl_trace)), desc=description):
-                trace_ = segyfile.trace[i]
-
-                if np.min(trace_) < self.value_min:
-                    self.value_min = np.min(trace_)
-                if np.max(trace_) > self.value_max:
-                    self.value_max = np.max(trace_)
-
 
     def make_h5py(self, path_h5py=None, postfix='', dtype=np.float32):
         """ Converts `.sgy` cube to `.hdf5` format.
@@ -169,6 +151,10 @@ class SeismicGeometry():
         ----------
         path_h5py : str
             Path to store converted cube. By default, new cube is stored right next to original.
+        postfix : str
+            Postfix to add to the name of resulting cube.
+        dtype : str
+            data-type to use for storing the cube. Has to be supported by numpy.
         """
         if os.path.splitext(self.path)[1][1:] not in ['sgy', 'segy']:
             raise TypeError('Format should be `sgy`')
@@ -199,7 +185,7 @@ class SeismicGeometry():
 
         # Save all the necessary attributes to the `info` group
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
-                      'ilines', 'xlines', 'cdp_x', 'cdp_y']
+                      'ilines', 'xlines', 'zero_traces']
 
         for item in attributes:
             h5py_file['/info/' + item] = getattr(self, item)
@@ -231,8 +217,3 @@ class SeismicGeometry():
 
         printer('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
         printer('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
-
-        printer('CDP_X range from {} to {}'.format(min(self.cdp_x),
-                                                   max(self.cdp_x)))
-        printer('CDP_X range from {} to {}'.format(min(self.cdp_y),
-                                                   max(self.cdp_y)))

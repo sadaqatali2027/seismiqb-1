@@ -11,7 +11,7 @@ from scipy.signal import butter, lfilter, hilbert
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 from .utils import create_mask, aggregate, make_labels_dict, _get_horizons
-
+from .plot_utils import plot_batch_components
 
 
 AFFIX = '___'
@@ -52,7 +52,6 @@ class SeismicCropBatch(Batch):
         -------
         path : str
             supplied string with random postfix.
-
         Notes
         -----
         Action `crop` makes a new instance of SeismicCropBatch with
@@ -160,13 +159,10 @@ class SeismicCropBatch(Batch):
             cut it from. Order is: name, iline, xline, height. For example,
             ['Cube.sgy', 13, 500, 200] stands for crop has [13, 500, 200]
             as its upper rightmost point and must be cut from 'Cube.sgy' file.
-
         shape : array-like
             Desired shape of crops.
-
         dst : str, optional
             Component of batch to put positions of crops in.
-
         passdown : str of list of str
             Components of batch to keep in the new one.
 
@@ -228,10 +224,8 @@ class SeismicCropBatch(Batch):
         ----------
         fmt : 'h5py' or 'sgy'
             Cube storing format.
-
         src : str
             Component of batch with positions of crops to load.
-
         dst : str
             Component of batch to put loaded crops in.
 
@@ -328,10 +322,9 @@ class SeismicCropBatch(Batch):
         getattr(self, dst)[pos] = crop
         return self
 
-
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels'):
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', single_horizon=False):
         """ Create masks from labels-dictionary in given positions.
 
         Parameters
@@ -364,7 +357,8 @@ class SeismicCropBatch(Batch):
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-        mask = create_mask(ilines_, xlines_, hs_, il_xl_h, geom.ilines, geom.xlines, geom.depth, mode, width)
+        mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
+                           geom.ilines_offset, geom.xlines_offset, geom.depth, mode, width, single_horizon)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
@@ -422,6 +416,9 @@ class SeismicCropBatch(Batch):
     @inbatch_parallel(init='_init_component', target='threads')
     def filter_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None):
         """ Cut mask for horizont extension task.
+
+        Parameters
+        ----------
         src : str
             Component of batch with mask
         dst : str
@@ -504,7 +501,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='run_once')
-    def assemble_crops(self, src, dst, grid_info):
+    def assemble_crops(self, src, dst, grid_info, order=None):
         """ Glue crops together in accordance to the grid.
 
         Note
@@ -515,10 +512,8 @@ class SeismicCropBatch(Batch):
         ----------
         src : array-like
             Sequence of crops.
-
         dst : str
             Component of batch to put results in.
-
         grid_info : dict
             Dictionary with information about grid. Should be created by `make_grid` method.
 
@@ -531,12 +526,13 @@ class SeismicCropBatch(Batch):
         if len(src) != len(grid_info['grid_array']):
             return self
 
+        order = order or (2, 0, 1)
         # Since we know that cube is 3-d entity, we can get rid of
         # unneccessary dimensions
         src = np.array(src)
         src = src if len(src.shape) == 4 else np.squeeze(src, axis=-1)
         assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
-                              grid_info['predict_shape'])
+                              grid_info['predict_shape'], order)
         setattr(self, dst, assembled)
         return self
 
@@ -593,7 +589,6 @@ class SeismicCropBatch(Batch):
         ----------
         patch_shape : array-like
             Shape or patches along each axis.
-
         n : float
             Number of patches to cut.
         """
@@ -708,7 +703,6 @@ class SeismicCropBatch(Batch):
         ----------
         alpha : float
             Maximum shift along each axis.
-
         sigma : float
             Smoothening factor.
         """
@@ -739,7 +733,6 @@ class SeismicCropBatch(Batch):
         return distorted_img
 
 
-
     def _bandwidth_filter_(self, crop, lowcut=None, highcut=None, fs=1, order=3):
         """ Keep only frequences between lowcut and highcut.
 
@@ -751,13 +744,10 @@ class SeismicCropBatch(Batch):
         ----------
         lowcut : float
             Lower bound for frequences kept.
-
         highcut : float
             Upper bound for frequences kept.
-
         fs : float
             Sampling rate.
-
         order : int
             Filtering order.
         """
@@ -784,7 +774,6 @@ class SeismicCropBatch(Batch):
         axis : int
             Axis of transformation. Intended to be used after `rotate_axes`, so default value
             is to make transform along depth dimension.
-
         mode : str
             If 'phase', compute instantaneous phase.
             If 'freq', compute instantaneous frequency.
@@ -797,3 +786,54 @@ class SeismicCropBatch(Batch):
         if 'freq' in mode:
             return np.diff(phase, axis=axis, prepend=0) / (2*np.pi)
         raise ValueError('Unknown `mode` parameter.')
+
+
+    def plot_components(self, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None):
+        """ Plot components of batch.
+
+        Parameters
+        ----------
+        idx : int or None
+            If int, then index of desired image in list.
+            If None, then no indexing is applied.
+
+        components : str or sequence of str
+            Components to get from batch and draw.
+
+        overlap : bool
+            Whether to draw images one over the other or not.
+
+        order_axes : sequence of int
+            Determines desired order of the axis. The first two are plotted.
+
+        cmaps : str or sequence of str
+            Color maps for showing images.
+
+        alphas : number or sequence of numbers
+            Opacity for showing images.
+        """
+        plot_batch_components(self, *components, idx=idx, overlap=overlap,
+                              order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+
+    @action
+    @inbatch_parallel(init='_init_component', post='_assemble', target='threads')
+    def concat_components(self, ix, src=None, dst=None, axis=-1):
+        """ Concatenate a list of components and save results to `dst` component
+
+        Parameters
+        ----------
+        src : array-like
+            list of components to concatenate of length more than one
+        dst : str
+            Component of batch to put results in.
+        axis : int
+            The axis along which the arrays will be joined.
+        """
+        _ = dst
+        if not isinstance(src, (list, tuple, np.ndarray)) or len(src) < 2:
+            raise ValueError('Src must contain at least two components to concatenate')
+        result = []
+        for component in src:
+            pos = self.get_pos(None, component, ix)
+            result.append(getattr(self, component)[pos])
+        return np.concatenate(result, axis=axis)
