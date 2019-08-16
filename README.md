@@ -14,7 +14,7 @@
 ## Installation
 
 ```
-git clone -- recursive https://github.com/analysiscenter/seismiqb.git
+git clone --recursive https://github.com/analysiscenter/seismiqb.git
 ```
 
 ## Turorials
