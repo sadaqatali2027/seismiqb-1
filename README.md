@@ -1,3 +1,8 @@
+[![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![Python](https://img.shields.io/badge/python-3.5-blue.svg)](https://python.org)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-1.12-orange.svg)](https://tensorflow.org)
+[![Run Status](https://api.shippable.com/projects/58c6ada92e042a0600297f61/badge?branch=master)](https://app.shippable.com/github/analysiscenter/batchflow)
+
 # Seismiqb
 
 `seismiqb` is a framework for deep learning research on 3d-cubes of seismic data. It allows to
@@ -14,19 +19,19 @@
 ## Installation
 
 ```
-git clone -- recursive https://github.com/analysiscenter/seismiqb.git
+git clone --recursive https://github.com/analysiscenter/seismiqb.git
 ```
 
 ## Turorials
 
-### [Cube-preprocessing](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/2.%20Batch.ipynb)
+### [Cube-preprocessing](https://github.com/analysiscenter/seismiqb/blob/master/tutorials/2.%20Batch.ipynb)
 Seismic cube preprocessing: `load_cubes`, `create_masks`, `scale`, `cutout_2d`, `rotate` and others.
 
-### [Horizon segmentations](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/3.%20Horizonts_model.ipynb)
+### [Horizon segmentations](https://github.com/analysiscenter/seismiqb/blob/master/models/Horizons_detection.ipynb)
 Solving a task of binary segmentation to detect seismic horizons.
 
-### [Horizon extension](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/Horizon%20Extension.ipynb)
+### [Horizon extension](https://github.com/analysiscenter/seismiqb/blob/master/models/Horizons_extension.ipynb)
 Extending picked horizons on the area of interest given marked horizons on a couple of `ilines`/`xlines`.
 
-### [Interlayers segmentation](https://github.com/analysiscenter/seismiqb/blob/tutorials/tutorials/4.%20Segmenting_interlayers.ipynb)
+### [Interlayers segmentation](https://github.com/analysiscenter/seismiqb/blob/master/models/Segmenting_interlayers.ipynb)
 Performing multiclass segmentation.

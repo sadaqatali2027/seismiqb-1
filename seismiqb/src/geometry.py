@@ -151,6 +151,10 @@ class SeismicGeometry():
         ----------
         path_h5py : str
             Path to store converted cube. By default, new cube is stored right next to original.
+        postfix : str
+            Postfix to add to the name of resulting cube.
+        dtype : str
+            data-type to use for storing the cube. Has to be supported by numpy.
         """
         if os.path.splitext(self.path)[1][1:] not in ['sgy', 'segy']:
             raise TypeError('Format should be `sgy`')
