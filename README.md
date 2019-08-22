@@ -35,3 +35,18 @@ Extending picked horizons on the area of interest given marked horizons on a cou
 
 ### [Interlayers segmentation](https://github.com/analysiscenter/seismiqb/blob/master/models/Segmenting_interlayers.ipynb)
 Performing multiclass segmentation.
+
+
+## Citing seismiqb
+
+Please cite `seismicqb` in your publications if it helps your research.
+
+    Khudorozhkov R., Koryagin A., Tsimfer S., Mylzenova D. Seismiqb library for seismic interpretation with deep learning. 2019.
+
+```
+@misc{seismiqb_2019,
+  author       = {R. Khudorozhkov and A. Koryagin and S. Tsimfer and D. Mylzenova},
+  title        = {Seismiqb library for seismic interpretation with deep learning},
+  year         = 2019
+}
+```
