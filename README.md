@@ -1,4 +1,4 @@
-[![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Python](https://img.shields.io/badge/python-3.5-blue.svg)](https://python.org)
 [![TensorFlow](https://img.shields.io/badge/TensorFlow-1.12-orange.svg)](https://tensorflow.org)
 [![Run Status](https://api.shippable.com/projects/58c6ada92e042a0600297f61/badge?branch=master)](https://app.shippable.com/github/analysiscenter/batchflow)
@@ -35,3 +35,18 @@ Extending picked horizons on the area of interest given marked horizons on a cou
 
 ### [Interlayers segmentation](https://github.com/analysiscenter/seismiqb/blob/master/models/Segmenting_interlayers.ipynb)
 Performing multiclass segmentation.
+
+
+## Citing seismiqb
+
+Please cite `seismicqb` in your publications if it helps your research.
+
+    Khudorozhkov R., Koryagin A., Tsimfer S., Mylzenova D. Seismiqb library for seismic interpretation with deep learning. 2019.
+
+```
+@misc{seismiqb_2019,
+  author       = {R. Khudorozhkov and A. Koryagin and S. Tsimfer and D. Mylzenova},
+  title        = {Seismiqb library for seismic interpretation with deep learning},
+  year         = 2019
+}
+```
