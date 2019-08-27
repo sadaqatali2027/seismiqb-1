@@ -161,6 +161,7 @@ def plot_from_above(img, title, **kwargs):
     plt.figure(figsize=(12, 7))
     plt.imshow(img, **{**default_kwargs, **kwargs})
     plt.title(title, fontdict={'fontsize': 20})
+    plt.colorbar()
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
     plt.show()

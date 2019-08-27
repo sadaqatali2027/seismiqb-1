@@ -535,3 +535,43 @@ def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines
         val_max = maximum
 
     return val_min, val_max, matrix
+
+
+@njit
+def compute_corrs(data):
+    """ Compute average correlation between each column in data and nearest traces. """
+    i_range, x_range = data.shape[:2]
+    corrs = np.zeros((i_range, x_range))
+
+    for i in range(i_range):
+        for x in range(x_range):
+            trace = data[i, x, :]
+            if np.max(trace) == np.min(trace):
+                continue
+
+            s, c = 0.0, 0
+
+            if i > 0:
+                trace_1 = data[i-1, x, :]
+                if not np.max(trace_1) == np.min(trace_1):
+                    s += np.corrcoef(trace, trace_1)[0, 1]
+                    c += 1
+            if i < i_range-1:
+                trace_2 = data[i+1, x, :]
+                if not np.max(trace_2) == np.min(trace_2):
+                    s += np.corrcoef(trace, trace_2)[0, 1]
+                    c += 1
+            if x > 0:
+                trace_3 = data[i, x-1, :]
+                if not np.max(trace_3) == np.min(trace_3):
+                    s += np.corrcoef(trace, trace_3)[0, 1]
+                    c += 1
+            if x < x_range-1:
+                trace_4 = data[i, x+1, :]
+                if not np.max(trace_4) == np.min(trace_4):
+                    s += np.corrcoef(trace, trace_4)[0, 1]
+                    c += 1
+
+            if c != 0:
+                corrs[i, x] = s / c
+    return corrs

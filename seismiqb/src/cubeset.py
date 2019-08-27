@@ -11,7 +11,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
-from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
+from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array, compute_corrs
 from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above
 
 
@@ -637,7 +637,31 @@ class SeismicCubeset(Dataset):
         plot_slide(self, *components, idx=idx, iline=iline, overlap=overlap)
 
 
-    def show_horizon(self, idx=0, labels_idx=0):
+
+    def _get_horizon(self, geom, labels, labels_idx=0, window=0, offset=0):
+        low = window // 2
+        high = max(window - low, 0)
+
+        i_o, x_o = geom.ilines_offset, geom.xlines_offset
+        h5py_cube = geom.h5py_file['cube']
+
+        background = np.zeros((geom.ilines_len, geom.xlines_len, window))
+        h_matrix = np.full((geom.ilines_len, geom.xlines_len), -999)
+
+        for il in range(geom.ilines_len):
+            slide = h5py_cube[il, :, :]
+            for xl in range(geom.xlines_len):
+                arr = labels.get((il+i_o, xl+x_o))
+                if arr is not None:
+                    h = arr[labels_idx] + int(np.rint(offset))
+                    background[il, xl, :] = slide[xl, h-low:h+high]
+                    h_matrix[il, xl] = h
+
+        background = np.squeeze(background)
+        return background, h_matrix
+
+
+    def show_horizon(self, idx=0, labels_idx=0, labels_src=None):
         """ Show trace values on horizon.
 
         Parameters
@@ -648,22 +672,53 @@ class SeismicCubeset(Dataset):
         labels_idx : int
             Index of used horizon from `labels` dictionary.
         """
-        labels = self.labels[self.indices[idx]]
+        labels = labels_src or self.labels[self.indices[idx]]
         geom = self.geometries[self.indices[idx]]
-        i_o, x_o = geom.ilines_offset, geom.xlines_offset
-        h5py_cube = geom.h5py_file['cube']
+        hor_name = os.path.basename(geom.horizon_list[labels_idx])
 
-        background = np.zeros((geom.ilines_len, geom.xlines_len))
-        heights = []
+        background, h_matrix = self._get_horizon(geom, labels, labels_idx, 1)
 
-        for il in range(geom.ilines_len):
-            slide = h5py_cube[il, :, :]
-            for xl in range(geom.xlines_len):
-                arr = labels.get((il+i_o, xl+x_o))
-                if arr is not None:
-                    h = arr[labels_idx]
-                    background[il, xl] = slide[xl, h]
-                    heights.append(h)
+        plot_from_above(background, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        print('Average value of height is {}'.format(np.mean(h_matrix)))
 
-        plot_from_above(background, 'Horizon {} on cube {}'.format(labels_idx, self.indices[idx]), cmap='seismic')
-        print('Average height is: {}'.format(np.mean(heights)))
+
+    def compute_corrs(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False):
+        """ Compute correlations with the nearest traces along the horizon. """
+        labels = labels_src or self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+
+        background, h_matrix = self._get_horizon(geom, labels, labels_idx, window, 0)
+        corrs = compute_corrs(background)
+        corrs[np.where(h_matrix == -999)] = 0
+
+        plot_from_above(corrs, 'Correlation for {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        print('Average correlation is {}'.format(np.mean(corrs)))
+
+        if _return:
+            return corrs
+        return None
+
+
+    def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, _return=False):
+        """ Compare two horizons on l1 metric and on derivative differences. """
+        geom = self.geometries[self.indices[idx]]
+
+        _, h_matrix_1 = self._get_horizon(geom, hor_1, hor_1_idx, 1, 0)
+        _, h_matrix_2 = self._get_horizon(geom, hor_2, hor_2_idx, 1, 0)
+
+        metric_1 = h_matrix_1 - h_matrix_2
+        metric_1[np.where(h_matrix_1 == -999)] = 0
+        metric_1[np.where(h_matrix_2 == -999)] = 0
+        plot_from_above(metric_1, 'l^1 metric on cube {}'.format(self.indices[idx]), cmap='seismic')
+        print('Average value of l^1 is {}'.format(np.mean(metric_1)))
+
+        metric_2 = np.abs(np.diff(h_matrix_1, axis=axis, prepend=0) - np.diff(h_matrix_2, axis=axis, prepend=0))
+        metric_2[np.where(h_matrix_1 == -999)] = 0
+        metric_2[np.where(h_matrix_2 == -999)] = 0
+        plot_from_above(metric_2, 'l^2 metric on cube {}'.format(self.indices[idx]), cmap='seismic')
+        print('Average value of l^2 is {}'.format(np.mean(metric_2)))
+
+        if _return:
+            return metric_1, metric_2
+        return None
