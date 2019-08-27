@@ -1,7 +1,7 @@
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Python](https://img.shields.io/badge/python-3.5-blue.svg)](https://python.org)
 [![TensorFlow](https://img.shields.io/badge/TensorFlow-1.12-orange.svg)](https://tensorflow.org)
-[![Run Status](https://api.shippable.com/projects/58c6ada92e042a0600297f61/badge?branch=master)](https://app.shippable.com/github/analysiscenter/batchflow)
+[![Run Status](https://api.shippable.com/projects/5d5fbdc7d9f40a0006391187/badge?branch=master)](https://app.shippable.com/github/gazprom-neft/seismiqb)
 
 # Seismiqb
 
@@ -19,21 +19,21 @@
 ## Installation
 
 ```
-git clone --recursive https://github.com/analysiscenter/seismiqb.git
+git clone --recursive https://github.com/gazprom-neft/seismiqb.git
 ```
 
 ## Turorials
 
-### [Cube-preprocessing](https://github.com/analysiscenter/seismiqb/blob/master/tutorials/2.%20Batch.ipynb)
+### [Cube-preprocessing](tutorials/2.%20Batch.ipynb)
 Seismic cube preprocessing: `load_cubes`, `create_masks`, `scale`, `cutout_2d`, `rotate` and others.
 
-### [Horizon segmentations](https://github.com/analysiscenter/seismiqb/blob/master/models/Horizons_detection.ipynb)
+### [Horizon segmentations](models/Horizons_detection.ipynb)
 Solving a task of binary segmentation to detect seismic horizons.
 
-### [Horizon extension](https://github.com/analysiscenter/seismiqb/blob/master/models/Horizons_extension.ipynb)
+### [Horizon extension](models/Horizons_extension.ipynb)
 Extending picked horizons on the area of interest given marked horizons on a couple of `ilines`/`xlines`.
 
-### [Interlayers segmentation](https://github.com/analysiscenter/seismiqb/blob/master/models/Segmenting_interlayers.ipynb)
+### [Interlayers segmentation](models/Segmenting_interlayers.ipynb)
 Performing multiclass segmentation.
 
 
