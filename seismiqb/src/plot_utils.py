@@ -159,11 +159,12 @@ def plot_from_above(img, title, **kwargs):
     """ Plot image with a given title with predifined axis labels."""
     default_kwargs = dict(cmap='Paired')
     plt.figure(figsize=(12, 7))
-    plt.imshow(img, **{**default_kwargs, **kwargs})
-    plt.title(title, fontdict={'fontsize': 20})
-    plt.colorbar()
+    img_ = plt.imshow(img, **{**default_kwargs, **kwargs})
+    plt.title(title, y=1.1, fontdict={'fontsize': 20})
+    plt.colorbar(img_, fraction=0.022, pad=0.07)
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    plt.tick_params(labeltop=True, labelright=True)
     plt.show()
 
 
