@@ -752,19 +752,17 @@ class SeismicCubeset(Dataset):
         h_matrix_1 = self._get_h_matrix(geom, hor_1, hor_1_idx, 0)
         h_matrix_2 = self._get_h_matrix(geom, hor_2, hor_2_idx, 0)
         indicator = (np.minimum(h_matrix_1, h_matrix_2) == FILL_VALUE).astype(int)
-        plot_from_above(indicator, 'INDICATOR metric on cube {}'.format(self.indices[idx]), cmap='seismic')
         h_matrix_1[np.where(indicator == 1)] = 0
         h_matrix_2[np.where(indicator == 1)] = 0
 
-
         metric_1 = np.abs(h_matrix_1 - h_matrix_2)
         metric_1[np.where(indicator == 1)] = 0
-        plot_from_above(metric_1, 'l^1 metric on cube {}'.format(self.indices[idx]), cmap='seismic')
-        print('Average value of l^1 is {}'.format(np.mean(metric_1[np.where(indicator == 0)])))
+        plot_from_above(metric_1, 'l^1 metric on cube {}'.format(self.indices[idx]), cmap='spring')
+        print('Average value of l^1 is {}\n\n'.format(np.mean(metric_1[np.where(indicator == 0)])))
 
         metric_2 = np.abs(np.diff(h_matrix_1, axis=axis, prepend=0) - np.diff(h_matrix_2, axis=axis, prepend=0))
         metric_2[np.where(indicator == 1)] = 0
-        plot_from_above(metric_2, 'l^2 metric on cube {}'.format(self.indices[idx]), cmap='seismic')
+        plot_from_above(metric_2, 'l^2 metric on cube {}'.format(self.indices[idx]), cmap='spring')
         print('Average value of l^2 is {}'.format(np.mean(metric_2[np.where(indicator == 0)])))
 
         if _return:
