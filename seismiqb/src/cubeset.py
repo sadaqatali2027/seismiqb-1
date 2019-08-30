@@ -747,6 +747,8 @@ class SeismicCubeset(Dataset):
         background = background[:, :, (0, width, -1)]
         background -= background.min(axis=(0, 1)).reshape(1, 1, -1)
         background *= 1 / background.max(axis=(0, 1)).reshape(1, 1, -1)
+        background[h_matrix == FILL_VALUE] = 0
+
         plot_from_above_rgb(background, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]))
 
 

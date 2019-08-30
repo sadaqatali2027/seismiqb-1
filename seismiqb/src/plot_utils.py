@@ -180,7 +180,7 @@ def plot_from_above(img, title, **kwargs):
 def plot_from_above_rgb(img, title, **kwargs):
     """ Plot image with a given title with predifined axis labels."""
     plt.figure(figsize=(12, 7))
-    img_ = plt.imshow(img, **kwargs)
+    plt.imshow(img, **kwargs)
     plt.title(title, y=1.1, fontdict={'fontsize': 20})
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
@@ -211,7 +211,7 @@ def show_labels(dataset, idx=0, hor_idx=None):
 
     plt.figure(figsize=(12, 7))
     plt.imshow(img, cmap='Paired')
-    plt.title('Known labels for cube {} (yellow is known)'.format(name), fontdict={'fontsize': 20})
+    plt.title('Known labels for cube {}'.format(name), fontdict={'fontsize': 20})
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
     plt.show()
