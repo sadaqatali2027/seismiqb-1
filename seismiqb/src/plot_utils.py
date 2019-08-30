@@ -153,10 +153,10 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True, **kwargs):
 
     if 'masks' in components:
         labels_pipeline = (Pipeline()
-                          .create_masks(dst='masks', width=2)
-                          .rotate_axes(src='masks')
-                          .add_axis(src='masks', dst='masks')
-                          )
+                           .create_masks(dst='masks', width=2)
+                           .rotate_axes(src='masks')
+                           .add_axis(src='masks', dst='masks')
+                           )
         pipeline = pipeline + labels_pipeline
 
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
@@ -171,6 +171,17 @@ def plot_from_above(img, title, **kwargs):
     img_ = plt.imshow(img, **{**default_kwargs, **kwargs})
     plt.title(title, y=1.1, fontdict={'fontsize': 20})
     plt.colorbar(img_, fraction=0.022, pad=0.07)
+    plt.xlabel('XLINES', fontdict={'fontsize': 20})
+    plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    plt.tick_params(labeltop=True, labelright=True)
+    plt.show()
+
+
+def plot_from_above_rgb(img, title, **kwargs):
+    """ Plot image with a given title with predifined axis labels."""
+    plt.figure(figsize=(12, 7))
+    img_ = plt.imshow(img, **kwargs)
+    plt.title(title, y=1.1, fontdict={'fontsize': 20})
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
     plt.tick_params(labeltop=True, labelright=True)

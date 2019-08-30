@@ -12,7 +12,7 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array, compute_corrs
-from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above
+from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above, plot_from_above_rgb
 
 
 
@@ -641,6 +641,21 @@ class SeismicCubeset(Dataset):
 
 
 
+    def _get_h_matrix(self, geom, labels, labels_idx=0, offset=0):
+        i_o, x_o = geom.ilines_offset, geom.xlines_offset
+        h_matrix = np.full((geom.ilines_len, geom.xlines_len), FILL_VALUE)
+
+        for il in range(geom.ilines_len):
+            for xl in range(geom.xlines_len):
+                arr = labels.get((il+i_o, xl+x_o), None)
+                if arr is not None:
+                    h = arr[labels_idx]
+                    if h != -999:
+                        h += int(np.rint(offset))
+                        h_matrix[il, xl] = h
+        return h_matrix
+
+
     def _get_horizon(self, geom, labels, labels_idx=0, window=0, offset=0):
         low = window // 2
         high = max(window - low, 0)
@@ -664,20 +679,6 @@ class SeismicCubeset(Dataset):
 
         background = np.squeeze(background)
         return background, h_matrix
-
-    def _get_h_matrix(self, geom, labels, labels_idx=0, offset=0):
-        i_o, x_o = geom.ilines_offset, geom.xlines_offset
-        h_matrix = np.full((geom.ilines_len, geom.xlines_len), FILL_VALUE)
-
-        for il in range(geom.ilines_len):
-            for xl in range(geom.xlines_len):
-                arr = labels.get((il+i_o, xl+x_o), None)
-                if arr is not None:
-                    h = arr[labels_idx]
-                    if h != -999:
-                        h += int(np.rint(offset))
-                        h_matrix[il, xl] = h
-        return h_matrix
 
 
     def show_heights(self, idx=0, labels_idx=0, labels_src=None, _return=False):
@@ -725,6 +726,28 @@ class SeismicCubeset(Dataset):
 
         plot_from_above(background, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
         print('Average value of height is {}'.format(np.mean(h_matrix[h_matrix != FILL_VALUE])))
+
+
+    def show_horizon_rgb(self, idx=0, labels_idx=0, labels_src=None, width=1):
+        """ Show trace values on horizon and its nearest .
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        labels_idx : int
+            Index of used horizon from `labels` dictionary.
+        """
+        labels = labels_src or self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+
+        background, h_matrix = self._get_horizon(geom, labels, labels_idx, 1 + width*2)
+        background = background[:, :, (0, width, -1)]
+        background -= background.min(axis=(0, 1)).reshape(1, 1, -1)
+        background *= 1 / background.max(axis=(0, 1)).reshape(1, 1, -1)
+        plot_from_above_rgb(background, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]))
 
 
     def compute_corrs(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False):
