@@ -42,7 +42,7 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
     plt.legend()
     plt.show()
 
-def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None):
+def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None, **kwargs):
     """ Plot components of batch.
 
     Parameters
@@ -76,12 +76,12 @@ def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=No
         imgs = [getattr(batch, comp) for comp in components]
 
     if overlap:
-        plot_images_overlap(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+        plot_images_overlap(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
     else:
-        plot_images_separate(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+        plot_images_separate(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
 
 
-def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None):
+def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images on separate layouts. """
     cmaps = cmaps or ['gray'] + ['viridis']*len(imgs)
     cmaps = cmaps if isinstance(cmaps, (tuple, list)) else [cmaps]
@@ -89,7 +89,8 @@ def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None):
     alphas = alphas or 1.0
     alphas = alphas if isinstance(alphas, (tuple, list)) else [alphas**-i for i in range(len(imgs))]
 
-    _, ax = plt.subplots(1, len(imgs), figsize=(8*len(imgs), 10))
+    defaults = {'figsize': (8*len(imgs), 10)}
+    _, ax = plt.subplots(1, len(imgs), **{**defaults, **kwargs})
     for i, (img, title, cmap, alpha) in enumerate(zip(imgs, titles, cmaps, alphas)):
         img = _to_img(img, order_axes=order_axes, convert=False)
 
@@ -99,12 +100,13 @@ def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None):
     plt.show()
 
 
-def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None):
+def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
     alphas = alphas or [1.0 for i in range(len(imgs))]
 
-    plt.figure(figsize=(15, 15))
+    defaults = {'figsize': (15, 15)}
+    plt.figure(**{**defaults, **kwargs})
     for i, (img, cmap, alpha) in enumerate(zip(imgs, cmaps, alphas)):
         img = _to_img(img, order_axes=order_axes, convert=(i > 0))
         plt.imshow(img, alpha=alpha, cmap=cmap)
@@ -133,7 +135,7 @@ def _to_img(data, order_axes=None, convert=False):
     return data
 
 
-def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
+def plot_slide(dataset, *components, idx=0, iline=0, overlap=True, **kwargs):
     """ Plot full slide of the given cube on the given iline. """
     cube_name = dataset.indices[idx]
     cube_shape = dataset.geometries[cube_name].cube_shape
@@ -145,13 +147,20 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
                 .crop(points=point,
                       shape=[1] + cube_shape[1:])
                 .load_cubes(dst='images')
-                .create_masks(dst='masks', width=2)
-                .rotate_axes(src=['images', 'masks'])
                 .scale(mode='normalize', src='images')
-                .add_axis(src='masks', dst='masks'))
+                .rotate_axes(src='images')
+                )
+
+    if 'masks' in components:
+        labels_pipeline = (Pipeline()
+                          .create_masks(dst='masks', width=2)
+                          .rotate_axes(src='masks')
+                          .add_axis(src='masks', dst='masks')
+                          )
+        pipeline = pipeline + labels_pipeline
 
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
-    plot_batch_components(batch, *components, overlap=overlap)
+    plot_batch_components(batch, *components, overlap=overlap, **kwargs)
     return batch
 
 
