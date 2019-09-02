@@ -743,12 +743,14 @@ class SeismicCubeset(Dataset):
         geom = self.geometries[self.indices[idx]]
         hor_name = os.path.basename(geom.horizon_list[labels_idx])
 
-        background, h_matrix = self._get_horizon(geom, labels, labels_idx, 1 + width*2)
+        background, h_matrix = self._get_horizon(geom, labels, labels_idx, 1 + width*2, width)
         background = background[:, :, (0, width, -1)]
         background -= background.min(axis=(0, 1)).reshape(1, 1, -1)
         background *= 1 / background.max(axis=(0, 1)).reshape(1, 1, -1)
-        background[h_matrix == FILL_VALUE] = 0
-
+        background[h_matrix == FILL_VALUE, :] = 0
+        background = background[:, :, ::-1]
+        background *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
+        print(background.shape)
         plot_from_above_rgb(background, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]))
 
 
@@ -770,7 +772,7 @@ class SeismicCubeset(Dataset):
         return None
 
 
-    def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, _return=False):
+    def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):
         """ Compare two horizons on l1 metric and on derivative differences. """
         geom = self.geometries[self.indices[idx]]
 
@@ -782,12 +784,12 @@ class SeismicCubeset(Dataset):
 
         metric_1 = np.abs(h_matrix_1 - h_matrix_2)
         metric_1[np.where(indicator == 1)] = 0
-        plot_from_above(metric_1, 'l^1 metric on cube {}'.format(self.indices[idx]), cmap='spring')
+        plot_from_above(metric_1, 'l^1 metric on cube {}'.format(self.indices[idx]), cmap=cmap)
         print('Average value of l^1 is {}\n\n'.format(np.mean(metric_1[np.where(indicator == 0)])))
 
         metric_2 = np.abs(np.diff(h_matrix_1, axis=axis, prepend=0) - np.diff(h_matrix_2, axis=axis, prepend=0))
         metric_2[np.where(indicator == 1)] = 0
-        plot_from_above(metric_2, 'l^2 metric on cube {}'.format(self.indices[idx]), cmap='spring')
+        plot_from_above(metric_2, 'l^2 metric on cube {}'.format(self.indices[idx]), cmap=cmap)
         print('Average value of l^2 is {}'.format(np.mean(metric_2[np.where(indicator == 0)])))
 
         if _return:
