@@ -191,14 +191,16 @@ class SeismicCropBatch(Batch):
                 setattr(new_batch, component, getattr(self, component))
 
         dilations = dilations or [1, 1, 1]
+
+        side_view = side_view if isinstance(side_view, float) else 0.5
         shape = np.asarray(shape)
         shapes = []
         for _ in points:
             if not side_view:
                 shapes.append(shape)
             else:
-                r = np.random.random()
-                if r > 0.5:
+                flag = np.random.random() > side_view
+                if flag:
                     shapes.append(shape)
                 else:
                     shapes.append(shape[[1, 0, 2]])
@@ -626,10 +628,9 @@ class SeismicCropBatch(Batch):
         shape : sequence
             Desired shape of resulting crops.
         """
-        if (np.array(crop.shape) == np.array(shape)).all():
-            return crop
-        else:
+        if (np.array(crop.shape) != np.array(shape)).all():
             return crop.transpose([1, 0, 2])
+        return crop
 
 
     def _rotate_axes_(self, crop):
