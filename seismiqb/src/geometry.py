@@ -176,9 +176,9 @@ class SeismicGeometry():
             description = 'Converting {} to h5py'.format('/'.join(self.path.split('/')[-2:]))
             for il_ in tqdm(range(self.ilines_len), desc=description):
                 slide = np.zeros((1, self.xlines_len, self.depth))
+                iline = self.ilines[il_]
 
                 for xl_ in range(self.xlines_len):
-                    iline = self.ilines[il_]
                     xline = self.xlines[xl_]
                     tr_ = self.il_xl_trace.get((iline, xline))
                     if tr_ is not None:
@@ -187,8 +187,34 @@ class SeismicGeometry():
 
                 slide = slide.astype(dtype)
                 cube_h5py[il_, :, :] = slide
-                cube_h5py_x[:, :, il_] = slide.transpose([1, 2, 0]).squeeze()
-                cube_h5py_h[:, il_, :] = slide.transpose([2, 0, 1]).squeeze()
+
+            for xl_ in tqdm(range(self.xlines_len), desc='x_view'):
+                slide = np.zeros((self.depth, self.ilines_len))
+                xline = self.xlines[xl_]
+
+                for il_ in range(self.ilines_len):
+                    iline = self.ilines[il_]
+                    tr_ = self.il_xl_trace.get((iline, xline))
+                    if tr_ is not None:
+                        trace = segyfile.trace[tr_]
+                        slide[:, il_] = trace
+
+                slide = slide.astype(dtype)
+                cube_h5py_x[xl_, :, :,] = slide
+
+            for il_ in tqdm(range(self.ilines_len), desc='h_view'):
+                slide = np.zeros((self.depth, self.xlines_len))
+                iline = self.ilines[il_]
+
+                for xl_ in range(self.xlines_len):
+                    xline = self.xlines[xl_]
+                    tr_ = self.il_xl_trace.get((iline, xline))
+                    if tr_ is not None:
+                        trace = segyfile.trace[tr_]
+                        slide[:, xl_] = trace
+
+                slide = slide.astype(dtype)
+                cube_h5py_h[:, il_, :] = slide
 
         # Save all the necessary attributes to the `info` group
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',

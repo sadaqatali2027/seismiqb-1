@@ -192,7 +192,8 @@ class SeismicCropBatch(Batch):
 
         dilations = dilations or [1, 1, 1]
 
-        side_view = side_view if isinstance(side_view, float) else 0.5
+        if side_view:
+            side_view = side_view if isinstance(side_view, float) else 0.5
         shape = np.asarray(shape)
         shapes = []
         for _ in points:
