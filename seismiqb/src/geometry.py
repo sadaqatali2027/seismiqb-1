@@ -64,7 +64,7 @@ class SeismicGeometry():
         self.xlines_offset = min(self.xlines)
         self.ilines_len = len(self.ilines)
         self.xlines_len = len(self.xlines)
-        self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
+        self.cube_shape = np.asarray([self.ilines_len, self.xlines_len, self.depth])
 
         # Create transform to correct height with time-delay and sample rate
         def transform(array):
