@@ -217,7 +217,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def load_cubes(self, dst, fmt='h5py', src='slices'):
+    def load_cubes(self, dst, fmt='h5py', src='slices', view=None):
         """ Load data from cube in given positions.
 
         Parameters
@@ -235,9 +235,10 @@ class SeismicCropBatch(Batch):
             Batch with loaded crops in desired component.
         """
         if fmt.lower() in ['sgy', 'segy']:
+            _ = view
             return self._load_cubes_sgy(src=src, dst=dst)
         if fmt.lower() in ['h5py', 'h5']:
-            return self._load_cubes_h5py(src=src, dst=dst)
+            return self._load_cubes_h5py(src=src, dst=dst, view=view)
 
         return self
 
@@ -304,23 +305,60 @@ class SeismicCropBatch(Batch):
 
 
     @inbatch_parallel(init='_init_component', target='threads')
-    def _load_cubes_h5py(self, ix, dst, src='slices'):
+    def _load_cubes_h5py(self, ix, dst, src='slices', view=None):
         """ Load data from .hdf5-cube in given positions. """
         geom = self.get(ix, 'geometries')
-        h5py_cube = geom.h5py_file['cube']
-        dtype = h5py_cube.dtype
-
         slice_ = self.get(ix, src)
-        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
 
-        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)), dtype=dtype)
-        for i, iline_ in enumerate(ilines_):
-            slide = h5py_cube[iline_, :, :]
-            crop[i, :, :] = slide[xlines_, :][:, hs_]
+        if view is None:
+            slice_lens = np.array([len(item) for item in slice_])
+            axis = np.argmin(slice_lens)
+        else:
+            mapping = {0: 0, 1: 1, 2: 2,
+                       'i': 0, 'x': 1, 'h': 2,
+                       'iline': 0, 'xline': 1, 'height': 2, 'depth': 2}
+            axis = mapping[view]
+
+        if axis == 0:
+            crop = self.__load_h5py_i(geom, *slice_)
+        elif axis == 1:
+            crop = self.__load_h5py_x(geom, *slice_)
+        else:
+            crop = self.__load_h5py_h(geom, *slice_)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = crop
         return self
+
+    def __load_h5py_i(self, geom, ilines, xlines, heights):
+        h5py_cube = geom.h5py_file['cube']
+        dtype = h5py_cube.dtype
+
+        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
+        for i, iline in enumerate(ilines):
+            slide = h5py_cube[iline, :, :]
+            crop[i, :, :] = slide[xlines, :][:, heights]
+        return crop
+
+    def __load_h5py_x(self, geom, ilines, xlines, heights):
+        h5py_cube = geom.h5py_file['cube_x']
+        dtype = h5py_cube.dtype
+
+        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
+        for i, xline in enumerate(xlines):
+            slide = h5py_cube[xline, :, :]
+            crop[:, i, :] = slide[heights, :][:, ilines].transpose([1, 0])
+        return crop
+
+    def __load_h5py_h(self, geom, ilines, xlines, heights):
+        h5py_cube = geom.h5py_file['cube_h']
+        dtype = h5py_cube.dtype
+
+        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
+        for i, height in enumerate(heights):
+            slide = h5py_cube[height, :, :]
+            crop[:, :, i] = slide[ilines, :][:, xlines]
+        return crop
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')

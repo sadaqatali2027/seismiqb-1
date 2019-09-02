@@ -166,6 +166,8 @@ class SeismicGeometry():
 
         h5py_file = h5py.File(path_h5py, "a")
         cube_h5py = h5py_file.create_dataset('cube', self.cube_shape)
+        cube_h5py_x = h5py_file.create_dataset('cube_x', self.cube_shape[[1, 2, 0]])
+        cube_h5py_h = h5py_file.create_dataset('cube_h', self.cube_shape[[2, 0, 1]])
 
         # Copy traces from .sgy to .h5py
         with segyio.open(self.path, 'r', strict=False) as segyfile:
@@ -180,8 +182,13 @@ class SeismicGeometry():
                     xline = self.xlines[xl_]
                     tr_ = self.il_xl_trace.get((iline, xline))
                     if tr_ is not None:
-                        slide[0, xl_, :] = segyfile.trace[tr_]
-                cube_h5py[il_, :, :] = slide.astype(dtype)
+                        trace = segyfile.trace[tr_]
+                        slide[0, xl_, :] = trace
+
+                slide = slide.astype(dtype)
+                cube_h5py[il_, :, :] = slide
+                cube_h5py_x[:, :, il_] = slide.transpose([1, 2, 0]).squeeze()
+                cube_h5py_h[:, il_, :] = slide.transpose([2, 0, 1]).squeeze()
 
         # Save all the necessary attributes to the `info` group
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
