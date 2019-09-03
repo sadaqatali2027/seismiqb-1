@@ -629,7 +629,7 @@ class SeismicCropBatch(Batch):
         shape : sequence
             Desired shape of resulting crops.
         """
-        if (np.array(crop.shape) != np.array(shape)).all():
+        if (np.array(crop.shape) != np.array(shape)).any():
             return crop.transpose([1, 0, 2])
         return crop
 

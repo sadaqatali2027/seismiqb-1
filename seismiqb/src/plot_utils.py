@@ -145,7 +145,7 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True, **kwargs):
                 .load_component(src=[D('geometries'), D('labels')],
                                 dst=['geometries', 'labels'])
                 .crop(points=point,
-                      shape=[1] + cube_shape[1:])
+                      shape=[1] + list(cube_shape)[1:])
                 .load_cubes(dst='images')
                 .scale(mode='normalize', src='images')
                 .rotate_axes(src='images')
