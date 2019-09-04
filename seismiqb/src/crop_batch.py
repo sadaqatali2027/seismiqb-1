@@ -148,7 +148,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape, dilations=None, dst='slices', passdown=None):
+    def crop(self, points, shape, dilations=None, loc=(0, 0, 0), dst='slices', passdown=None):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
 
@@ -193,36 +193,38 @@ class SeismicCropBatch(Batch):
         dilations = dilations or [1, 1, 1]
         slices = []
         for point in points:
-            slice_ = self._make_slice(point, shape, dilations)
+            slice_ = self._make_slice(point, shape, dilations, loc)
             slices.append(slice_)
         setattr(new_batch, dst, slices)
         return new_batch
 
-    def _make_slice(self, point, shape, dilations):
+    def _make_slice(self, point, shape, dilations, loc=(0, 0, 0)):
         """ Creates list of `np.arange`'s for desired location. """
-        ix = point[0]
-
         if isinstance(point[1], float) or isinstance(point[2], float) or isinstance(point[3], float):
-            geom = self.get(ix, 'geometries')
-            slice_point = (point[1:] * (np.array(geom.cube_shape) - np.array(shape))).astype(int)
+            ix = point[0]
+            cube_shape = np.array(self.get(ix, 'geometries').cube_shape)
+            slice_point = (point[1:] * (cube_shape - np.array(shape))).astype(int)
         else:
             slice_point = point[1:]
 
-        slice_ = [np.arange(slice_point[0], slice_point[0]+shape[0]*dilations[0], dilations[0]),
-                  np.arange(slice_point[1], slice_point[1]+shape[1]*dilations[1], dilations[1]),
-                  np.arange(slice_point[2], slice_point[2]+shape[2]*dilations[2], dilations[2])]
-
+        slice_ = []
+        for i in range(3):
+            start_point = max(slice_point[i] - loc[i]*shape[i]*dilations[i], 0)
+            end_point = start_point + shape[i]*dilations[i]
+            slice_.append(np.arange(start_point, end_point, dilations[i]))
         return slice_
 
     @property
     def crop_shape(self):
+        """ Shape of crops, made by action `crop`. """
         _, shapes_count = np.unique([image.shape for image in self.images], return_counts=True, axis=0)
         if len(shapes_count) == 1:
             return self.images[0].shape
-        raise RuntimeError('Images have different shapes')
+        raise RuntimeError('Crops have different shapes')
 
     @property
     def crop_shape_dice(self):
+        """ Extended crop shape. Useful for model with Dice-coefficient as loss-function. """
         return (*self.crop_shape, 1)
 
 
