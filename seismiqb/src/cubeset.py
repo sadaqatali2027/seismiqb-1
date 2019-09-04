@@ -656,11 +656,12 @@ class SeismicCubeset(Dataset):
         return h_matrix
 
 
-    def _get_horizon(self, geom, labels, labels_idx=0, window=0, offset=0):
+    def _get_horizon(self, geom, labels, labels_idx=0, window=0, offset=0, scale=False):
         low = window // 2
         high = max(window - low, 0)
 
         i_o, x_o = geom.ilines_offset, geom.xlines_offset
+        scale_val = (geom.value_max - geom.value_min)
         h5py_cube = geom.h5py_file['cube']
 
         background = np.zeros((geom.ilines_len, geom.xlines_len, window))
@@ -673,9 +674,12 @@ class SeismicCubeset(Dataset):
                 if arr is not None:
                     h = arr[labels_idx]
                     if h != -999:
-                        h += int(np.rint(offset))
+                        h += int(np.rint(offset)) + int(np.rint(np.random.normal(loc=0, scale=1)))
                         h_matrix[il, xl] = h
-                    background[il, xl, :] = slide[xl, h-low:h+high]
+                    value = slide[xl, h-low:h+high]
+                    if scale:
+                        value = (value - geom.value_min) / scale_val
+                    background[il, xl, :] = value
 
         background = np.squeeze(background)
         return background, h_matrix
@@ -707,7 +711,7 @@ class SeismicCubeset(Dataset):
         return None
 
 
-    def show_horizon(self, idx=0, labels_idx=0, labels_src=None):
+    def show_horizon(self, idx=0, labels_idx=0, labels_src=None, scale=False, _return=False):
         """ Show trace values on horizon.
 
         Parameters
@@ -722,10 +726,15 @@ class SeismicCubeset(Dataset):
         geom = self.geometries[self.indices[idx]]
         hor_name = os.path.basename(geom.horizon_list[labels_idx])
 
-        background, h_matrix = self._get_horizon(geom, labels, labels_idx, 1)
+        background, h_matrix = self._get_horizon(geom, labels, labels_idx, 1, scale=scale)
 
         plot_from_above(background, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
         print('Average value of height is {}'.format(np.mean(h_matrix[h_matrix != FILL_VALUE])))
+        print('Std of amplitudes is {}'.format(np.std(background[h_matrix != FILL_VALUE])))
+
+        if _return:
+            return background
+        return None
 
 
     def show_horizon_rgb(self, idx=0, labels_idx=0, labels_src=None, width=1):
