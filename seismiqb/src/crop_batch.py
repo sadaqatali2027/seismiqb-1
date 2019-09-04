@@ -210,7 +210,6 @@ class SeismicCropBatch(Batch):
         slices = []
         for point, shape_ in zip(points, shapes):
             slice_ = self._make_slice(point, shape_, dilations, loc)
-
             slices.append(slice_)
         setattr(new_batch, dst, slices)
         return new_batch
@@ -233,13 +232,15 @@ class SeismicCropBatch(Batch):
 
     @property
     def crop_shape(self):
+        """ Shape of crops, made by action `crop`. """
         _, shapes_count = np.unique([image.shape for image in self.images], return_counts=True, axis=0)
         if len(shapes_count) == 1:
             return self.images[0].shape
-        raise RuntimeError('Images have different shapes')
+        raise RuntimeError('Crops have different shapes')
 
     @property
     def crop_shape_dice(self):
+        """ Extended crop shape. Useful for model with Dice-coefficient as loss-function. """
         return (*self.crop_shape, 1)
 
 
