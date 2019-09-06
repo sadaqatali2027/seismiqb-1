@@ -159,15 +159,24 @@ class SeismicCropBatch(Batch):
             cut it from. Order is: name, iline, xline, height. For example,
             ['Cube.sgy', 13, 500, 200] stands for crop has [13, 500, 200]
             as its upper rightmost point and must be cut from 'Cube.sgy' file.
-        shape : array-like
+
+        shape : sequence
             Desired shape of crops.
+
+        dilations : sequence
+            Intervals between successive slides along each dimension.
+
+        loc : sequence
+            Location of the point relative to the cut crop. Must be one of the unit-cube vertices.
+
         dst : str, optional
             Component of batch to put positions of crops in.
+
         passdown : str of list of str
             Components of batch to keep in the new one.
 
-        Note
-        ----
+        Notes
+        -----
         Based on the first column of `points`, new instance of SeismicCropBatch is created.
         In order to keep multiple references to the same .sgy cube, each index is augmented
         with prefix of fixed length (check `salt` method for details).
