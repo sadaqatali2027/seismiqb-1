@@ -12,7 +12,7 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
-from .utils import labels_to_depth_map, get_cube_values, compute_corrs, FILL_VALUE_A
+from .utils import labels_to_depth_map, depth_map_to_labels, get_cube_values, compute_corrs, FILL_VALUE_A
 from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above, plot_from_above_rgb
 
 
@@ -636,6 +636,33 @@ class SeismicCubeset(Dataset):
         """ Show full slide of the given cube on the given iline. """
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images',)
         plot_slide(self, *components, idx=idx, iline=iline, overlap=overlap, **kwargs)
+
+
+    def apply_to_horizon(self, idx=0, labels_idx=0, labels_src=None, transform=None):
+        """ Apply specific transform to individual horizon inside dictionary with labels.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        labels_idx : int
+            Index of used horizon from `labels` dictionary.
+
+        labels_src : dict, optional
+            If None, then horizon is taken from `labels` attribute.
+            If dict, then must be a horizon.
+
+        transform : callable
+            Function to apply to depth map.
+        """
+        labels = labels_src or self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+
+        depth_map = labels_to_depth_map(labels, geom, labels_idx, 0)
+        if callable(transform):
+            depth_map = transform(depth_map)
+        depth_map_to_labels(depth_map, geom, labels, labels_idx)
 
 
     def show_depth_map(self, idx=0, labels_idx=0, labels_src=None, _return=False):
