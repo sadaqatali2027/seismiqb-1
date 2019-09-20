@@ -717,20 +717,20 @@ def compute_corrs(data):
 
 @njit
 def running_mean(x, kernel_size, cumsum):
-    """ Fast equivalent of scipy.signal.convolve2d with gaussian filter. """
     k = kernel_size // 2
     i_max = cumsum.shape[0]
     j_max = cumsum.shape[1]
     result = np.zeros_like(x).astype(np.float32)
-    
+    def constant_pad(x, n, m):
+        canvas = np.zeros((x.shape[0] + 2 * n, x.shape[1] + 2 * m))
+        canvas[n :-n, m :-m ] = x
+        return canvas
+    cumsum = constant_pad(cumsum, 1, 1)
     for i in range(k, x.shape[0] + k):
         for j in range(k, x.shape[1] + k):
-            d = cumsum[min(i_max, i + k), min(j_max, j + k)]
-            if i - k - 1 >= 0 and j - k - 1 >= 0:
-                a = cumsum[max(0, i - k - 1), max(0, j - k - 1)]
-            else:
-                a = 0
-            b = cumsum[max(0, i - k - 1), min(j_max, j + k)] if i - k - 1 >= 0 else 0
-            c = cumsum[min(i_max, i + k), max(0, j - k - 1)] if j - k - 1 >= 0 else 0
+            d = cumsum[i + k + 1, j + k + 1]
+            a = cumsum[i - k, j  - k]
+            b = cumsum[i - k, j + 1 + k] 
+            c = cumsum[i + 1 + k, j - k]
             result[i - k, j - k] = float(d - b - c + a) /  float(kernel_size ** 2)
     return result
