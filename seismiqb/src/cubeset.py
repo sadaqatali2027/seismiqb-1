@@ -4,15 +4,20 @@ from glob import glob
 
 import dill
 import numpy as np
+from scipy.signal import hilbert, medfilt, convolve2d
+import matplotlib.pyplot as plt
+from numba import njit, types
+
 
 from ..batchflow import Dataset, Sampler
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
+
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
-from .utils import labels_to_depth_map, get_cube_values, compute_corrs, FILL_VALUE_A
+from .utils import labels_to_depth_map, get_cube_values, compute_corrs, FILL_VALUE_A, compute_running_mean
 from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above, plot_from_above_rgb
 
 
@@ -767,6 +772,79 @@ class SeismicCubeset(Dataset):
 
         if _return:
             return corrs
+        return None
+
+    def compute_hilbert_transform(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False, kernel_size=3, write_to_file=False, mode='median', eps=1e-5):
+        """ Compute hilbert transform along the horizon.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        labels_idx : int
+            Index of used horizon from `labels` dictionary.
+
+        labels_src : dict, optional
+            If None, then horizon is taken from `labels` attribute.
+            If dict, then must be a horizon.
+
+        window : int
+            Width of trace used for computing correlations.
+        """
+        labels = labels_src or self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+
+        data, depth_map = get_cube_values(labels, geom, labels_idx, window, 0)
+
+        analytic = hilbert(data, axis=-1)
+        phase = np.unwrap(np.angle(analytic))
+        phase[depth_map == FILL_VALUE_A, :] = 0
+
+        height = phase.shape[-1]
+        horizon_phase = phase[:, :, height // 2]
+
+        # correct -pi pi difference
+        @njit
+        def correct_pi(horizon_phase, eps):
+            for i in range(horizon_phase.shape[0]):
+                prev = horizon_phase[i, 0]
+                for j in range(1, horizon_phase.shape[1] - 1):
+                    if np.abs(np.abs(prev) - np.pi) <= eps and np.abs(np.abs(horizon_phase[i, j + 1]) - np.pi) <= eps:
+                        horizon_phase[i, j] = prev
+                    prev = horizon_phase[i, j]
+            return horizon_phase
+
+        horizon_phase = correct_pi(horizon_phase, eps)
+        if mode == 'mean':
+            print(mode)
+            median_phase = compute_running_mean(horizon_phase, kernel_size)
+        else:
+            print('medfilt')
+            median_phase = medfilt(horizon_phase, kernel_size)
+
+        median_phase[depth_map == FILL_VALUE_A] = 0
+
+        img = np.minimum(median_phase - horizon_phase, 2 * np.pi + horizon_phase - median_phase)
+        img = np.where(img < -np.pi, img + 2 * np. pi, img)
+#         img = np.where(np.abs(median_phase - horizon_phase) - np.abs(2 * np.pi + horizon_phase - median_phase) < 0,
+#                        median_phase - horizon_phase,
+#                        2 * np.pi + horizon_phase - median_phase)
+
+        hist_size = img[depth_map != FILL_VALUE_A].reshape(-1).shape[0]
+        plt.hist(img[depth_map != FILL_VALUE_A], weights=np.ones(hist_size) / float(hist_size))
+        plt.show()
+
+        plot_from_above(img, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic', vmin=-np.pi, vmax=np.pi)
+        print('Average phase difference from median is {}'.format(np.mean(np.abs(img[depth_map != FILL_VALUE_A]))))
+
+        if write_to_file:
+            with open("mean_phase_difference.txt", "a") as f:
+                f.write('\n')
+                f.write('{} on cube {} \t {}'.format(hor_name, self.indices[idx], np.mean(np.abs(img[depth_map != FILL_VALUE_A]))))
+        if _return:
+            return img, median_phase, phase
         return None
 
 

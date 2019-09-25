@@ -129,7 +129,8 @@ class SeismicCropBatch(Batch):
     def get_pos(self, data, component, index):
         """ Get correct slice/key of a component-item based on its type.
         """
-        if component in ('geometries', 'labels', 'segyfiles'):
+        candidates = self.components + ('segyfiles', )
+        if component in candidates and component != 'slices':
             return self.unsalt(index)
         return super().get_pos(data, component, index)
 
@@ -197,6 +198,8 @@ class SeismicCropBatch(Batch):
 
         for component in passdown:
             if hasattr(self, component):
+                if not component in new_batch.components:
+                    new_batch.add_components(component)
                 setattr(new_batch, component, getattr(self, component))
 
         dilations = dilations or [1, 1, 1]
@@ -236,6 +239,21 @@ class SeismicCropBatch(Batch):
         """ Extended crop shape. Useful for model with Dice-coefficient as loss-function. """
         return (*self.crop_shape, 1)
 
+#     def __setattr__(self, name, value):
+#         if self.components is not None:
+#             if name == "_data":
+#                 super().__setattr__(name, value)
+#                 if self._item_class is None:
+#                     self.make_item_class()
+#                 self._data_named = self._item_class(data=self._data)   # pylint: disable=not-callable
+#                 return
+#             if name in self.components:    # pylint: disable=unsupported-membership-test
+#                 if self._data_named is None:
+#                     _ = self.data
+#                 setattr(self._data_named, name, value)
+#                 super().__setattr__('_data', self._data_named.data)
+#                 return
+#         super().__setattr__(name, value)
 
     @action
     def load_cubes(self, dst, fmt='h5py', src='slices'):
@@ -339,10 +357,9 @@ class SeismicCropBatch(Batch):
         getattr(self, dst)[pos] = crop
         return self
 
-
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', single_horizon=False):
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', n_horizons=-1):
         """ Create masks from labels-dictionary in given positions.
 
         Parameters
@@ -360,7 +377,11 @@ class SeismicCropBatch(Batch):
             1 to number_of_horizons + 1.
         width : int
             Width of horizons in the `horizon` mode.
-
+        src_labels : str
+            Component of batch with labels dict.
+        n_horizons : int
+            Maximum number of horizons per crop.
+            If -1, all possible horizons will be added.
         Returns
         -------
         SeismicCropBatch
@@ -371,12 +392,16 @@ class SeismicCropBatch(Batch):
         Can be run only after labels-dict is loaded into labels-component.
         """
         geom = self.get(ix, 'geometries')
-        il_xl_h = self.get(ix, src_labels)
+        try:
+            il_xl_h = self.get(ix, src_labels)
+        except KeyError:
+            print('ix ', ix)
+            print('src_labels', src_labels)
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
         mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
-                           geom.ilines_offset, geom.xlines_offset, geom.depth, mode, width, single_horizon)
+                           geom.ilines_offset, geom.xlines_offset, geom.depth, mode, width, n_horizons)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
@@ -847,7 +872,7 @@ class SeismicCropBatch(Batch):
         raise ValueError('Unknown `mode` parameter.')
 
 
-    def plot_components(self, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None):
+    def plot_components(self, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None, **kwargs):
         """ Plot components of batch.
 
         Parameters
@@ -872,4 +897,20 @@ class SeismicCropBatch(Batch):
             Opacity for showing images.
         """
         plot_batch_components(self, *components, idx=idx, overlap=overlap,
-                              order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+                              order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
+
+    def __setattr__(self, name, value):
+        if self.components is not None:
+            if name == "_data":
+                super().__setattr__(name, value)
+                if self._item_class is None:
+                    self.make_item_class()
+                self._data_named = self._item_class(data=self._data)   # pylint: disable=not-callable
+                return
+            if name in self.components:    # pylint: disable=unsupported-membership-test
+                if self._data_named is None:
+                    _ = self.data
+                setattr(self._data_named, name, value)
+                super().__setattr__('_data', self._data_named.data)
+                return
+        super().__setattr__(name, value)
