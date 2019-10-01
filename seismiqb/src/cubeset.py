@@ -13,7 +13,7 @@ from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
 from .utils import labels_to_depth_map, depth_map_to_labels, get_cube_values, compute_corrs, FILL_VALUE_A
-from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above
+from .plot_utils import show_labels, show_sampler, plot_slide, plot_image
 
 
 
@@ -647,7 +647,7 @@ class SeismicCubeset(Dataset):
         depth_map = labels_to_depth_map(labels, geom, labels_idx)
         depth_map[depth_map == FILL_VALUE_A] = 0
 
-        plot_from_above(depth_map, 'Heights {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        plot_image(depth_map, 'Heights {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
         print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_A])))
 
         if _return:
@@ -677,7 +677,7 @@ class SeismicCubeset(Dataset):
 
         data, depth_map = get_cube_values(labels, geom, labels_idx, 1, scale=scale)
 
-        plot_from_above(data, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        plot_image(data, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
         print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_A])))
         print('Std of amplitudes is {}'.format(np.std(data[depth_map != FILL_VALUE_A])))
 
@@ -713,7 +713,7 @@ class SeismicCubeset(Dataset):
         data = data[:, :, ::-1]
         data *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
 
-        plot_from_above(data, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]), rgb=True)
+        plot_image(data, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]), rgb=True)
         print('AVG', np.mean(depth_map[depth_map != FILL_VALUE_A]))
 
 
@@ -740,7 +740,7 @@ class SeismicCubeset(Dataset):
         corrs = compute_corrs(data)
         corrs[np.where(depth_map == FILL_VALUE_A)] = 0
 
-        plot_from_above(corrs, 'Correlation for {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        plot_image(corrs, 'Correlation for {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
         print('Average correlation is {}'.format(np.mean(corrs[depth_map != FILL_VALUE_A])))
 
         if _return:
@@ -777,13 +777,13 @@ class SeismicCubeset(Dataset):
         # l1: mean absolute difference between depth maps
         metric_1 = np.abs(depth_map_1 - depth_map_2)
         metric_1[np.where(indicator == 1)] = 0
-        plot_from_above(metric_1, 'l1 metric on cube {}'.format(self.indices[idx]), cmap=cmap)
+        plot_image(metric_1, 'l1 metric on cube {}'.format(self.indices[idx]), cmap=cmap)
         print('Average value of l1 is {}\n\n'.format(np.mean(metric_1[np.where(indicator == 0)])))
 
         # ~: mean absolute difference between gradients of depth maps
         metric_2 = np.abs(np.diff(depth_map_1, axis=axis, prepend=0) - np.diff(depth_map_2, axis=axis, prepend=0))
         metric_2[np.where(indicator == 1)] = 0
-        plot_from_above(metric_2, '~ metric on cube {}'.format(self.indices[idx]), cmap=cmap)
+        plot_image(metric_2, '~ metric on cube {}'.format(self.indices[idx]), cmap=cmap)
         print('Average value of ~ is {}'.format(np.mean(metric_2[np.where(indicator == 0)])))
 
         if _return:
