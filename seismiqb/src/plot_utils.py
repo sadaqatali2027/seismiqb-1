@@ -164,27 +164,36 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True, **kwargs):
     return batch
 
 
-def plot_from_above(img, title, **kwargs):
-    """ Plot image with a given title with predifined axis labels."""
-    default_kwargs = dict(cmap='Paired')
-    plt.figure(figsize=(12, 7))
+def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, **kwargs):
+    """ Plot image with a given title with predifined axis labels.
+
+    Parameters
+    ----------
+    img : array-like
+        Image to plot.
+    xlabel, ylabel : str
+        Labels of axis.
+    title : str
+        Image title.
+    rgb : bool
+        If False, then colorbar is added to image.
+        If True, then channels of `img` are used to reflect colors.
+    """
+    default_kwargs = dict(cmap='Paired') if not rgb else {}
+    plt.figure(figsize=kwargs.get('figsize') or (12, 7))
+
     img_ = plt.imshow(img, **{**default_kwargs, **kwargs})
-    plt.title(title, y=1.1, fontdict={'fontsize': 20})
-    plt.colorbar(img_, fraction=0.022, pad=0.07)
-    plt.xlabel('XLINES', fontdict={'fontsize': 20})
-    plt.ylabel('ILINES', fontdict={'fontsize': 20})
-    plt.tick_params(labeltop=True, labelright=True)
-    plt.show()
 
-
-def plot_from_above_rgb(img, title, **kwargs):
-    """ Plot image with a given title with predifined axis labels."""
-    plt.figure(figsize=(12, 7))
-    plt.imshow(img, **kwargs)
-    plt.title(title, y=1.1, fontdict={'fontsize': 20})
-    plt.xlabel('XLINES', fontdict={'fontsize': 20})
-    plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    if title:
+        plt.title(title, y=1.1, fontdict={'fontsize': 20})
+    if xlabel:
+        plt.xlabel(xlabel, fontdict={'fontsize': 20})
+    if ylabel:
+        plt.ylabel(ylabel, fontdict={'fontsize': 20})
+    if not rgb:
+        plt.colorbar(img_, fraction=0.022, pad=0.07)
     plt.tick_params(labeltop=True, labelright=True)
+
     plt.show()
 
 

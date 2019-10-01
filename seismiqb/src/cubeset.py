@@ -13,7 +13,7 @@ from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
 from .utils import labels_to_depth_map, depth_map_to_labels, get_cube_values, compute_corrs, FILL_VALUE_A
-from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above, plot_from_above_rgb
+from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above
 
 
 
@@ -40,7 +40,6 @@ class SeismicCubeset(Dataset):
         ----------
         path : str
             Path to the dill-file to load geometries from.
-
         logs : bool
             Whether to create logs. If True, .log file is created next to .sgy-cube location.
 
@@ -81,7 +80,6 @@ class SeismicCubeset(Dataset):
         ----------
         paths : dict
             Mapping from indices to txt paths with labels.
-
         path : str
             Path to the dill-file to load point clouds from.
 
@@ -124,16 +122,15 @@ class SeismicCubeset(Dataset):
         ----------
         path : str
             Path to the dill-file to load labels from.
-
         transforms : dict
             Mapping from indices to callables. Each callable should define
             way to map point from (i, x, h, n) to (i, x, d, n) and take array of shape (N, 4) as input,
             where d (depth) is corrected h (height) (divided by sample rate and moved by time-delay value).
-
         src : str
             Attribute with saved point clouds.
 
         Returns
+        -------
         SeismicCubeset
             Same instance with loaded labels.
         """
@@ -188,7 +185,6 @@ class SeismicCubeset(Dataset):
         src_labels : str
             Attribute with dictionary: (iline, xline) -> array of heights.
             Each entry in the array is saved into separate file.
-
         dir_name : str
             Relative (to cube location) path to directory with saved horizons.
         """
@@ -224,19 +220,16 @@ class SeismicCubeset(Dataset):
             If 'hist', then sampler is estimated from given labels.
             If 'numpy', then sampler is created with `kwargs` parameters.
             If instance of Sampler is provided, it must generate points from unit cube.
-
         p : list
             Weights for each mixture in final sampler.
-
         transforms : dict
             Mapping from indices to callables. Each callable should define
             way to map point from absolute coordinates (X, Y world-wise) to
             cube local specific and take array of shape (N, 4) as input.
 
-        Note
-        ----
-        Passed `dataset` must have `geometries` and `labels` attributes if
-        you want to create HistoSampler.
+        Notes
+        -----
+        Passed `dataset` must have `geometries` and `labels` attributes if you want to create HistoSampler.
         """
         #pylint: disable=cell-var-from-loop
         lowcut, highcut = [0, 0, 0], [1, 1, 1]
@@ -294,31 +287,22 @@ class SeismicCubeset(Dataset):
         ----------
         src : str
             Attribute with Sampler to change.
-
         dst : str
             Attribute to store created Sampler.
-
         mode : str
             Axis to modify: ilines/xlines/heights.
-
         low : float
             Lower bound for truncating.
-
         high : float
             Upper bound for truncating.
-
         each : int
             Keep only i-th value along axis.
-
         each_start : int
             Shift grid for previous parameter.
-
         to_cube : bool
             Transform sampled values to each cube coordinates.
-
         post : callable
             Additional function to apply to sampled points.
-
         finish : bool
             If False, instance of Sampler is put into `dst` and can be modified later.
             If True, `sample` method is put into `dst` and can be called via `D` named-expressions.
@@ -401,14 +385,11 @@ class SeismicCubeset(Dataset):
         ----------
         idx : int
             Number of cube to show sampler on.
-
         src_sampler : str
             Name of attribute with sampler in it.
             Must generate points in cubic coordinates, which can be achieved by `modify_sampler` method.
-
         n : int
             Number of points to generate.
-
         eps : int
             Window of painting.
         """
@@ -422,10 +403,8 @@ class SeismicCubeset(Dataset):
         ----------
         horizon_dir : str
             Relative path from each cube to directory with horizons.
-
         p : sequence of numbers
             Proportions of different cubes in sampler.
-
         filter_zeros : bool
             Whether to remove labels on zero-traces.
         """
@@ -461,22 +440,16 @@ class SeismicCubeset(Dataset):
         ----------
         cube_name : str
             Reference to cube. Should be valid key for `geometries` attribute.
-
         crop_shape : array-like
             Shape of model inputs.
-
         ilines_range : array-like of two elements
             Location of desired prediction, iline-wise.
-
         xlines_range : array-like of two elements
             Location of desired prediction, xline-wise.
-
         h_range : array-like of two elements
             Location of desired prediction, depth-wise.
-
         strides : array-like
             Distance between grid points.
-
         batch_size : int
             Amount of returned points per generator call.
 
@@ -553,23 +526,18 @@ class SeismicCubeset(Dataset):
         ----------
         src : str or array
             Source-mask. Can be either a name of attribute or mask itself.
-
         dst : str
             Attribute of `cubeset` to write the horizons in.
-
         threshold : float
             Parameter of mask-thresholding.
-
         averaging : str
             Method of pandas.groupby used for finding the center of a horizon
             for each (iline, xline).
-
         coordinates : str
             Coordinates to use for keys of point-cloud. Can be either 'cubic'
             'lines' or None. In case of None, mask-coordinates are used. Mode 'cubic'
             requires 'grid_info'-attribute; can be run after `make_grid`-method. Mode 'lines'
             requires both 'grid_info' and 'geometries'-attributes to be loaded.
-
         separate : bool
             Whether to write horizonts in separate dictionaries or in one common.
 
@@ -614,13 +582,10 @@ class SeismicCubeset(Dataset):
         ----------
         horizon : dict
             Mapping from (iline, xline) to heights.
-
         idx : int
             Index of cube in the dataset to work with.
-
         offset : number
             Value to shift horizon up. Can be used to take into account different counting bases.
-
         plot : bool
             Whether to plot histogram of errors.
         """
@@ -645,14 +610,11 @@ class SeismicCubeset(Dataset):
         ----------
         idx : int
             Number of cube to use.
-
         labels_idx : int
             Index of used horizon from `labels` dictionary.
-
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
             If dict, then must be a horizon.
-
         transform : callable
             Function to apply to depth map.
         """
@@ -672,10 +634,8 @@ class SeismicCubeset(Dataset):
         ----------
         idx : int
             Number of cube to use.
-
         labels_idx : int
             Index of used horizon from `labels` dictionary.
-
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
             If dict, then must be a horizon.
@@ -702,14 +662,11 @@ class SeismicCubeset(Dataset):
         ----------
         idx : int
             Number of cube to use.
-
         labels_idx : int
             Index of used horizon from `labels` dictionary.
-
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
             If dict, then must be a horizon.
-
         scale : bool, callable
             If bool, then values are scaled to [0, 1] range.
             If callable, then it is applied to iline-oriented slices of data from the cube.
@@ -736,14 +693,11 @@ class SeismicCubeset(Dataset):
         ----------
         idx : int
             Number of cube to use.
-
         labels_idx : int
             Index of used horizon from `labels` dictionary.
-
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
             If dict, then must be a horizon.
-
         width : int
             Space between surfaces to cut.
         """
@@ -759,7 +713,7 @@ class SeismicCubeset(Dataset):
         data = data[:, :, ::-1]
         data *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
 
-        plot_from_above_rgb(data, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]))
+        plot_from_above(data, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]), rgb=True)
         print('AVG', np.mean(depth_map[depth_map != FILL_VALUE_A]))
 
 
@@ -770,14 +724,11 @@ class SeismicCubeset(Dataset):
         ----------
         idx : int
             Number of cube to use.
-
         labels_idx : int
             Index of used horizon from `labels` dictionary.
-
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
             If dict, then must be a horizon.
-
         window : int
             Width of trace used for computing correlations.
         """
@@ -804,19 +755,16 @@ class SeismicCubeset(Dataset):
         ----------
         idx : int
             Number of cube to use.
-
         hor_1, hor_2 : dict
             Dictionaries with labeled horizons.
-
         hor_1_idx, hor_2_idx : int
             Index of used horizon from each respective dictionary.
-
         axis : int
             Axis to take derivative along.
-
         cmap : str
             Colormap of showing the results.
         """
+        #pylint: disable=comparison-with-callable
         geom = self.geometries[self.indices[idx]]
 
         # Create all depth maps
