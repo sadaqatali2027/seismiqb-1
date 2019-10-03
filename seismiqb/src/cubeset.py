@@ -550,7 +550,6 @@ class SeismicCubeset(Dataset):
 
     def make_expand_grid(self, idx, crop_shape, labels_img, labels_src='labels', labels_idx=0, stride=10, batch_size=16):
         """ Awesome docstring
-
         Parameters
         ----------
         labels_idx : int
