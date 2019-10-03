@@ -5,6 +5,7 @@ from glob import glob
 import dill
 import numpy as np
 import matplotlib.pyplot as plt
+from skimage.segmentation import find_boundaries
 
 from ..batchflow import Dataset, Sampler, Pipeline
 from ..batchflow import B, V, D
@@ -39,7 +40,7 @@ class SeismicCubeset(Dataset):
 
         Parameters
         ----------
-        path : str
+        path : st
             Path to the dill-file to load geometries from.
 
         logs : bool
@@ -157,7 +158,7 @@ class SeismicCubeset(Dataset):
                 getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
         return self
 
-    def filter_labels(self, src='labels'):
+    def filter_labels(self, src='labels', dst='labels'):
         """ Remove labels corresponding to zero-traces.
 
         Parameters
@@ -208,9 +209,11 @@ class SeismicCubeset(Dataset):
                 name = os.path.join(save_dir, os.path.basename(path))
                 dump_horizon(labels, geom, name, idx=idx, offset=0)
 
-    def show_labels(self, idx=0, hor_idx=None):
+    def show_labels(self, idx=0, hor_idx=None, src='labels', return_image=False):
         """ Draw points with hand-labeled horizons from above. """
-        show_labels(self, idx=idx, hor_idx=hor_idx)
+        img = show_labels(self, idx=idx, hor_idx=hor_idx, src=src)
+        if return_image:
+            return img
 
     def create_sampler(self, mode='hist', p=None, transforms=None, dst='sampler', **kwargs):
         """ Create samplers for every cube and store it in `samplers`
@@ -545,6 +548,118 @@ class SeismicCubeset(Dataset):
                           'range': [ilines_range, xlines_range, h_range]}
         return self
 
+    def make_expand_grid(self, idx, crop_shape, labels_img, labels_src='labels', labels_idx=0, stride=10, batch_size=16):
+        """ Awesome docstring
+
+        Parameters
+        ----------
+        labels_idx : int
+            To be removed after adding different directional crop 
+        """
+        borders_img = find_boundaries(labels_img).astype(np.int32)
+        plt.imshow(borders_img)
+        plt.show()
+        il_len, x_len = labels_img.shape
+        border_coords = np.where(borders_img == 1)
+        il_min, il_max = np.min(border_coords[0]), np.max(border_coords[0])
+        x_min, x_max = np.min(border_coords[1]), np.max(border_coords[1])
+        il_offset = self.geometries[idx].ilines_offset
+        xl_offset = self.geometries[idx].xlines_offset
+        
+        line_shape, height = crop_shape[1:]
+        iline_crops = []
+
+        # sample horizontal border points
+        for xline in range(x_min, x_max):
+            non_zero = np.where(borders_img[il_min:il_max, xline] == 1)[0]
+            if len(non_zero) == 0:
+                continue
+            print('non zero xl', xline, non_zero)
+            _lower_il, _upper_il = np.min(non_zero) + il_min, np.max(non_zero) + il_min
+            try:
+                _lower_h = getattr(self, labels_src)[idx][(_lower_il + il_offset, xline + xl_offset)][labels_idx] - height // 2
+            except KeyError as k:
+                print(_lower_il + il_offset, xline + xl_offset, k)
+            _upper_h = getattr(self, labels_src)[idx][(_upper_il + il_offset, xline + xl_offset)][labels_idx] - height // 2
+
+            _lower_il = _lower_il + stride - line_shape
+            _upper_il = _upper_il - stride
+            iline_crops.append([idx, _lower_il, xline, _lower_h])
+            iline_crops.append([idx, _upper_il, xline, _upper_h])
+        iline_crops = np.array(iline_crops, dtype=object)
+
+        xline_crops = []
+
+        # sample vertical border points
+        for iline in range(il_min, il_max):
+            non_zero = np.where(borders_img[iline, x_min:x_max] == 1)[0]
+            if len(non_zero) == 0:
+                continue
+            print('non zero il', iline, non_zero)
+            _lower_xl, _upper_xl = np.min(non_zero) + x_min, np.max(non_zero) + x_min
+            _lower_h = getattr(self, labels_src)[idx][(iline + il_offset, _lower_xl + xl_offset)][labels_idx] - height // 2
+            _upper_h = getattr(self, labels_src)[idx][(iline + il_offset, _upper_xl + xl_offset)][labels_idx] - height // 2
+
+            _lower_xl = _lower_xl + stride - line_shape
+            _upper_xl = _upper_xl - stride
+            xline_crops.append([idx, iline, _lower_xl, _lower_h])
+            xline_crops.append([idx, iline, _upper_xl, _upper_h])
+        xline_crops = np.array(xline_crops, dtype=object)
+
+        iline_crops_gen = (iline_crops[i:i+batch_size]
+                               for i in range(0, len(iline_crops), batch_size))
+        xline_crops_gen = (xline_crops[i:i+batch_size]
+                               for i in range(0, len(xline_crops), batch_size))
+        self.iline_crops_gen = lambda: next(iline_crops_gen)
+        self.iline_crops_iters = - (-len(iline_crops) // batch_size)
+
+        offsets = np.array([np.min(iline_crops[:, 1]),
+                            np.min(iline_crops[:, 2]),
+                            np.min(iline_crops[:, 3])])
+
+        ilines_range = (np.min(iline_crops[:, 1]), np.max(iline_crops[:, 1]) + crop_shape[1])
+        xlines_range = (np.min(iline_crops[:, 2]), np.max(iline_crops[:, 2]) + crop_shape[0])
+        h_range = (np.min(iline_crops[:, 3]), np.max(iline_crops[:, 3]) + crop_shape[2])
+
+
+        predict_shape = (ilines_range[1] - ilines_range[0],
+                         xlines_range[1] - xlines_range[0],
+                         h_range[1] - h_range[0])
+
+        grid_array = iline_crops[:, 1:].astype(int) - offsets
+
+        self.iline_crops_info = {'grid_array': grid_array,
+                                 'predict_shape': predict_shape,
+                                 'range': [ilines_range, xlines_range, h_range],
+                                 'crop_shape': (crop_shape[1], crop_shape[0], crop_shape[2]),
+                                 'cube_name': idx}
+
+
+        x_offsets = np.array([np.min(xline_crops[:, 1]),
+                              np.min(xline_crops[:, 2]),
+                              np.min(xline_crops[:, 3])])
+
+        x_ilines_range = (np.min(xline_crops[:, 1]), np.max(xline_crops[:, 1]) + crop_shape[0])
+        x_xlines_range = (np.min(xline_crops[:, 2]), np.max(xline_crops[:, 2]) + crop_shape[1])
+        x_h_range = (np.min(xline_crops[:, 3]), np.max(xline_crops[:, 3]) + crop_shape[2])
+
+                        
+        x_predict_shape = (x_ilines_range[1] - x_ilines_range[0],
+                           x_xlines_range[1] - x_xlines_range[0],
+                           x_h_range[1] - x_h_range[0])
+
+        x_grid_array = xline_crops[:, 1:].astype(int) - x_offsets
+
+        self.xline_crops_gen = lambda: next(xline_crops_gen)
+        self.xline_crops_iters = - (-len(xline_crops) // batch_size)
+        self.xline_crops_info = {'grid_array': x_grid_array,
+                                 'predict_shape': x_predict_shape,
+                                 'range': [x_ilines_range, x_xlines_range, x_h_range],
+                                 'crop_shape': crop_shape,
+                                 'cube_name': idx}
+        return self
+
+
     def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates='cubic', separate=True,
                         transforms=None):
         """ Compute point cloud of horizons from a mask, save it into the 'cubeset'-attribute.
@@ -650,6 +765,7 @@ class SeismicCubeset(Dataset):
         show_prior_mask : bool
             whether to show prior mask
         """
+        print('hey you')
         ds_points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
 
         start_predict_pipeline = (Pipeline()
@@ -662,7 +778,7 @@ class SeismicCubeset(Dataset):
                                   .add_axis(src='masks', dst='masks')
                                   .scale(mode='normalize', src='images')) << self
 
-        batch = start_predict_pipeline.next_batch(3, n_epochs=None)
+        batch = start_predict_pipeline.next_batch(len(self.indices), n_epochs=None)
 
         if show_prior_mask:
             plt.imshow(batch.masks[0][:, :, 0, 0].T)
@@ -672,7 +788,7 @@ class SeismicCubeset(Dataset):
         transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + i_shift],
                       lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
                       lambda h_: h_ + h_shift]
-        self.get_point_cloud(np.moveaxis(batch.masks[0][:, :, :1, 0], -1, 0),
+        self.get_point_cloud(np.moveaxis(batch.masks[0][:, :, :, 0], -1, 0),
                              threshold=0.5, dst='prior_mask', coordinates=None, transforms=transforms, separate=True)
         if len(self.prior_mask[0]) == 0:
             raise ValueError("Prior mask is empty")
@@ -718,6 +834,7 @@ class SeismicCubeset(Dataset):
             grid_info : dict
                 grid info based on the grid array with upper left coordinates of the crops
         """
+        print('hey you 2')
         show_count = max_iters if show_count is None else show_count
         geom = self.geometries[self.indices[cube_index]]
         grid_array = []
@@ -752,13 +869,15 @@ class SeismicCubeset(Dataset):
                        .create_masks(dst='cut_masks', width=1, n_horizons=1, src_labels='predicted_labels')
                        .apply_transform(np.transpose, axes=axes, src=['images', 'masks', 'cut_masks'])
                        .rotate_axes(src=['images', 'masks', 'cut_masks'])
+                       .analytic_transform(src='images', dst='hilbert')
                        .scale(mode='normalize', src='images')
                        .add_axis(src='masks', dst='masks')
                        .import_model('extension', model_pipeline)
                        .init_variable('result_preds', init_on_each_run=list())
-                       .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
+                       .concat_components(src=('images', 'hilbert', 'cut_masks'), dst='model_inputs')
                        .predict_model('extension', fetches='sigmoid',
                                       images=B('model_inputs'),
+                                      cut_masks=B('cut_masks'),
                                       save_to=V('result_preds', mode='e')))
 
         for i in range(max_iters):
@@ -773,7 +892,7 @@ class SeismicCubeset(Dataset):
 
             next_predict_pipeline = (load_components_ppl + crop_ppl + predict_ppl) << self
             btch = next_predict_pipeline.next_batch(len(self.indices), n_epochs=None)
-            result = next_predict_pipeline.get_variable('result_preds')[0]
+            result = next_predict_pipeline.get_variable('result_preds')[0][..., 0]
             if np.sum(btch.images) < 1e-2:
                 print('Empty traces')
                 break
@@ -793,7 +912,8 @@ class SeismicCubeset(Dataset):
                 numba_horizons = convert_to_numba_dict(self.predicted_mask[0])
             except IndexError:
                 print('Empty predicted mask on step %s' % i)
-                plot_extension_history(next_predict_pipeline, btch)
+                plt.imshow(btch.cut_masks[0][:, :, 0].T)
+                plt.show()
                 break
 
             assembled_horizon_dict = update_horizon_dict(self.predicted_labels[self.indices[cube_index]],
@@ -859,15 +979,15 @@ class SeismicCubeset(Dataset):
                                .load_component(src=[D('geometries'), D('labels')],
                                                dst=['geometries', 'labels'])
                                .add_components('predicted_labels')
-                               .crop(points=points, shape=(1, 900, 120), passdown='predicted_labels')
+                               .crop(points=points, shape=shape, passdown='predicted_labels')
                                .load_component(src=[D('predicted_labels')],
                                                dst=['predicted_labels'])
                                .load_cubes(dst='data_crops')
-                               .create_masks(dst='mask_crops', width=width, n_horizons=1, src_labels='labels')
+                               .create_masks(dst='mask_crops', width=width, n_horizons=3, src_labels='labels')
                                .create_masks(dst='cut_mask_crops', width=width, n_horizons=1,
                                              src_labels='predicted_labels'))
 
-        batch = (load_components_ppl << self).next_batch(3)
+        batch = (load_components_ppl << self).next_batch(len(self.indices))
         if show_image:
             plt.figure(figsize=(30, 20))
             plt.imshow(batch.data_crops[0][0].T, cmap='gray', alpha=0.5)

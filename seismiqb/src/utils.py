@@ -257,7 +257,7 @@ def create_mask(ilines_, xlines_, hs_,
     """
     #pylint: disable=line-too-long, too-many-nested-blocks, too-many-branches
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-
+    selected_idx = False
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
             il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
@@ -266,14 +266,16 @@ def create_mask(ilines_, xlines_, hs_,
             m_temp = np.zeros(geom_depth)
             if mode == 'horizon':
                 heights = il_xl_h[(il_, xl_)]
-                filtered_idx = np.array([idx for idx, height_ in enumerate(heights)
-                                         if height_ != FILL_VALUE])
-                filtered_idx = np.array([idx for idx in filtered_idx
-                                         if heights[idx] > hs_[0] and heights[idx] < hs_[-1]])
-                if len(filtered_idx) == 0:
-                    continue
-                if n_horizons != -1 and len(filtered_idx) >= n_horizons:
-                    filtered_idx = np.random.choice(filtered_idx, replace=False, size=n_horizons)
+                if not selected_idx:
+                    filtered_idx = np.array([idx for idx, height_ in enumerate(heights)
+                                             if height_ != FILL_VALUE])
+                    filtered_idx = np.array([idx for idx in filtered_idx
+                                             if heights[idx] > hs_[0] and heights[idx] < hs_[-1]])
+                    if len(filtered_idx) == 0:
+                        continue
+                    if n_horizons != -1 and len(filtered_idx) >= n_horizons:
+                        filtered_idx = np.random.choice(filtered_idx, replace=False, size=n_horizons)
+                        selected_idx = True
                 for idx in filtered_idx:
                     _height = heights[idx]
                     if width == 0:

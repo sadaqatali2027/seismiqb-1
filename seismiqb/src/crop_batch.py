@@ -186,6 +186,7 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             Batch with positions of crops in specified component.
         """
+#         print('hey')
         new_index = [self.salt(ix) for ix in points[:, 0]]
         new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
                     for ix in new_index}
@@ -204,6 +205,7 @@ class SeismicCropBatch(Batch):
         dilations = dilations or [1, 1, 1]
         slices = []
         for point in points:
+#             print('point ', points)
             slice_ = self._make_slice(point, shape, dilations)
             slices.append(slice_)
         setattr(new_batch, dst, slices)
@@ -424,7 +426,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def filter_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None):
+    def filter_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None, length=None):
         """ Cut mask for horizont extension task.
         src : str
             Component of batch with mask
@@ -472,15 +474,15 @@ class SeismicCropBatch(Batch):
                 cond &= np.greater_equal(expr(coords), low)
             if high is not None:
                 cond &= np.less_equal(expr(coords), high)
+            if length is not None:
+                cond &= np.less_equal(expr(coords), low + length)
             coords *= np.reshape(mask.shape, newshape=(1, 3))
             coords = np.round(coords).astype(np.int32)[cond]
             new_mask[coords[:, 0], coords[:, 1], coords[:, 2]] = mask[coords[:, 0], coords[:, 1], coords[:, 2]]
             mask = new_mask
-
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
         return self
-
 
     @action
     @inbatch_parallel(init='indices', target='threads')
@@ -768,6 +770,7 @@ class SeismicCropBatch(Batch):
             If 'phase', compute instantaneous phase.
             If 'freq', compute instantaneous frequency.
         """
+        print('hey 3')
         analytic = hilbert(crop, axis=axis)
         phase = np.unwrap(np.angle(analytic))
 

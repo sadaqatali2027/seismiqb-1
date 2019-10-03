@@ -137,7 +137,7 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
     return batch
 
 
-def show_labels(dataset, idx=0, hor_idx=None):
+def show_labels(dataset, idx=0, hor_idx=None, src='labels'):
     """ Show labeled ilines/xlines from above: yellow stands for labeled regions.
 
     Parameters
@@ -147,7 +147,8 @@ def show_labels(dataset, idx=0, hor_idx=None):
     """
     name = dataset.indices[idx]
     geom = dataset.geometries[name]
-    labels = dataset.labels[name]
+    labels = getattr(dataset, src)[name]
+    print('len ', len(labels))
     possible_coordinates = [[il, xl] for il in geom.ilines for xl in geom.xlines]
 
     background = np.zeros((geom.ilines_len, geom.xlines_len))
@@ -161,6 +162,7 @@ def show_labels(dataset, idx=0, hor_idx=None):
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
     plt.show()
+    return img
 
 @njit
 def labels_matrix(background, possible_coordinates, labels,
@@ -237,10 +239,11 @@ def plot_extension_history(next_predict_pipeline, btch):
     fig = plt.figure(figsize=(15, 10))
     fig.add_subplot(1, 5, 1)
     plt.imshow(btch.images[0][..., 0].T)
+    height, width = btch.images[0].shape[:2]
     # Major ticks
     ax = plt.gca()
-    ax.set_xticks(np.arange(0, 64, 10))
-    ax.set_yticks(np.arange(0, 64, 10))
+    ax.set_xticks(np.arange(0, height, 10))
+    ax.set_yticks(np.arange(0, width, 10))
     ax.grid(color='w', linestyle='-', linewidth=.5)
 
     fig.add_subplot(1, 5, 2)
@@ -248,8 +251,8 @@ def plot_extension_history(next_predict_pipeline, btch):
     plt.title('true mask')
     # Major ticks
     ax = plt.gca()
-    ax.set_xticks(np.arange(0, 64, 10))
-    ax.set_yticks(np.arange(0, 64, 10))
+    ax.set_xticks(np.arange(0, height, 10))
+    ax.set_yticks(np.arange(0, width, 10))
     ax.grid(color='w', linestyle='-', linewidth=.5)
 
     fig.add_subplot(1, 5, 3)
@@ -257,26 +260,26 @@ def plot_extension_history(next_predict_pipeline, btch):
     plt.title('Created mask using predictions')
     # Major ticks
     ax = plt.gca()
-    ax.set_xticks(np.arange(0, 64, 10))
-    ax.set_yticks(np.arange(0, 64, 10))
+    ax.set_xticks(np.arange(0, height, 10))
+    ax.set_yticks(np.arange(0, width, 10))
     ax.grid(color='w', linestyle='-', linewidth=.5)
 
     fig.add_subplot(1, 5, 4)
-    plt.imshow(next_predict_pipeline.get_variable('result_preds')[0][:, :, 0].T)
+    plt.imshow(next_predict_pipeline.get_variable('result_preds')[0][:, :, 0, 0].T)
     plt.title('predictions')
     # Major ticks
     ax = plt.gca()
-    ax.set_xticks(np.arange(0, 64, 10))
-    ax.set_yticks(np.arange(0, 64, 10))
+    ax.set_xticks(np.arange(0, height, 10))
+    ax.set_yticks(np.arange(0, width, 10))
     ax.grid(color='w', linestyle='-', linewidth=.5)
 
     fig.add_subplot(1, 5, 5)
-    plt.imshow(btch.cut_masks[0][..., 0].T + next_predict_pipeline.get_variable('result_preds')[0][:, :, 0].T)
+    plt.imshow(btch.cut_masks[0][..., 0].T + next_predict_pipeline.get_variable('result_preds')[0][:, :, 0, 0].T)
     plt.title('overlap')
 
     # Major ticks
     ax = plt.gca()
-    ax.set_xticks(np.arange(0, 64, 10))
-    ax.set_yticks(np.arange(0, 64, 10))
+    ax.set_xticks(np.arange(0, height, 10))
+    ax.set_yticks(np.arange(0, width, 10))
     ax.grid(color='w', linestyle='-', linewidth=.5)
     plt.show()
