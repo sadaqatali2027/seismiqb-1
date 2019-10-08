@@ -569,7 +569,7 @@ def depth_map_to_labels(depth_map, geom, labels=None, horizon_idx=0):
     key_type = types.Tuple((types.int64, types.int64))
     value_type = types.int64[:]
     max_count = len(list(labels.values())[0]) if labels else 1
-    print(max_count)
+
     horizon_idx = horizon_idx if labels else 0
     labels = labels or Dict.empty(key_type, value_type)
 

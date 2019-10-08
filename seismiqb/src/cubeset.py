@@ -597,10 +597,10 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def show_slide(self, idx=0, iline=0, overlap=True, **kwargs):
+    def show_slide(self, idx=0, n_line=0, overlap=True, mode='iline', **kwargs):
         """ Show full slide of the given cube on the given iline. """
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images',)
-        plot_slide(self, *components, idx=idx, iline=iline, overlap=overlap, **kwargs)
+        plot_slide(self, *components, idx=idx, n_line=n_line, overlap=overlap, mode=mode, **kwargs)
 
 
     def apply_to_horizon(self, idx=0, labels_idx=0, labels_src=None, transform=None):

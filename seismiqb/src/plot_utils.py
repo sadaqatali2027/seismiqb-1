@@ -135,17 +135,23 @@ def _to_img(data, order_axes=None, convert=False):
     return data
 
 
-def plot_slide(dataset, *components, idx=0, iline=0, overlap=True, **kwargs):
+def plot_slide(dataset, *components, idx=0, n_line=0, overlap=True, mode='iline', **kwargs):
     """ Plot full slide of the given cube on the given iline. """
     cube_name = dataset.indices[idx]
-    cube_shape = dataset.geometries[cube_name].cube_shape
-    point = np.array([[cube_name, iline, 0, 0]], dtype=object)
+    crop_shape = np.array(dataset.geometries[cube_name].cube_shape)
+
+    if mode in ['i', 'il', 'iline']:
+        point = np.array([[cube_name, n_line, 0, 0]], dtype=object)
+        crop_shape[0] = 1
+    elif mode in ['x', 'xl', 'xline']:
+        point = np.array([[cube_name, 0, n_line, 0]], dtype=object)
+        crop_shape[1] = 1
 
     pipeline = (Pipeline()
                 .load_component(src=[D('geometries'), D('labels')],
                                 dst=['geometries', 'labels'])
                 .crop(points=point,
-                      shape=[1] + cube_shape[1:])
+                      shape=crop_shape)
                 .load_cubes(dst='images')
                 .scale(mode='normalize', src='images')
                 .rotate_axes(src='images')
@@ -155,12 +161,15 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True, **kwargs):
         labels_pipeline = (Pipeline()
                            .create_masks(dst='masks', width=2)
                            .rotate_axes(src='masks')
-                           .add_axis(src='masks', dst='masks')
                            )
         pipeline = pipeline + labels_pipeline
 
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
-    plot_batch_components(batch, *components, overlap=overlap, **kwargs)
+
+    if mode in ['i', 'il', 'iline']:
+        plot_batch_components(batch, *components, overlap=overlap, **kwargs)
+    elif mode in ['x', 'xl', 'xline']:
+        plot_batch_components(batch, *components, overlap=overlap, order_axes=(2, 1, 0), **kwargs)
     return batch
 
 
