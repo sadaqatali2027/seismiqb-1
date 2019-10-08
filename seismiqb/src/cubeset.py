@@ -565,7 +565,7 @@ class SeismicCubeset(Dataset):
         il_offset = self.geometries[idx].ilines_offset
         xl_offset = self.geometries[idx].xlines_offset
         
-        line_shape, height = crop_shape[1:]
+        width, line_shape, height = crop_shape
         iline_crops = []
 
         # sample horizontal border points
@@ -616,9 +616,9 @@ class SeismicCubeset(Dataset):
                             np.min(iline_crops[:, 2]),
                             np.min(iline_crops[:, 3])])
 
-        ilines_range = (np.min(iline_crops[:, 1]), np.max(iline_crops[:, 1]) + crop_shape[1])
-        xlines_range = (np.min(iline_crops[:, 2]), np.max(iline_crops[:, 2]) + crop_shape[0])
-        h_range = (np.min(iline_crops[:, 3]), np.max(iline_crops[:, 3]) + crop_shape[2])
+        ilines_range = (np.min(iline_crops[:, 1]), np.max(iline_crops[:, 1]) + line_shape)
+        xlines_range = (np.min(iline_crops[:, 2]), np.max(iline_crops[:, 2]) + width)
+        h_range = (np.min(iline_crops[:, 3]), np.max(iline_crops[:, 3]) + height)
 
 
         predict_shape = (ilines_range[1] - ilines_range[0],
@@ -638,9 +638,9 @@ class SeismicCubeset(Dataset):
                               np.min(xline_crops[:, 2]),
                               np.min(xline_crops[:, 3])])
 
-        x_ilines_range = (np.min(xline_crops[:, 1]), np.max(xline_crops[:, 1]) + crop_shape[0])
-        x_xlines_range = (np.min(xline_crops[:, 2]), np.max(xline_crops[:, 2]) + crop_shape[1])
-        x_h_range = (np.min(xline_crops[:, 3]), np.max(xline_crops[:, 3]) + crop_shape[2])
+        x_ilines_range = (np.min(xline_crops[:, 1]), np.max(xline_crops[:, 1]) + width)
+        x_xlines_range = (np.min(xline_crops[:, 2]), np.max(xline_crops[:, 2]) + line_shape)
+        x_h_range = (np.min(xline_crops[:, 3]), np.max(xline_crops[:, 3]) + height)
 
                         
         x_predict_shape = (x_ilines_range[1] - x_ilines_range[0],
