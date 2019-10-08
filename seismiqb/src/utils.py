@@ -10,13 +10,13 @@ import matplotlib.pyplot as plt
 
 
 FILL_VALUE = -999
+FILL_VALUE_A = -999999
 
 
 def make_subcube(path, geometry, path_save, i_range, x_range):
     """ Make subcube from .sgy cube by removing some of its first and
     last ilines and xlines.
 
-    Notes
     -----
     Common use of this function is to remove not fully filled slices of .sgy cubes.
 
@@ -127,7 +127,7 @@ def read_point_cloud(paths, names=None, order=None, **kwargs):
     order : array-like
         specifies the order of columns to keep in the resulting array.
     **kwargs
-        file-specific arguments of pandas parser.
+        additional keyword-arguments of pandas parser.
 
     Returns
     -------
@@ -534,6 +534,7 @@ def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines
 
     return val_min, val_max, matrix
 
+<<<<<<< HEAD
 def convert_to_numba_dict(_labels):
     """ Convert a dict to Numba dict.
 
@@ -599,3 +600,180 @@ def compute_next_points(points, prediction, crop_shape, strides_candidates, widt
     stride = strides_candidates[np.argmax(np.array(compared_slices_))]
     points = [sum(x) for x in zip(points, stride)]
     return points, compared_slices_
+
+
+def labels_to_depth_map(labels, geom, labels_idx=0, offset=0):
+    """ Converts labels-dictionary to matrix of depths.
+
+    Parameters
+    ----------
+    labels : dict
+        Labeled horizon.
+
+    labels_idx : int
+        Index of item inside `labels` values.
+
+    offset : number
+        Value to add to each entry in matrix.
+    """
+    @njit
+    def _labels_to_depth_map(labels, i_offset, x_offset, i_len, x_len, labels_idx=0, offset=0):
+        depth_map = np.full((i_len, x_len), FILL_VALUE_A)
+
+        for il in range(i_len):
+            for xl in range(x_len):
+                key = (il+i_offset, xl+x_offset)
+                value = labels.get(key)
+                if value is not None:
+                    h = value[labels_idx]
+                    if h != FILL_VALUE:
+                        h += int(np.rint(offset))
+                        depth_map[il, xl] = h
+        return depth_map
+
+    return _labels_to_depth_map(labels, geom.ilines_offset, geom.xlines_offset,
+                                geom.ilines_len, geom.xlines_len,
+                                labels_idx, offset)
+
+
+def depth_map_to_labels(depth_map, geom, labels=None, labels_idx=0):
+    """ Converts matrix of depths back into dictionary.
+    Can also be used to replace dictionary values with updated ones.
+
+    Parameters
+    ----------
+    depth_map : array
+        Matrix of depths.
+
+    labels : dict, optional
+        If None, then new numba dictionary is created.
+        If dict, then values are written into that dict.
+
+    labels_idx : int
+        Index of value to replace in passed `labels`.
+    """
+    key_type = types.Tuple((types.int64, types.int64))
+    value_type = types.int64[:]
+    max_count = len(list(labels.values())) if labels else 1
+    labels_idx = labels_idx if labels else 0
+    labels = labels or Dict.empty(key_type, value_type)
+
+    @njit
+    def _depth_map_to_labels(depth_map, i_offset, x_offset, labels, labels_idx, max_count):
+        i_len, x_len = depth_map.shape
+
+        for il in range(i_len):
+            for xl in range(x_len):
+                key = (il+i_offset, xl+x_offset)
+                value = depth_map[il, xl]
+                if labels.get(key) is None:
+                    labels[key] = np.full((max_count, ), FILL_VALUE, np.int64)
+                labels[key][labels_idx] = value
+        return labels
+
+    return _depth_map_to_labels(depth_map, geom.ilines_offset, geom.xlines_offset, labels, labels_idx, max_count)
+
+
+def get_cube_values(labels, geom, labels_idx=0, window=3, offset=0, scale=False):
+    """ Get values from the cube along the horizon.
+
+    Parameters
+    ----------
+    labels : dict
+        Labeled horizon.
+
+    labels_idx : int
+        Index of item inside `labels` values.
+
+    window : int
+        Width of data to cut.
+
+    offset : int
+        Value to add to each entry in matrix.
+
+    scale : bool, callable
+        If bool, then values are scaled to [0, 1] range.
+        If callable, then it is applied to iline-oriented slices of data from the cube.
+    """
+    low = window // 2
+    high = max(window - low, 0)
+
+    h5py_cube = geom.h5py_file['cube']
+    i_offset, x_offset = geom.ilines_offset, geom.xlines_offset
+    i_len, x_len = geom.ilines_len, geom.xlines_len
+    scale_val = (geom.value_max - geom.value_min)
+
+    background = np.zeros((i_len, x_len, window))
+    depth_map = np.full((geom.ilines_len, geom.xlines_len), FILL_VALUE_A)
+
+    @njit
+    def _update(background, depth_map, slide, labels,
+                xlines_len, il, ilines_offset, xlines_offset,
+                low, high, labels_idx, offset):
+        for xl in range(xlines_len):
+            key = (il+ilines_offset, xl+xlines_offset)
+            arr = labels.get(key)
+            if arr is not None:
+                h = arr[labels_idx]
+                if h != FILL_VALUE:
+                    h += int(np.rint(offset))
+                    depth_map[il, xl] = h
+                value = slide[xl, h-low:h+high]
+                background[il, xl, :] = value
+        return background, depth_map
+
+    for il in range(i_len):
+        slide = h5py_cube[il, :, :]
+
+        if callable(scale):
+            slide = scale(slide)
+        elif scale is True:
+            slide -= geom.value_min
+            slide *= (1 / scale_val)
+        # here we can insert even more transforms!
+        background, depth_map = _update(background, depth_map, slide, labels,
+                                        x_len, il, i_offset, x_offset,
+                                        low, high, labels_idx, offset)
+    background = np.squeeze(background)
+    return background, depth_map
+
+
+
+@njit
+def compute_corrs(data):
+    """ Compute average correlation between each column in data and nearest traces. """
+    i_range, x_range = data.shape[:2]
+    corrs = np.zeros((i_range, x_range))
+
+    for i in range(i_range):
+        for x in range(x_range):
+            trace = data[i, x, :]
+            if np.max(trace) == np.min(trace):
+                continue
+
+            s, c = 0.0, 0
+
+            if i > 0:
+                trace_1 = data[i-1, x, :]
+                if not np.max(trace_1) == np.min(trace_1):
+                    s += np.corrcoef(trace, trace_1)[0, 1]
+                    c += 1
+            if i < i_range-1:
+                trace_2 = data[i+1, x, :]
+                if not np.max(trace_2) == np.min(trace_2):
+                    s += np.corrcoef(trace, trace_2)[0, 1]
+                    c += 1
+            if x > 0:
+                trace_3 = data[i, x-1, :]
+                if not np.max(trace_3) == np.min(trace_3):
+                    s += np.corrcoef(trace, trace_3)[0, 1]
+                    c += 1
+            if x < x_range-1:
+                trace_4 = data[i, x+1, :]
+                if not np.max(trace_4) == np.min(trace_4):
+                    s += np.corrcoef(trace, trace_4)[0, 1]
+                    c += 1
+
+            if c != 0:
+                corrs[i, x] = s / c
+    return corrs

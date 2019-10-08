@@ -6,7 +6,25 @@ from numba import njit
 from ..batchflow import Pipeline, D
 
 def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=None):
-    """ Plot losses. """
+    """ Plot losses.
+
+    Parameters
+    ----------
+    graph_lists : sequence of arrays
+        list of arrays to plot.
+
+    labels : sequence of str
+        labels for different graphs.
+
+    ylabel : str
+        y-axis label.
+
+    figsize : tuple of int
+        size of resulting figure.
+
+    title : str
+        title of resulting figure.
+    """
     if not isinstance(graph_lists[0], (tuple, list)):
         graph_lists = [graph_lists]
 
@@ -24,7 +42,7 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
     plt.legend()
     plt.show()
 
-def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None):
+def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None, **kwargs):
     """ Plot components of batch.
 
     Parameters
@@ -37,7 +55,7 @@ def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=No
         If None, then no indexing is applied.
 
     overlap : bool
-        Whether to draw images one over the other or not.
+        Whether to draw images one over the other or on separate layouts.
 
     order_axes : sequence of int
         Determines desired order of the axis. The first two are plotted.
@@ -58,20 +76,21 @@ def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=No
         imgs = [getattr(batch, comp) for comp in components]
 
     if overlap:
-        plot_images_o(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+        plot_images_overlap(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
     else:
-        plot_images_s(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas)
+        plot_images_separate(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
 
 
-def plot_images_s(imgs, titles, order_axes, cmaps=None, alphas=None):
+def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images on separate layouts. """
     cmaps = cmaps or ['gray'] + ['viridis']*len(imgs)
     cmaps = cmaps if isinstance(cmaps, (tuple, list)) else [cmaps]
 
-    alphas = alphas or [1**-i for i in range(len(imgs))]
+    alphas = alphas or 1.0
     alphas = alphas if isinstance(alphas, (tuple, list)) else [alphas**-i for i in range(len(imgs))]
 
-    _, ax = plt.subplots(1, len(imgs), figsize=(8*len(imgs), 10))
+    defaults = {'figsize': (8*len(imgs), 10)}
+    _, ax = plt.subplots(1, len(imgs), **{**defaults, **kwargs})
     for i, (img, title, cmap, alpha) in enumerate(zip(imgs, titles, cmaps, alphas)):
         img = _to_img(img, order_axes=order_axes, convert=False)
 
@@ -81,12 +100,13 @@ def plot_images_s(imgs, titles, order_axes, cmaps=None, alphas=None):
     plt.show()
 
 
-def plot_images_o(imgs, title, order_axes, cmaps=None, alphas=None):
+def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
-    alphas = alphas or [1**-i for i in range(len(imgs))]
+    alphas = alphas or [1.0 for i in range(len(imgs))]
 
-    plt.figure(figsize=(15, 15))
+    defaults = {'figsize': (15, 15)}
+    plt.figure(**{**defaults, **kwargs})
     for i, (img, cmap, alpha) in enumerate(zip(imgs, cmaps, alphas)):
         img = _to_img(img, order_axes=order_axes, convert=(i > 0))
         plt.imshow(img, alpha=alpha, cmap=cmap)
@@ -115,7 +135,7 @@ def _to_img(data, order_axes=None, convert=False):
     return data
 
 
-def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
+def plot_slide(dataset, *components, idx=0, iline=0, overlap=True, **kwargs):
     """ Plot full slide of the given cube on the given iline. """
     cube_name = dataset.indices[idx]
     cube_shape = dataset.geometries[cube_name].cube_shape
@@ -125,16 +145,47 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True):
                 .load_component(src=[D('geometries'), D('labels')],
                                 dst=['geometries', 'labels'])
                 .crop(points=point,
-                      shape=[1] + cube_shape[1:])
+                      shape=[1] + list(cube_shape)[1:])
                 .load_cubes(dst='images')
-                .create_masks(dst='masks', width=2)
-                .rotate_axes(src=['images', 'masks'])
                 .scale(mode='normalize', src='images')
-                .add_axis(src='masks', dst='masks'))
+                .rotate_axes(src='images')
+                )
+
+    if 'masks' in components:
+        labels_pipeline = (Pipeline()
+                           .create_masks(dst='masks', width=2)
+                           .rotate_axes(src='masks')
+                           .add_axis(src='masks', dst='masks')
+                           )
+        pipeline = pipeline + labels_pipeline
 
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
-    plot_batch_components(batch, *components, overlap=overlap)
+    plot_batch_components(batch, *components, overlap=overlap, **kwargs)
     return batch
+
+
+def plot_from_above(img, title, **kwargs):
+    """ Plot image with a given title with predifined axis labels."""
+    default_kwargs = dict(cmap='Paired')
+    plt.figure(figsize=(12, 7))
+    img_ = plt.imshow(img, **{**default_kwargs, **kwargs})
+    plt.title(title, y=1.1, fontdict={'fontsize': 20})
+    plt.colorbar(img_, fraction=0.022, pad=0.07)
+    plt.xlabel('XLINES', fontdict={'fontsize': 20})
+    plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    plt.tick_params(labeltop=True, labelright=True)
+    plt.show()
+
+
+def plot_from_above_rgb(img, title, **kwargs):
+    """ Plot image with a given title with predifined axis labels."""
+    plt.figure(figsize=(12, 7))
+    plt.imshow(img, **kwargs)
+    plt.title(title, y=1.1, fontdict={'fontsize': 20})
+    plt.xlabel('XLINES', fontdict={'fontsize': 20})
+    plt.ylabel('ILINES', fontdict={'fontsize': 20})
+    plt.tick_params(labeltop=True, labelright=True)
+    plt.show()
 
 
 def show_labels(dataset, idx=0, hor_idx=None, src='labels'):
@@ -144,6 +195,9 @@ def show_labels(dataset, idx=0, hor_idx=None, src='labels'):
     ----------
     idx : int
         Number of cube to show labels for.
+    hor_idx : int or None
+        if int, a pixel is labeled whenever it is covered by the horizon with number hor_idx.
+        if None, a pixel is labeled whenever it is covered by at least one horizon.
     """
     name = dataset.indices[idx]
     geom = dataset.geometries[name]
@@ -158,7 +212,7 @@ def show_labels(dataset, idx=0, hor_idx=None, src='labels'):
 
     plt.figure(figsize=(12, 7))
     plt.imshow(img, cmap='Paired')
-    plt.title('Known labels for cube {} (yellow is known)'.format(name), fontdict={'fontsize': 20})
+    plt.title('Known labels for cube {}'.format(name), fontdict={'fontsize': 20})
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
     plt.show()
@@ -180,7 +234,19 @@ def labels_matrix(background, possible_coordinates, labels,
 
 
 def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1):
-    """ Generate a lot of points and plot their (iline, xline) positions. """
+    """ Generate a lot of points and plot their (iline, xline) positions.
+
+    Parameters
+    ----------
+    idx : int
+        cube-number to sample points for.
+    src_sampler : str
+        attribute to store the sampler.
+    n : int
+        size of generated sample.
+    eps : int
+        radius of a labeled point used for plotting.
+    """
     name = dataset.indices[idx]
     geom = dataset.geometries[name]
 
@@ -283,3 +349,59 @@ def plot_extension_history(next_predict_pipeline, btch):
     ax.set_yticks(np.arange(0, width, 10))
     ax.grid(color='w', linestyle='-', linewidth=.5)
     plt.show()
+    
+def show_extension_results(batch, val_pipeline, cubes_numbers, ext_result='ext_result',
+                           baseline_result=None, figsize=(25, 10)):
+    """ Demonstrate the results of the Horizon Extension model
+
+    Parameters
+    ----------
+    batch : instance of SeismicCropBatch
+    val_pipeline : instance of Pipeline
+        must contain Pipeline variable that stores model's input tensor, mask and predictions.
+    cube_numbers : array-like of int
+        Index numbers of crops in the batch to show.
+    ext_result : str
+        Name of pipeline variable where extension model results are saved.
+    baseline_result : str, optional
+        Name of pipeline variable where baseline model results are saved.
+    """
+    for cube in cubes_numbers:
+        print(batch.indices[cube][:-10])
+        iline = 0
+
+        truth_img = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline].T
+        truth_labels = val_pipeline.get_variable(ext_result)[1][cube, :, :, iline, 0].T
+        predicted_img = val_pipeline.get_variable(ext_result)[2][cube, :, :, iline, 0].T
+        cut_mask = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline + 2].T
+        if baseline_result:
+            predicted_simple = val_pipeline.get_variable(baseline_result)[2][cube, :, :, iline, 0].T
+
+        fig = plt.figure(figsize=figsize)
+        fig.add_subplot(1, 5, 1)
+        plt.imshow(truth_img, cmap='gray')
+        plt.title('Input tensor', fontsize=20)
+
+        fig.add_subplot(1, 5, 2)
+        plt.imshow(cut_mask, cmap="Blues")
+        plt.imshow(truth_img, cmap="gray", alpha=0.5)
+        plt.title('Input mask', fontsize=20)
+
+        fig.add_subplot(1, 5, 3)
+        plt.imshow(truth_labels, cmap="Blues")
+        plt.imshow(truth_img, cmap="gray", alpha=0.5)
+        plt.title('True mask', fontsize=20)
+
+        if baseline_result:
+            fig.add_subplot(1, 5, 4)
+            plt.imshow(predicted_simple, cmap="Greens")
+            plt.title('Baseline prediction', fontsize=20)
+            fig.add_subplot(1, 5, 5)
+        else:
+            fig.add_subplot(1, 5, 4)
+        plt.imshow(predicted_img, cmap="Blues")
+        plt.imshow(truth_img, cmap="gray", alpha=0.5)
+        plt.imshow(predicted_img, cmap="Blues", alpha=0.1)
+        plt.title('Extension prediction', fontsize=20)
+        plt.show()
+

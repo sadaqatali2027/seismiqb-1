@@ -15,8 +15,9 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array, convert_to_numba_dict
+from .utils import labels_to_depth_map, get_cube_values, compute_corrs, FILL_VALUE_A
 from .utils import update_horizon_dict, make_grid_info, compute_next_points
-from .plot_utils import show_labels, show_sampler, plot_slide, plot_extension_history
+from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above, plot_from_above_rgb, plot_extension_history
 
 
 class SeismicCubeset(Dataset):
@@ -746,11 +747,12 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def show_slide(self, idx=0, iline=0, overlap=True):
+    def show_slide(self, idx=0, iline=0, overlap=True, **kwargs):
         """ Show full slide of the given cube on the given iline. """
-        components = ('images', 'masks') if list(self.labels.values())[0] else ('images')
-        plot_slide(self, *components, idx=idx, iline=iline, overlap=overlap)
+        components = ('images', 'masks') if list(self.labels.values())[0] else ('images',)
+        plot_slide(self, *components, idx=idx, iline=iline, overlap=overlap, **kwargs)
 
+        
     def subset_labels(self, points, crop_shape=(2, 64, 64), cube_index=0, show_prior_mask=False):
         """Save prior mask to a cubeset attribute `prior_mask`.
         Parameters
@@ -1005,3 +1007,181 @@ class SeismicCubeset(Dataset):
         plt.show()
         setattr(self, 'img', batch.data_crops[0][0].T)
         return self
+
+
+    def show_depth_map(self, idx=0, labels_idx=0, labels_src=None, _return=False):
+        """ Show depth map of a horizon.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        labels_idx : int
+            Index of used horizon from `labels` dictionary.
+
+        labels_src : dict, optional
+            If None, then horizon is taken from `labels` attribute.
+            If dict, then must be a horizon.
+        """
+        labels = labels_src or self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+
+        depth_map = labels_to_depth_map(labels, geom, labels_idx)
+        depth_map[depth_map == FILL_VALUE_A] = 0
+
+        plot_from_above(depth_map, 'Heights {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_A])))
+
+        if _return:
+            return depth_map
+        return None
+
+
+    def show_cube_values(self, idx=0, labels_idx=0, labels_src=None, scale=False, _return=False):
+        """ Show trace values on a horizon.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        labels_idx : int
+            Index of used horizon from `labels` dictionary.
+
+        labels_src : dict, optional
+            If None, then horizon is taken from `labels` attribute.
+            If dict, then must be a horizon.
+
+        scale : bool, callable
+            If bool, then values are scaled to [0, 1] range.
+            If callable, then it is applied to iline-oriented slices of data from the cube.
+        """
+        labels = labels_src or self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+
+        data, depth_map = get_cube_values(labels, geom, labels_idx, 1, scale=scale)
+
+        plot_from_above(data, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_A])))
+        print('Std of amplitudes is {}'.format(np.std(data[depth_map != FILL_VALUE_A])))
+
+        if _return:
+            return data
+        return None
+
+
+    def show_rgb(self, idx=0, labels_idx=0, labels_src=None, width=1):
+        """ Show trace values on the horizon and surfaces directly under it.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        labels_idx : int
+            Index of used horizon from `labels` dictionary.
+
+        labels_src : dict, optional
+            If None, then horizon is taken from `labels` attribute.
+            If dict, then must be a horizon.
+
+        width : int
+            Space between surfaces to cut.
+        """
+        labels = labels_src or self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+
+        data, depth_map = get_cube_values(labels, geom, labels_idx, 1 + width*2, width)
+        data = data[:, :, (0, width, -1)]
+        data -= data.min(axis=(0, 1)).reshape(1, 1, -1)
+        data *= 1 / data.max(axis=(0, 1)).reshape(1, 1, -1)
+        data[depth_map == FILL_VALUE_A, :] = 0
+        data = data[:, :, ::-1]
+        data *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
+
+        plot_from_above_rgb(data, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]))
+        print('AVG', np.mean(depth_map[depth_map != FILL_VALUE_A]))
+
+
+    def compute_corrs(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False):
+        """ Compute correlations with the nearest traces along the horizon.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        labels_idx : int
+            Index of used horizon from `labels` dictionary.
+
+        labels_src : dict, optional
+            If None, then horizon is taken from `labels` attribute.
+            If dict, then must be a horizon.
+
+        window : int
+            Width of trace used for computing correlations.
+        """
+        labels = labels_src or self.labels[self.indices[idx]]
+        geom = self.geometries[self.indices[idx]]
+        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+
+        data, depth_map = get_cube_values(labels, geom, labels_idx, window, 0)
+        corrs = compute_corrs(data)
+        corrs[np.where(depth_map == FILL_VALUE_A)] = 0
+
+        plot_from_above(corrs, 'Correlation for {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        print('Average correlation is {}'.format(np.mean(corrs[depth_map != FILL_VALUE_A])))
+
+        if _return:
+            return corrs
+        return None
+
+
+    def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):
+        """ Compare two horizons on l1 metric and on derivative differences.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        hor_1, hor_2 : dict
+            Dictionaries with labeled horizons.
+
+        hor_1_idx, hor_2_idx : int
+            Index of used horizon from each respective dictionary.
+
+        axis : int
+            Axis to take derivative along.
+
+        cmap : str
+            Colormap of showing the results.
+        """
+        geom = self.geometries[self.indices[idx]]
+
+        # Create all depth maps
+        depth_map_1 = labels_to_depth_map(hor_1, geom, hor_1_idx, 0)
+        depth_map_2 = labels_to_depth_map(hor_2, geom, hor_2_idx, 0)
+        indicator = (np.minimum(depth_map_1, depth_map_2) == FILL_VALUE_A).astype(int)
+        depth_map_1[np.where(indicator == 1)] = 0
+        depth_map_2[np.where(indicator == 1)] = 0
+
+        # l1: mean absolute difference between depth maps
+        metric_1 = np.abs(depth_map_1 - depth_map_2)
+        metric_1[np.where(indicator == 1)] = 0
+        plot_from_above(metric_1, 'l1 metric on cube {}'.format(self.indices[idx]), cmap=cmap)
+        print('Average value of l1 is {}\n\n'.format(np.mean(metric_1[np.where(indicator == 0)])))
+
+        # ~: mean absolute difference between gradients of depth maps
+        metric_2 = np.abs(np.diff(depth_map_1, axis=axis, prepend=0) - np.diff(depth_map_2, axis=axis, prepend=0))
+        metric_2[np.where(indicator == 1)] = 0
+        plot_from_above(metric_2, '~ metric on cube {}'.format(self.indices[idx]), cmap=cmap)
+        print('Average value of ~ is {}'.format(np.mean(metric_2[np.where(indicator == 0)])))
+
+        if _return:
+            return metric_1, metric_2
+        return None
