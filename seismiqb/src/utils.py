@@ -534,7 +534,6 @@ def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines
 
     return val_min, val_max, matrix
 
-<<<<<<< HEAD
 def convert_to_numba_dict(_labels):
     """ Convert a dict to Numba dict.
 
