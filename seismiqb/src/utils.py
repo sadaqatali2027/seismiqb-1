@@ -17,26 +17,22 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
     """ Make subcube from .sgy cube by removing some of its first and
     last ilines and xlines.
 
-    Notes
-    -----
-    Common use of this function is to remove not fully filled slices of .sgy cubes.
-
     Parameters
     ----------
     path : str
         Location of original .sgy cube.
-
     geometry : SeismicGeometry
         Infered information about original cube.
-
     path_save : str
         Place to save subcube.
-
     i_range : array-like
         Ilines to include in subcube.
-
     x_range : array-like
         Xlines to include in subcube.
+
+    Notes
+    -----
+    Common use of this function is to remove not fully filled slices of .sgy cubes.
     """
 
     i_low, i_high = i_range[0], i_range[-1]
@@ -84,15 +80,12 @@ def convert_point_cloud(path, path_save, names=None, order=None, transform=None)
     ----------
     path : str
         Path to file to convert.
-
     path_save : str
         Path for the new file to be saved to.
-
     names : str or sequence of str
         Names of columns in the original file. Default is Petrel's export format, which is
         ('_', '_', 'iline', '_', '_', 'xline', 'cdp_x', 'cdp_y', 'height'), where `_` symbol stands for
         redundant keywords like `INLINE`.
-
     order : str or sequence of str
         Names and order of columns to keep. Default is ('iline', 'xline', 'height').
     """
@@ -163,10 +156,8 @@ def _filter_point_cloud(point_cloud, zero_matrix, ilines_offset, xlines_offset):
     ----------
     point_cloud : ndarray
         Point cloud with labels.
-
     zero_matrix : ndarray
         Matrix of (n_ilines, n_xlines) shape with 1 on positions of zero-traces.
-
     ilines_offset, xlines_offset : int
         Offsets of numeration.
     """
@@ -226,10 +217,8 @@ def _filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
     ----------
     labels : dict
         Dictionary with keys in (iline, xline) format.
-
     zero_matrix : ndarray
         Matrix of (n_ilines, n_xlines) shape with 1 on positions of zero-traces.
-
     ilines_offset, xlines_offset : int
         Offsets of numeration.
     """
@@ -352,13 +341,10 @@ def dump_horizon(horizon, geometry, path_save, idx=None, offset=1):
     ----------
     horizon : dict
         Mapping from pairs (iline, xline) to height.
-
     geometry : SeismicGeometry
         Information about cube
-
     path_save : str
         Path for the horizon to be saved to.
-
     offset : int, float
         Shift horizont before applying inverse transform.
         Usually is used to take into account different numeration bases:
@@ -386,16 +372,12 @@ def compare_horizons(dict_1, dict_2, printer=print, plot=False, sample_rate=1, o
     ----------
     dict_1, dict_2 : dict
         Mappings from (iline, xline) to heights. Value can be either array or one number.
-
     printer : callable
         Function to output results with, for example `print` or `log.info`.
-
     plot : bool
         Whether to plot histogram of errors.
-
     sample_rate : number
         Frequency of taking measures. Used to normalize 5ms window.
-
     offset : number
         Value to shift horizon up. Can be used to take into account different counting bases.
     """
@@ -489,7 +471,6 @@ def round_to_array(values, ticks):
     ----------
     values : array-like
         Array to modify.
-
     ticks : array-like
         Values to cast to. Must be sorted in the ascending order.
 
@@ -539,22 +520,20 @@ def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines
 
 
 
-def labels_to_depth_map(labels, geom, labels_idx=0, offset=0):
+def labels_to_depth_map(labels, geom, horizon_idx=0, offset=0):
     """ Converts labels-dictionary to matrix of depths.
 
     Parameters
     ----------
     labels : dict
         Labeled horizon.
-
-    labels_idx : int
+    horizon_idx : int
         Index of item inside `labels` values.
-
     offset : number
         Value to add to each entry in matrix.
     """
     @njit
-    def _labels_to_depth_map(labels, i_offset, x_offset, i_len, x_len, labels_idx=0, offset=0):
+    def _labels_to_depth_map(labels, i_offset, x_offset, i_len, x_len, horizon_idx=0, offset=0):
         depth_map = np.full((i_len, x_len), FILL_VALUE_A)
 
         for il in range(i_len):
@@ -562,7 +541,7 @@ def labels_to_depth_map(labels, geom, labels_idx=0, offset=0):
                 key = (il+i_offset, xl+x_offset)
                 value = labels.get(key)
                 if value is not None:
-                    h = value[labels_idx]
+                    h = value[horizon_idx]
                     if h != FILL_VALUE:
                         h += int(np.rint(offset))
                         depth_map[il, xl] = h
@@ -570,10 +549,10 @@ def labels_to_depth_map(labels, geom, labels_idx=0, offset=0):
 
     return _labels_to_depth_map(labels, geom.ilines_offset, geom.xlines_offset,
                                 geom.ilines_len, geom.xlines_len,
-                                labels_idx, offset)
+                                horizon_idx, offset)
 
 
-def depth_map_to_labels(depth_map, geom, labels=None, labels_idx=0):
+def depth_map_to_labels(depth_map, geom, labels=None, horizon_idx=0):
     """ Converts matrix of depths back into dictionary.
     Can also be used to replace dictionary values with updated ones.
 
@@ -581,22 +560,21 @@ def depth_map_to_labels(depth_map, geom, labels=None, labels_idx=0):
     ----------
     depth_map : array
         Matrix of depths.
-
     labels : dict, optional
         If None, then new numba dictionary is created.
         If dict, then values are written into that dict.
-
-    labels_idx : int
+    horizon_idx : int
         Index of value to replace in passed `labels`.
     """
     key_type = types.Tuple((types.int64, types.int64))
     value_type = types.int64[:]
-    max_count = len(list(labels.values())) if labels else 1
-    labels_idx = labels_idx if labels else 0
+    max_count = len(list(labels.values())[0]) if labels else 1
+
+    horizon_idx = horizon_idx if labels else 0
     labels = labels or Dict.empty(key_type, value_type)
 
     @njit
-    def _depth_map_to_labels(depth_map, i_offset, x_offset, labels, labels_idx, max_count):
+    def _depth_map_to_labels(depth_map, i_offset, x_offset, labels, horizon_idx, max_count):
         i_len, x_len = depth_map.shape
 
         for il in range(i_len):
@@ -605,29 +583,25 @@ def depth_map_to_labels(depth_map, geom, labels=None, labels_idx=0):
                 value = depth_map[il, xl]
                 if labels.get(key) is None:
                     labels[key] = np.full((max_count, ), FILL_VALUE, np.int64)
-                labels[key][labels_idx] = value
+                labels[key][horizon_idx] = value
         return labels
 
-    return _depth_map_to_labels(depth_map, geom.ilines_offset, geom.xlines_offset, labels, labels_idx, max_count)
+    return _depth_map_to_labels(depth_map, geom.ilines_offset, geom.xlines_offset, labels, horizon_idx, max_count)
 
 
-def get_cube_values(labels, geom, labels_idx=0, window=3, offset=0, scale=False):
+def get_cube_values(labels, geom, horizon_idx=0, window=3, offset=0, scale=False):
     """ Get values from the cube along the horizon.
 
     Parameters
     ----------
     labels : dict
         Labeled horizon.
-
-    labels_idx : int
+    horizon_idx : int
         Index of item inside `labels` values.
-
     window : int
         Width of data to cut.
-
     offset : int
         Value to add to each entry in matrix.
-
     scale : bool, callable
         If bool, then values are scaled to [0, 1] range.
         If callable, then it is applied to iline-oriented slices of data from the cube.
@@ -646,12 +620,12 @@ def get_cube_values(labels, geom, labels_idx=0, window=3, offset=0, scale=False)
     @njit
     def _update(background, depth_map, slide, labels,
                 xlines_len, il, ilines_offset, xlines_offset,
-                low, high, labels_idx, offset):
+                low, high, horizon_idx, offset):
         for xl in range(xlines_len):
             key = (il+ilines_offset, xl+xlines_offset)
             arr = labels.get(key)
             if arr is not None:
-                h = arr[labels_idx]
+                h = arr[horizon_idx]
                 if h != FILL_VALUE:
                     h += int(np.rint(offset))
                     depth_map[il, xl] = h
@@ -670,7 +644,7 @@ def get_cube_values(labels, geom, labels_idx=0, window=3, offset=0, scale=False)
         # here we can insert even more transforms!
         background, depth_map = _update(background, depth_map, slide, labels,
                                         x_len, il, i_offset, x_offset,
-                                        low, high, labels_idx, offset)
+                                        low, high, horizon_idx, offset)
     background = np.squeeze(background)
     return background, depth_map
 

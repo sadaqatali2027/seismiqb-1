@@ -148,7 +148,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape, dilations=None, loc=(0, 0, 0), side_view=False, dst='slices', passdown=None):
+    def crop(self, points, shape, dilations=(1, 1, 1), loc=(0, 0, 0), side_view=False, dst='slices', passdown=None):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
 
@@ -159,19 +159,14 @@ class SeismicCropBatch(Batch):
             cut it from. Order is: name, iline, xline, height. For example,
             ['Cube.sgy', 13, 500, 200] stands for crop has [13, 500, 200]
             as its upper rightmost point and must be cut from 'Cube.sgy' file.
-
         shape : sequence
             Desired shape of crops.
-
         dilations : sequence
             Intervals between successive slides along each dimension.
-
-        loc : sequence
-            Location of the point relative to the cut crop. Must be one of the unit-cube vertices.
-
+        loc : sequence of numbers
+            Location of the point relative to the cut crop. Must be a location on unit cube.
         dst : str, optional
             Component of batch to put positions of crops in.
-
         passdown : str of list of str
             Components of batch to keep in the new one.
 
@@ -199,8 +194,6 @@ class SeismicCropBatch(Batch):
             if hasattr(self, component):
                 setattr(new_batch, component, getattr(self, component))
 
-        dilations = dilations or [1, 1, 1]
-
         if side_view:
             side_view = side_view if isinstance(side_view, float) else 0.5
         shape = np.asarray(shape)
@@ -215,6 +208,9 @@ class SeismicCropBatch(Batch):
                 else:
                     shapes.append(shape[[1, 0, 2]])
         shapes = np.array(shapes)
+
+        if not all((0 <= x <= 1) for x in loc):
+            raise ValueError('Locations of crop anchor must be inside unit-cube, instead got {}'.format(loc))
 
         slices = []
         for point, shape_ in zip(points, shapes):
@@ -234,7 +230,7 @@ class SeismicCropBatch(Batch):
 
         slice_ = []
         for i in range(3):
-            start_point = max(slice_point[i] - loc[i]*shape[i]*dilations[i], 0)
+            start_point = int(max(slice_point[i] - loc[i]*shape[i]*dilations[i], 0))
             end_point = start_point + shape[i]*dilations[i]
             slice_.append(np.arange(start_point, end_point, dilations[i]))
         return slice_
@@ -576,42 +572,14 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    @inbatch_parallel(init='_init_component', target='threads')
-    def concatenate(self, ix, *srcs, dst=None, axis=-1):
-        """ Concatenate batch components along specified axis.
-
-        Parameters
-        ----------
-        srcs : sequence of str
-            Components of batch to concatenate.
-
-        dst : str
-            Component of batch to put the resulting data in.
-
-        axis : int
-            Axis to concatenate along
-
-        Returns
-        -------
-        SeismicCropBatch
-            Batch with concatenated data in desired destination.
-        """
-        data = [getattr(self, src)[self.get_pos(None, src, ix)]
-                for src in srcs]
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = np.concatenate(data, axis=axis)
-        return self
-
-
-    @action
     @inbatch_parallel(init='_init_component', post='_assemble', target='threads')
-    def concat_components(self, ix, src=None, dst=None, axis=-1):
-        """ Concatenate a list of components and save results to `dst` component
+    def concat_components(self, ix, src, dst, axis=-1):
+        """ Concatenate a list of components and save results to `dst` component.
 
         Parameters
         ----------
         src : array-like
-            list of components to concatenate of length more than one
+            List of components to concatenate of length more than one.
         dst : str
             Component of batch to put results in.
         axis : int
@@ -925,19 +893,14 @@ class SeismicCropBatch(Batch):
         idx : int or None
             If int, then index of desired image in list.
             If None, then no indexing is applied.
-
         components : str or sequence of str
             Components to get from batch and draw.
-
         overlap : bool
             Whether to draw images one over the other or not.
-
         order_axes : sequence of int
             Determines desired order of the axis. The first two are plotted.
-
         cmaps : str or sequence of str
             Color maps for showing images.
-
         alphas : number or sequence of numbers
             Opacity for showing images.
         """
