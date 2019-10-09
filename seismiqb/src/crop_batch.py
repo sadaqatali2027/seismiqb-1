@@ -653,7 +653,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='run_once')
-    def assemble_crops(self, src, dst, grid_info, order=None):
+    def assemble_crops(self, src, dst, grid_info, order=None, stop_condition=True):
         """ Glue crops together in accordance to the grid.
 
         Note
@@ -675,8 +675,9 @@ class SeismicCropBatch(Batch):
             Batch with assembled subcube in desired component.
         """
         # Do nothing until there is a crop for every point
-        if len(src) != len(grid_info['grid_array']):
-            return self
+        if stop_condition:
+            if len(src) != len(grid_info['grid_array']):
+                return self
 
         order = order or (2, 0, 1)
         # Since we know that cube is 3-d entity, we can get rid of

@@ -8,6 +8,7 @@ from numba import njit, types
 from numba.typed import Dict
 import matplotlib.pyplot as plt
 
+from ..batchflow import Pipeline, D, L, B, V
 
 FILL_VALUE = -999
 FILL_VALUE_A = -999999
@@ -776,3 +777,28 @@ def compute_corrs(data):
             if c != 0:
                 corrs[i, x] = s / c
     return corrs
+
+
+
+def create_predict_ppl(model_pipeline, crops_gen_name, crop_shape, axes):
+    pred_pipeline = (Pipeline()
+                         .load_component(src=[D('geometries'), D('labels')],
+                                         dst=['geometries', 'labels'])
+                         .add_components('predicted_labels')
+                         .crop(points=L(D(crops_gen_name)),
+                               shape=crop_shape, passdown='predicted_labels')
+                         .load_component(src=[D('prior_mask')], dst=['predicted_labels'])
+                         .load_cubes(dst='images')
+                         .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
+                         .create_masks(dst='cut_masks', width=1, n_horizons=1, src_labels='predicted_labels')
+                         .apply_transform(np.transpose, axes=axes, src=['images', 'masks', 'cut_masks'])
+                         .rotate_axes(src=['images', 'masks', 'cut_masks'])
+                         .scale(mode='normalize', src='images')
+                         .import_model('extension', model_pipeline)
+                         .init_variable('result_preds', default=list())
+                         .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
+                         .predict_model('extension', fetches='sigmoid',
+                                          images=B('model_inputs'),
+                                          cut_masks=B('cut_masks'),
+                                          save_to=V('result_preds', mode='e')))
+    return pred_pipeline

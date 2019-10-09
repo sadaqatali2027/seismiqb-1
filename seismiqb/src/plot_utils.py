@@ -188,7 +188,7 @@ def plot_from_above_rgb(img, title, **kwargs):
     plt.show()
 
 
-def show_labels(dataset, idx=0, hor_idx=None, src='labels'):
+def show_labels(dataset, idx=0, hor_idx=None, src='labels', show_plot=True):
     """ Show labeled ilines/xlines from above: yellow stands for labeled regions.
 
     Parameters
@@ -209,13 +209,14 @@ def show_labels(dataset, idx=0, hor_idx=None, src='labels'):
     img = labels_matrix(background, np.array(possible_coordinates), labels,
                         geom.ilines_offset, geom.xlines_offset, hor_idx)
     img[0, 0] = 0
-
-    plt.figure(figsize=(12, 7))
-    plt.imshow(img, cmap='Paired')
-    plt.title('Known labels for cube {}'.format(name), fontdict={'fontsize': 20})
-    plt.xlabel('XLINES', fontdict={'fontsize': 20})
-    plt.ylabel('ILINES', fontdict={'fontsize': 20})
-    plt.show()
+    
+    if show_plot:
+        plt.figure(figsize=(12, 7))
+        plt.imshow(img, cmap='Paired')
+        plt.title('Known labels for cube {}'.format(name), fontdict={'fontsize': 20})
+        plt.xlabel('XLINES', fontdict={'fontsize': 20})
+        plt.ylabel('ILINES', fontdict={'fontsize': 20})
+        plt.show()
     return img
 
 @njit

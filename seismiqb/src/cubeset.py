@@ -10,13 +10,14 @@ from skimage.segmentation import find_boundaries
 from ..batchflow import Dataset, Sampler, Pipeline
 from ..batchflow import B, V, D
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
+from ..batchflow.models.tf import TFModel
 
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array, convert_to_numba_dict
 from .utils import labels_to_depth_map, get_cube_values, compute_corrs, FILL_VALUE_A
-from .utils import update_horizon_dict, make_grid_info, compute_next_points
+from .utils import update_horizon_dict, make_grid_info, compute_next_points, create_predict_ppl
 from .plot_utils import show_labels, show_sampler, plot_slide, plot_from_above, plot_from_above_rgb, plot_extension_history
 
 
@@ -210,9 +211,9 @@ class SeismicCubeset(Dataset):
                 name = os.path.join(save_dir, os.path.basename(path))
                 dump_horizon(labels, geom, name, idx=idx, offset=0)
 
-    def show_labels(self, idx=0, hor_idx=None, src='labels', return_image=False):
+    def show_labels(self, idx=0, hor_idx=None, src='labels', return_image=False, show_plot=True):
         """ Draw points with hand-labeled horizons from above. """
-        img = show_labels(self, idx=idx, hor_idx=hor_idx, src=src)
+        img = show_labels(self, idx=idx, hor_idx=hor_idx, src=src, show_plot=show_plot)
         if return_image:
             return img
 
@@ -548,117 +549,6 @@ class SeismicCubeset(Dataset):
                           'cube_name': cube_name,
                           'range': [ilines_range, xlines_range, h_range]}
         return self
-
-    def make_expand_grid(self, idx, crop_shape, labels_img, labels_src='labels', labels_idx=0, stride=10, batch_size=16):
-        """ Awesome docstring
-        Parameters
-        ----------
-        labels_idx : int
-            To be removed after adding different directional crop 
-        """
-        borders_img = find_boundaries(labels_img).astype(np.int32)
-        plt.imshow(borders_img)
-        plt.show()
-        il_len, x_len = labels_img.shape
-        border_coords = np.where(borders_img == 1)
-        il_min, il_max = np.min(border_coords[0]), np.max(border_coords[0])
-        x_min, x_max = np.min(border_coords[1]), np.max(border_coords[1])
-        il_offset = self.geometries[idx].ilines_offset
-        xl_offset = self.geometries[idx].xlines_offset
-        
-        width, line_shape, height = crop_shape
-        iline_crops = []
-
-        # sample horizontal border points
-        for xline in range(x_min, x_max):
-            non_zero = np.where(borders_img[il_min:il_max, xline] == 1)[0]
-            if len(non_zero) == 0:
-                continue
-            print('non zero xl', xline, non_zero)
-            _lower_il, _upper_il = np.min(non_zero) + il_min, np.max(non_zero) + il_min
-            try:
-                _lower_h = getattr(self, labels_src)[idx][(_lower_il + il_offset, xline + xl_offset)][labels_idx] - height // 2
-            except KeyError as k:
-                print(_lower_il + il_offset, xline + xl_offset, k)
-            _upper_h = getattr(self, labels_src)[idx][(_upper_il + il_offset, xline + xl_offset)][labels_idx] - height // 2
-
-            _lower_il = _lower_il + stride - line_shape
-            _upper_il = _upper_il - stride
-            iline_crops.append([idx, _lower_il, xline, _lower_h])
-            iline_crops.append([idx, _upper_il, xline, _upper_h])
-        iline_crops = np.array(iline_crops, dtype=object)
-
-        xline_crops = []
-
-        # sample vertical border points
-        for iline in range(il_min, il_max):
-            non_zero = np.where(borders_img[iline, x_min:x_max] == 1)[0]
-            if len(non_zero) == 0:
-                continue
-            print('non zero il', iline, non_zero)
-            _lower_xl, _upper_xl = np.min(non_zero) + x_min, np.max(non_zero) + x_min
-            _lower_h = getattr(self, labels_src)[idx][(iline + il_offset, _lower_xl + xl_offset)][labels_idx] - height // 2
-            _upper_h = getattr(self, labels_src)[idx][(iline + il_offset, _upper_xl + xl_offset)][labels_idx] - height // 2
-
-            _lower_xl = _lower_xl + stride - line_shape
-            _upper_xl = _upper_xl - stride
-            xline_crops.append([idx, iline, _lower_xl, _lower_h])
-            xline_crops.append([idx, iline, _upper_xl, _upper_h])
-        xline_crops = np.array(xline_crops, dtype=object)
-
-        iline_crops_gen = (iline_crops[i:i+batch_size]
-                               for i in range(0, len(iline_crops), batch_size))
-        xline_crops_gen = (xline_crops[i:i+batch_size]
-                               for i in range(0, len(xline_crops), batch_size))
-        self.iline_crops_gen = lambda: next(iline_crops_gen)
-        self.iline_crops_iters = - (-len(iline_crops) // batch_size)
-
-        offsets = np.array([np.min(iline_crops[:, 1]),
-                            np.min(iline_crops[:, 2]),
-                            np.min(iline_crops[:, 3])])
-
-        ilines_range = (np.min(iline_crops[:, 1]), np.max(iline_crops[:, 1]) + line_shape)
-        xlines_range = (np.min(iline_crops[:, 2]), np.max(iline_crops[:, 2]) + width)
-        h_range = (np.min(iline_crops[:, 3]), np.max(iline_crops[:, 3]) + height)
-
-
-        predict_shape = (ilines_range[1] - ilines_range[0],
-                         xlines_range[1] - xlines_range[0],
-                         h_range[1] - h_range[0])
-
-        grid_array = iline_crops[:, 1:].astype(int) - offsets
-
-        self.iline_crops_info = {'grid_array': grid_array,
-                                 'predict_shape': predict_shape,
-                                 'range': [ilines_range, xlines_range, h_range],
-                                 'crop_shape': (crop_shape[1], crop_shape[0], crop_shape[2]),
-                                 'cube_name': idx}
-
-
-        x_offsets = np.array([np.min(xline_crops[:, 1]),
-                              np.min(xline_crops[:, 2]),
-                              np.min(xline_crops[:, 3])])
-
-        x_ilines_range = (np.min(xline_crops[:, 1]), np.max(xline_crops[:, 1]) + width)
-        x_xlines_range = (np.min(xline_crops[:, 2]), np.max(xline_crops[:, 2]) + line_shape)
-        x_h_range = (np.min(xline_crops[:, 3]), np.max(xline_crops[:, 3]) + height)
-
-                        
-        x_predict_shape = (x_ilines_range[1] - x_ilines_range[0],
-                           x_xlines_range[1] - x_xlines_range[0],
-                           x_h_range[1] - x_h_range[0])
-
-        x_grid_array = xline_crops[:, 1:].astype(int) - x_offsets
-
-        self.xline_crops_gen = lambda: next(xline_crops_gen)
-        self.xline_crops_iters = - (-len(xline_crops) // batch_size)
-        self.xline_crops_info = {'grid_array': x_grid_array,
-                                 'predict_shape': x_predict_shape,
-                                 'range': [x_ilines_range, x_xlines_range, x_h_range],
-                                 'crop_shape': crop_shape,
-                                 'cube_name': idx}
-        return self
-
 
     def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates='cubic', separate=True,
                         transforms=None):
@@ -1185,3 +1075,186 @@ class SeismicCubeset(Dataset):
         if _return:
             return metric_1, metric_2
         return None
+
+    def make_expand_grid(self, cube_name, crop_shape, labels_img, labels_src='labels', labels_idx=0, stride=10, batch_size=16):
+        """ Awesome docstring
+
+        Parameters
+        ----------
+        cube_name : str
+            Reference to cube. Should be valid key for `geometries` attribute.
+
+        labels_idx : int
+            To be removed after adding different directional crop 
+        """
+        borders_img = find_boundaries(labels_img).astype(np.int32)
+        il_len, x_len = labels_img.shape
+        border_coords = np.where(borders_img == 1)
+        il_min, il_max = np.min(border_coords[0]), np.max(border_coords[0])
+        x_min, x_max = np.min(border_coords[1]), np.max(border_coords[1])
+        il_offset = self.geometries[cube_name].ilines_offset
+        xl_offset = self.geometries[cube_name].xlines_offset
+        
+        width, line_shape, height = crop_shape
+        iline_crops = []
+
+        # sample horizontal border points
+        for xline in range(x_min, x_max):
+            non_zero = np.where(borders_img[il_min:il_max, xline] == 1)[0]
+            if len(non_zero) == 0:
+                continue
+            _lower_il, _upper_il = np.min(non_zero) + il_min, np.max(non_zero) + il_min
+            try:
+                _lower_h = getattr(self, labels_src)[cube_name][(_lower_il + il_offset, xline + xl_offset)][labels_idx] - height // 2
+            except KeyError as k:
+                print(_lower_il + il_offset, xline + xl_offset, k)
+            _upper_h = getattr(self, labels_src)[cube_name][(_upper_il + il_offset, xline + xl_offset)][labels_idx] - height // 2
+
+            _lower_il = _lower_il + stride - line_shape
+            _upper_il = _upper_il - stride
+            iline_crops.append([cube_name, _lower_il, xline, _lower_h])
+            iline_crops.append([cube_name, _upper_il, xline, _upper_h])
+        iline_crops = np.array(iline_crops, dtype=object)
+
+        iline_crops_gen = (iline_crops[i:i+batch_size]
+                               for i in range(0, len(iline_crops), batch_size))
+        self.iline_crops_gen = lambda: next(iline_crops_gen)
+        self.iline_crops_iters = - (-len(iline_crops) // batch_size)
+        offsets = np.array([np.min(iline_crops[:, 1]),
+                            np.min(iline_crops[:, 2]),
+                            np.min(iline_crops[:, 3])])
+
+        ilines_range = (np.min(iline_crops[:, 1]), np.max(iline_crops[:, 1]) + line_shape)
+        xlines_range = (np.min(iline_crops[:, 2]), np.max(iline_crops[:, 2]) + width)
+        h_range = (np.min(iline_crops[:, 3]), np.max(iline_crops[:, 3]) + height)
+        grid_array = iline_crops[:, 1:].astype(int) - offsets
+
+        
+        predict_shape = (ilines_range[1] - ilines_range[0],
+                         xlines_range[1] - xlines_range[0],
+                         h_range[1] - h_range[0])
+
+        self.iline_crops_info = {'grid_array': grid_array,
+                                 'predict_shape': predict_shape,
+                                 'range': [ilines_range, xlines_range, h_range],
+                                 'crop_shape': (crop_shape[1], crop_shape[0], crop_shape[2]),
+                                 'cube_name': cube_name}
+
+        
+        xline_crops = []
+
+        # sample vertical border points
+        for iline in range(il_min, il_max):
+            non_zero = np.where(borders_img[iline, x_min:x_max] == 1)[0]
+            if len(non_zero) == 0:
+                continue
+            _lower_xl, _upper_xl = np.min(non_zero) + x_min, np.max(non_zero) + x_min
+            _lower_h = getattr(self, labels_src)[cube_name][(iline + il_offset, _lower_xl + xl_offset)][labels_idx] - height // 2
+            _upper_h = getattr(self, labels_src)[cube_name][(iline + il_offset, _upper_xl + xl_offset)][labels_idx] - height // 2
+
+            _lower_xl = _lower_xl + stride - line_shape
+            _upper_xl = _upper_xl - stride
+            xline_crops.append([cube_name, iline, _lower_xl, _lower_h])
+            xline_crops.append([cube_name, iline, _upper_xl, _upper_h])
+        xline_crops = np.array(xline_crops, dtype=object)
+
+        xline_crops_gen = (xline_crops[i:i+batch_size]
+                               for i in range(0, len(xline_crops), batch_size))
+
+
+        x_offsets = np.array([np.min(xline_crops[:, 1]),
+                              np.min(xline_crops[:, 2]),
+                              np.min(xline_crops[:, 3])])
+
+        x_ilines_range = (np.min(xline_crops[:, 1]), np.max(xline_crops[:, 1]) + width)
+        x_xlines_range = (np.min(xline_crops[:, 2]), np.max(xline_crops[:, 2]) + line_shape)
+        x_h_range = (np.min(xline_crops[:, 3]), np.max(xline_crops[:, 3]) + height)
+
+                        
+        x_predict_shape = (x_ilines_range[1] - x_ilines_range[0],
+                           x_xlines_range[1] - x_xlines_range[0],
+                           x_h_range[1] - x_h_range[0])
+
+        x_grid_array = xline_crops[:, 1:].astype(int) - x_offsets
+
+        self.xline_crops_gen = lambda: next(xline_crops_gen)
+        self.xline_crops_iters = - (-len(xline_crops) // batch_size)
+        self.xline_crops_info = {'grid_array': x_grid_array,
+                                 'predict_shape': x_predict_shape,
+                                 'range': [x_ilines_range, x_xlines_range, x_h_range],
+                                 'crop_shape': crop_shape,
+                                 'cube_name': cube_name}
+        return self
+
+    
+    def _predict_direction(self, model_pipeline, dst, direction):
+        """ Awesome docstring
+
+        Parameters
+        ----------
+        """
+        grid_info = getattr(self, direction + '_crops_info')
+        n_iters = getattr(self, direction + '_crops_iters')
+        order = (2, 0, 1) if direction == 'xline' else (0, 2, 1)
+        axes = (0, 1, 2) if direction == 'xline' else (1, 0, 2)
+
+        crops_gen_name = direction + '_crops_gen'
+        cube_name = grid_info['cube_name']
+
+        predict_ppl = create_predict_ppl(model_pipeline, crops_gen_name, grid_info['crop_shape'], axes=axes) << self
+
+        for i in range(n_iters):
+            pred_batch = predict_ppl.next_batch(1, n_epochs=None)    
+
+        assemble_ppl = Pipeline().assemble_crops(src=predict_ppl.v("result_preds"), dst='assembled_pred',
+                                                 grid_info=grid_info, order=order) << self
+        btch = assemble_ppl.next_batch(1)
+        points = [rng[0] for rng in grid_info['range']]
+        transforms = [lambda i_: self.geometries[cube_name].ilines[i_ + points[0]],
+                            lambda x_: self.geometries[cube_name].xlines[x_ + points[1]],
+                            lambda h_: h_ + points[2]]
+
+        self.get_point_cloud(btch.assembled_pred, threshold=0.001, dst=dst,
+                           coordinates=None, separate=True, transforms=transforms)
+        merged_dict = {**getattr(self, dst)[0], **getattr(self, dst)[1]}
+        setattr(self, dst, {cube_name: convert_to_numba_dict(merged_dict)})
+
+    def extension_step(self, cube_name, img, model_pipeline, crop_shape=(4, 100, 100)):
+        """ Awesome docstring
+
+        Parameters
+        ----------
+        cube_name : str
+            Reference to cube. Should be valid key for `geometries` attribute.
+
+        labels_idx : int
+            To be removed after adding different directional crop 
+        """
+
+        self.make_expand_grid(cube_name, crop_shape=crop_shape,
+                              labels_img=img, labels_idx=1)
+        self._predict_direction(model_pipeline, 'predicted_mask_x', 'xline')
+        self._predict_direction(model_pipeline, 'predicted_mask_iline', 'iline')
+
+        expanded_labels = {**self.predicted_mask_x[cube_name], **self.predicted_mask_iline[cube_name], **self.prior_mask[cube_name]}
+        setattr(self, 'prior_mask', {cube_name: convert_to_numba_dict(expanded_labels)})
+
+    def expand_cycle(self, cube_name, crop_shape, path, return_image=False, prior_src='prior_mask', n_iters=10):
+        """ Awesome docstring
+
+        Parameters
+        ----------
+        cube_name : str
+            Reference to cube. Should be valid key for `geometries` attribute.
+
+        labels_idx : int
+            To be removed after adding different directional crop 
+        """
+
+        model_pipeline = (Pipeline().load_model('static', TFModel, 'extension', path=path) << self)
+        model_pipeline.next_batch(1)
+
+        for i in range(n_iters):
+            img = self.show_labels(return_image=return_image, src=prior_src)
+            self.extension_step(cube_name, img, model_pipeline, crop_shape=crop_shape)
+        return self
