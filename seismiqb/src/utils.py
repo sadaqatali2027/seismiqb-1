@@ -520,7 +520,7 @@ def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines
 
 
 
-def labels_to_depth_map(labels, geom, horizon_idx=0, offset=0):
+def horizon_to_depth_map(labels, geom, horizon_idx=0, offset=0):
     """ Converts labels-dictionary to matrix of depths.
 
     Parameters
@@ -533,7 +533,7 @@ def labels_to_depth_map(labels, geom, horizon_idx=0, offset=0):
         Value to add to each entry in matrix.
     """
     @njit
-    def _labels_to_depth_map(labels, i_offset, x_offset, i_len, x_len, horizon_idx=0, offset=0):
+    def _horizon_to_depth_map(labels, i_offset, x_offset, i_len, x_len, horizon_idx=0, offset=0):
         depth_map = np.full((i_len, x_len), FILL_VALUE_A)
 
         for il in range(i_len):
@@ -547,9 +547,9 @@ def labels_to_depth_map(labels, geom, horizon_idx=0, offset=0):
                         depth_map[il, xl] = h
         return depth_map
 
-    return _labels_to_depth_map(labels, geom.ilines_offset, geom.xlines_offset,
-                                geom.ilines_len, geom.xlines_len,
-                                horizon_idx, offset)
+    return _horizon_to_depth_map(labels, geom.ilines_offset, geom.xlines_offset,
+                                 geom.ilines_len, geom.xlines_len,
+                                 horizon_idx, offset)
 
 
 def depth_map_to_labels(depth_map, geom, labels=None, horizon_idx=0):
@@ -589,7 +589,7 @@ def depth_map_to_labels(depth_map, geom, labels=None, horizon_idx=0):
     return _depth_map_to_labels(depth_map, geom.ilines_offset, geom.xlines_offset, labels, horizon_idx, max_count)
 
 
-def get_cube_values(labels, geom, horizon_idx=0, window=3, offset=0, scale=False):
+def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scale=False):
     """ Get values from the cube along the horizon.
 
     Parameters
