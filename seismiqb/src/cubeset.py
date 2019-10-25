@@ -12,13 +12,26 @@ from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
-from .utils import labels_to_depth_map, depth_map_to_labels, get_cube_values, compute_corrs, FILL_VALUE_A
+from .utils import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes, compute_corrs, FILL_VALUE_A
 from .plot_utils import show_labels, show_sampler, plot_slide, plot_image
 
 
 
 class SeismicCubeset(Dataset):
-    """ Stores indexing structure for dataset of seismic cubes along with additional structures. """
+    """ Stores indexing structure for dataset of seismic cubes along with additional structures.
+
+    Attributes
+    ----------
+    geometries : dict
+        Mapping from cube names to instances of :class:`~.SeismicGeometry`, which holds information
+        about that cube structure. :meth:`~.load_geometries` is used to infer that structure.
+        Note that no more that one trace is loaded into the memory at a time.
+
+    labels : dict
+        Mapping from cube names to numba-dictionaries, which are mappings from (xline, iline) pairs
+        into arrays of heights of horizons for a given cube.
+        Note that this arrays preserve order: i-th horizon is always placed into the i-th element of the array.
+    """
     #pylint: disable=too-many-public-methods
     def __init__(self, index, batch_class=SeismicCropBatch, preloaded=None, *args, **kwargs):
         """ Initialize additional attributes.
@@ -582,15 +595,17 @@ class SeismicCubeset(Dataset):
         ----------
         horizon : dict
             Mapping from (iline, xline) to heights.
-        idx : int
-            Index of cube in the dataset to work with.
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
         offset : number
             Value to shift horizon up. Can be used to take into account different counting bases.
         plot : bool
             Whether to plot histogram of errors.
         """
-        labels = self.labels[self.indices[idx]]
-        sample_rate = self.geometries[self.indices[idx]].sample_rate
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        labels = self.labels[cube_name]
+        sample_rate = self.geometries[cube_name].sample_rate
 
         compare_horizons(horizon, labels, printer=print, plot=plot,
                          sample_rate=sample_rate, offset=offset)
@@ -603,14 +618,19 @@ class SeismicCubeset(Dataset):
         plot_slide(self, *components, idx=idx, n_line=n_line, overlap=overlap, mode=mode, **kwargs)
 
 
-    def apply_to_horizon(self, idx=0, labels_idx=0, labels_src=None, transform=None):
+    def apply_to_horizon(self, idx=0, horizon_idx=0, labels_src=None, transform=None):
         """ Apply specific transform to individual horizon inside dictionary with labels.
+        Under the hood, horizon is converted into depth map, which is essentially a matrix in
+        (xline, inline) coordinates with values corresponding to height of the horizon at the given point,
+        then transform is applied, and then depth map is converted back into horizon.
+        Note that this method changes values of horizon inplace.
 
         Parameters
         ----------
-        idx : int
-            Number of cube to use.
-        labels_idx : int
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
+        horizon_idx : int
             Index of used horizon from `labels` dictionary.
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
@@ -618,36 +638,39 @@ class SeismicCubeset(Dataset):
         transform : callable
             Function to apply to depth map.
         """
-        labels = labels_src or self.labels[self.indices[idx]]
-        geom = self.geometries[self.indices[idx]]
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        labels = labels_src or self.labels[cube_name]
+        geom = self.geometries[cube_name]
 
-        depth_map = labels_to_depth_map(labels, geom, labels_idx, 0)
+        depth_map = horizon_to_depth_map(labels, geom, horizon_idx, 0)
         if callable(transform):
             depth_map = transform(depth_map)
-        depth_map_to_labels(depth_map, geom, labels, labels_idx)
+        depth_map_to_labels(depth_map, geom, labels, horizon_idx)
 
 
-    def show_depth_map(self, idx=0, labels_idx=0, labels_src=None, _return=False):
+    def show_horizon_depth_map(self, idx=0, horizon_idx=0, labels_src=None, _return=False):
         """ Show depth map of a horizon.
 
         Parameters
         ----------
-        idx : int
-            Number of cube to use.
-        labels_idx : int
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
+        horizon_idx : int
             Index of used horizon from `labels` dictionary.
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
             If dict, then must be a horizon.
         """
-        labels = labels_src or self.labels[self.indices[idx]]
-        geom = self.geometries[self.indices[idx]]
-        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        labels = labels_src or self.labels[cube_name]
+        geom = self.geometries[cube_name]
+        hor_name = os.path.basename(geom.horizon_list[horizon_idx])
 
-        depth_map = labels_to_depth_map(labels, geom, labels_idx)
+        depth_map = horizon_to_depth_map(labels, geom, horizon_idx)
         depth_map[depth_map == FILL_VALUE_A] = 0
 
-        plot_image(depth_map, 'Heights {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        plot_image(depth_map, 'Heights {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
         print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_A])))
 
         if _return:
@@ -655,14 +678,15 @@ class SeismicCubeset(Dataset):
         return None
 
 
-    def show_cube_values(self, idx=0, labels_idx=0, labels_src=None, scale=False, _return=False):
+    def show_horizon_amplitudes(self, idx=0, horizon_idx=0, labels_src=None, scale=False, _return=False):
         """ Show trace values on a horizon.
 
         Parameters
         ----------
-        idx : int
-            Number of cube to use.
-        labels_idx : int
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
+        horizon_idx : int
             Index of used horizon from `labels` dictionary.
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
@@ -671,13 +695,14 @@ class SeismicCubeset(Dataset):
             If bool, then values are scaled to [0, 1] range.
             If callable, then it is applied to iline-oriented slices of data from the cube.
         """
-        labels = labels_src or self.labels[self.indices[idx]]
-        geom = self.geometries[self.indices[idx]]
-        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        labels = labels_src or self.labels[cube_name]
+        geom = self.geometries[cube_name]
+        hor_name = os.path.basename(geom.horizon_list[horizon_idx])
 
-        data, depth_map = get_cube_values(labels, geom, labels_idx, 1, scale=scale)
+        data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, 1, scale=scale)
 
-        plot_image(data, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        plot_image(data, 'Horizon {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
         print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_A])))
         print('Std of amplitudes is {}'.format(np.std(data[depth_map != FILL_VALUE_A])))
 
@@ -686,14 +711,15 @@ class SeismicCubeset(Dataset):
         return None
 
 
-    def show_rgb(self, idx=0, labels_idx=0, labels_src=None, width=1):
+    def show_horizon_rgb(self, idx=0, horizon_idx=0, labels_src=None, width=1):
         """ Show trace values on the horizon and surfaces directly under it.
 
         Parameters
         ----------
-        idx : int
-            Number of cube to use.
-        labels_idx : int
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
+        horizon_idx : int
             Index of used horizon from `labels` dictionary.
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
@@ -701,11 +727,12 @@ class SeismicCubeset(Dataset):
         width : int
             Space between surfaces to cut.
         """
-        labels = labels_src or self.labels[self.indices[idx]]
-        geom = self.geometries[self.indices[idx]]
-        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        labels = labels_src or self.labels[cube_name]
+        geom = self.geometries[cube_name]
+        hor_name = os.path.basename(geom.horizon_list[horizon_idx])
 
-        data, depth_map = get_cube_values(labels, geom, labels_idx, 1 + width*2, width)
+        data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, 1 + width*2, width)
         data = data[:, :, (0, width, -1)]
         data -= data.min(axis=(0, 1)).reshape(1, 1, -1)
         data *= 1 / data.max(axis=(0, 1)).reshape(1, 1, -1)
@@ -713,18 +740,19 @@ class SeismicCubeset(Dataset):
         data = data[:, :, ::-1]
         data *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
 
-        plot_image(data, 'RGB horizon {} on cube {}'.format(hor_name, self.indices[idx]), rgb=True)
+        plot_image(data, 'RGB horizon {} on cube {}'.format(hor_name, cube_name), rgb=True)
         print('AVG', np.mean(depth_map[depth_map != FILL_VALUE_A]))
 
 
-    def compute_corrs(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False):
+    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, _return=False):
         """ Compute correlations with the nearest traces along the horizon.
 
         Parameters
         ----------
-        idx : int
-            Number of cube to use.
-        labels_idx : int
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
+        horizon_idx : int
             Index of used horizon from `labels` dictionary.
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
@@ -732,15 +760,16 @@ class SeismicCubeset(Dataset):
         window : int
             Width of trace used for computing correlations.
         """
-        labels = labels_src or self.labels[self.indices[idx]]
-        geom = self.geometries[self.indices[idx]]
-        hor_name = os.path.basename(geom.horizon_list[labels_idx])
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        labels = labels_src or self.labels[cube_name]
+        geom = self.geometries[cube_name]
+        hor_name = os.path.basename(geom.horizon_list[horizon_idx])
 
-        data, depth_map = get_cube_values(labels, geom, labels_idx, window, 0)
+        data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, window, 0)
         corrs = compute_corrs(data)
         corrs[np.where(depth_map == FILL_VALUE_A)] = 0
 
-        plot_image(corrs, 'Correlation for {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        plot_image(corrs, 'Correlation for {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
         print('Average correlation is {}'.format(np.mean(corrs[depth_map != FILL_VALUE_A])))
 
         if _return:
@@ -765,11 +794,12 @@ class SeismicCubeset(Dataset):
             Colormap of showing the results.
         """
         #pylint: disable=comparison-with-callable
-        geom = self.geometries[self.indices[idx]]
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        geom = self.geometries[cube_name]
 
         # Create all depth maps
-        depth_map_1 = labels_to_depth_map(hor_1, geom, hor_1_idx, 0)
-        depth_map_2 = labels_to_depth_map(hor_2, geom, hor_2_idx, 0)
+        depth_map_1 = horizon_to_depth_map(hor_1, geom, hor_1_idx, 0)
+        depth_map_2 = horizon_to_depth_map(hor_2, geom, hor_2_idx, 0)
         indicator = (np.minimum(depth_map_1, depth_map_2) == FILL_VALUE_A).astype(int)
         depth_map_1[np.where(indicator == 1)] = 0
         depth_map_2[np.where(indicator == 1)] = 0
@@ -777,13 +807,13 @@ class SeismicCubeset(Dataset):
         # l1: mean absolute difference between depth maps
         metric_1 = np.abs(depth_map_1 - depth_map_2)
         metric_1[np.where(indicator == 1)] = 0
-        plot_image(metric_1, 'l1 metric on cube {}'.format(self.indices[idx]), cmap=cmap)
+        plot_image(metric_1, 'l1 metric on cube {}'.format(cube_name), cmap=cmap)
         print('Average value of l1 is {}\n\n'.format(np.mean(metric_1[np.where(indicator == 0)])))
 
         # ~: mean absolute difference between gradients of depth maps
         metric_2 = np.abs(np.diff(depth_map_1, axis=axis, prepend=0) - np.diff(depth_map_2, axis=axis, prepend=0))
         metric_2[np.where(indicator == 1)] = 0
-        plot_image(metric_2, '~ metric on cube {}'.format(self.indices[idx]), cmap=cmap)
+        plot_image(metric_2, '~ metric on cube {}'.format(cube_name), cmap=cmap)
         print('Average value of ~ is {}'.format(np.mean(metric_2[np.where(indicator == 0)])))
 
         if _return:
