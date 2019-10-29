@@ -172,7 +172,7 @@ class SeismicCubeset(Dataset):
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
             zero_matrix = geom.zero_traces
-            _filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
+            setattr(_filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
 
     def save_labels(self, save_to, src='labels'):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
@@ -1087,7 +1087,6 @@ class SeismicCubeset(Dataset):
             To be removed after adding different directional crop 
         """
         borders_img = labels_img
-        il_len, x_len = labels_img.shape
         border_coords = np.where(borders_img == 1)
         il_min, il_max = np.min(border_coords[0]), np.max(border_coords[0])
         x_min, x_max = np.min(border_coords[1]), np.max(border_coords[1])
@@ -1131,7 +1130,6 @@ class SeismicCubeset(Dataset):
         h_range = (np.min(iline_crops[:, 3]), np.max(iline_crops[:, 3]) + height)
         grid_array = iline_crops[:, 1:].astype(int) - offsets
 
-        
         predict_shape = (ilines_range[1] - ilines_range[0],
                          xlines_range[1] - xlines_range[0],
                          h_range[1] - h_range[0])
@@ -1142,7 +1140,6 @@ class SeismicCubeset(Dataset):
                                  'crop_shape': (crop_shape[1], crop_shape[0], crop_shape[2]),
                                  'cube_name': cube_name}
 
-        
         xline_crops = []
 
         # sample vertical border points
@@ -1175,7 +1172,6 @@ class SeismicCubeset(Dataset):
         x_xlines_range = (np.min(xline_crops[:, 2]), np.max(xline_crops[:, 2]) + line_shape)
         x_h_range = (np.min(xline_crops[:, 3]), np.max(xline_crops[:, 3]) + height)
 
-                        
         x_predict_shape = (x_ilines_range[1] - x_ilines_range[0],
                            x_xlines_range[1] - x_xlines_range[0],
                            x_h_range[1] - x_h_range[0])
@@ -1191,7 +1187,7 @@ class SeismicCubeset(Dataset):
                                  'cube_name': cube_name}
         return self
 
-    
+
     def _predict_direction(self, model_pipeline, dst, direction):
         """ Awesome docstring
 
@@ -1208,8 +1204,8 @@ class SeismicCubeset(Dataset):
 
         predict_ppl = create_predict_ppl(model_pipeline, crops_gen_name, grid_info['crop_shape'], axes=axes) << self
 
-        for i in range(n_iters):
-            pred_batch = predict_ppl.next_batch(1, n_epochs=None)    
+        for _ in range(n_iters):
+            predict_ppl.next_batch(1, n_epochs=None)
 
         assemble_ppl = Pipeline().assemble_crops(src=predict_ppl.v("result_preds"), dst='assembled_pred',
                                                  grid_info=grid_info, order=order) << self
@@ -1225,7 +1221,7 @@ class SeismicCubeset(Dataset):
         setattr(self, dst, {cube_name: convert_to_numba_dict(merged_dict)})
 
     def extension_step(self, cube_name, img, model_pipeline, crop_shape=(4, 100, 100), labels_src='prior_mask', stride=10, batch_size=24):
-        """ One step of extension algorithm in all directions. 
+        """ One step of extension algorithm in all directions.
 
         Parameters
         ----------
@@ -1233,7 +1229,7 @@ class SeismicCubeset(Dataset):
             Reference to cube. Should be valid key for `geometries` attribute.
 
         labels_idx : int
-            To be removed after adding different directional crop 
+            To be removed after adding different directional crop
         """
 
         self.make_expand_grid(cube_name, crop_shape=crop_shape, batch_size=batch_size, stride=stride,
@@ -1241,5 +1237,6 @@ class SeismicCubeset(Dataset):
         self._predict_direction(model_pipeline, 'predicted_mask_x', 'xline')
         self._predict_direction(model_pipeline, 'predicted_mask_iline', 'iline')
 
-        expanded_labels = {**self.predicted_mask_x[cube_name], **self.predicted_mask_iline[cube_name], **self.prior_mask[cube_name]}
+        expanded_labels = {**self.predicted_mask_x[cube_name], **self.predicted_mask_iline[cube_name],
+                           **self.prior_mask[cube_name]}
         setattr(self, 'prior_mask', {cube_name: convert_to_numba_dict(expanded_labels)})
