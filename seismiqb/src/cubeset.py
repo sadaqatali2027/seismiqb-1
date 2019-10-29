@@ -1225,7 +1225,7 @@ class SeismicCubeset(Dataset):
         setattr(self, dst, {cube_name: convert_to_numba_dict(merged_dict)})
 
     def extension_step(self, cube_name, img, model_pipeline, crop_shape=(4, 100, 100), labels_src='prior_mask', stride=10, batch_size=24):
-        """ Awesome docstring
+        """ One step of extension algorithm in all directions. 
 
         Parameters
         ----------
@@ -1243,23 +1243,3 @@ class SeismicCubeset(Dataset):
 
         expanded_labels = {**self.predicted_mask_x[cube_name], **self.predicted_mask_iline[cube_name], **self.prior_mask[cube_name]}
         setattr(self, 'prior_mask', {cube_name: convert_to_numba_dict(expanded_labels)})
-
-    def expand_cycle(self, cube_name, crop_shape, path, return_image=False, prior_src='prior_mask', labels_src='prior_mask', n_iters=10, stride=10, batch_size=32):
-        """ Awesome docstring
-
-        Parameters
-        ----------
-        cube_name : str
-            Reference to cube. Should be valid key for `geometries` attribute.
-
-        labels_idx : int
-            To be removed after adding different directional crop 
-        """
-
-        model_pipeline = (Pipeline().load_model('static', TFModel, 'extension', path=path) << self)
-        model_pipeline.next_batch(1)
-
-        for i in range(n_iters):
-            img = self.show_labels(return_image=return_image, src=prior_src)
-            self.extension_step(cube_name, img, model_pipeline, crop_shape=crop_shape, labels_src=labels_src, stride=stride, batch_size=batch_size)
-        return self
