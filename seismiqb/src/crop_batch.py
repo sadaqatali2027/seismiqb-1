@@ -8,7 +8,7 @@ import segyio
 import cv2
 from scipy.signal import butter, lfilter, hilbert
 
-from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
+from ..batchflow import FilesIndex, Batch, acton, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 from .utils import create_mask, aggregate, make_labels_dict, _get_horizons
 from .plot_utils import plot_batch_components
@@ -92,7 +92,6 @@ class SeismicCropBatch(Batch):
         # init labels-dict
         for ix in self.indices:
             labels_[self.unsalt(ix)] = set()
-
         for ix, cloud in zip(self.indices, all_clouds):
             labels_[self.unsalt(ix)] |= set(cloud.keys())
 
@@ -202,7 +201,6 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             Batch with positions of crops in specified component.
         """
-#         print('hey')
         new_index = [self.salt(ix) for ix in points[:, 0]]
         new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
                     for ix in new_index}
@@ -932,7 +930,6 @@ class SeismicCropBatch(Batch):
             If 'phase', compute instantaneous phase.
             If 'freq', compute instantaneous frequency.
         """
-        print('hey 3')
         analytic = hilbert(crop, axis=axis)
         phase = np.unwrap(np.angle(analytic))
 

@@ -441,7 +441,6 @@ class SeismicCubeset(Dataset):
             dir_path = '/'.join(self.index.get_fullpath(self.indices[i]).split('/')[:-1])
             dir_ = dir_path + horizon_dir
             paths_txt[self.indices[i]] = glob(dir_)
-
         self.load_geometries()
         self.load_point_clouds(paths=paths_txt)
         if filter_zeros:
@@ -765,10 +764,10 @@ class SeismicCubeset(Dataset):
                        .add_axis(src='masks', dst='masks')
                        .import_model('extension', model_pipeline)
                        .init_variable('result_preds', init_on_each_run=list())
-                       .concat_components(src=('images', 'hilbert', 'cut_masks'), dst='model_inputs')
+                       .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
                        .predict_model('extension', fetches='sigmoid',
                                       images=B('model_inputs'),
-                                      cut_masks=B('cut_masks'),
+#                                       cut_masks=B('cut_masks'),
                                       save_to=V('result_preds', mode='e')))
 
         for i in range(max_iters):
@@ -1077,7 +1076,7 @@ class SeismicCubeset(Dataset):
         return None
 
     def make_expand_grid(self, cube_name, crop_shape, labels_img, labels_src='labels', labels_idx=0, stride=10, batch_size=16):
-        """ Awesome docstring
+        """ Define crops coordinates for one step of an extension step.
 
         Parameters
         ----------
@@ -1087,19 +1086,19 @@ class SeismicCubeset(Dataset):
         labels_idx : int
             To be removed after adding different directional crop 
         """
-        borders_img = find_boundaries(labels_img).astype(np.int32)
+        borders_img = labels_img
         il_len, x_len = labels_img.shape
         border_coords = np.where(borders_img == 1)
         il_min, il_max = np.min(border_coords[0]), np.max(border_coords[0])
         x_min, x_max = np.min(border_coords[1]), np.max(border_coords[1])
         il_offset = self.geometries[cube_name].ilines_offset
         xl_offset = self.geometries[cube_name].xlines_offset
-        
+
         width, line_shape, height = crop_shape
         iline_crops = []
 
         # sample horizontal border points
-        for xline in range(x_min, x_max):
+        for xline in range(x_min, x_max, width):
             non_zero = np.where(borders_img[il_min:il_max, xline] == 1)[0]
             if len(non_zero) == 0:
                 continue
@@ -1112,10 +1111,13 @@ class SeismicCubeset(Dataset):
 
             _lower_il = _lower_il + stride - line_shape
             _upper_il = _upper_il - stride
-            iline_crops.append([cube_name, _lower_il, xline, _lower_h])
-            iline_crops.append([cube_name, _upper_il, xline, _upper_h])
-        iline_crops = np.array(iline_crops, dtype=object)
 
+            if _lower_il >= 0:
+                iline_crops.append([cube_name, _lower_il, xline, _lower_h])
+            if _upper_il + line_shape <= self.geometries[cube_name].ilines_len:
+                iline_crops.append([cube_name, _upper_il, xline, _upper_h])
+
+        iline_crops = np.array(iline_crops, dtype=object)
         iline_crops_gen = (iline_crops[i:i+batch_size]
                                for i in range(0, len(iline_crops), batch_size))
         self.iline_crops_gen = lambda: next(iline_crops_gen)
@@ -1144,7 +1146,7 @@ class SeismicCubeset(Dataset):
         xline_crops = []
 
         # sample vertical border points
-        for iline in range(il_min, il_max):
+        for iline in range(il_min, il_max, width):
             non_zero = np.where(borders_img[iline, x_min:x_max] == 1)[0]
             if len(non_zero) == 0:
                 continue
@@ -1154,10 +1156,13 @@ class SeismicCubeset(Dataset):
 
             _lower_xl = _lower_xl + stride - line_shape
             _upper_xl = _upper_xl - stride
-            xline_crops.append([cube_name, iline, _lower_xl, _lower_h])
-            xline_crops.append([cube_name, iline, _upper_xl, _upper_h])
-        xline_crops = np.array(xline_crops, dtype=object)
 
+            if _lower_xl >= 0:
+                xline_crops.append([cube_name, iline, _lower_xl, _lower_h])
+            if _upper_xl + line_shape <= self.geometries[cube_name].xlines_len:
+                xline_crops.append([cube_name, iline, _upper_xl, _upper_h])
+
+        xline_crops = np.array(xline_crops, dtype=object)
         xline_crops_gen = (xline_crops[i:i+batch_size]
                                for i in range(0, len(xline_crops), batch_size))
 
@@ -1219,7 +1224,7 @@ class SeismicCubeset(Dataset):
         merged_dict = {**getattr(self, dst)[0], **getattr(self, dst)[1]}
         setattr(self, dst, {cube_name: convert_to_numba_dict(merged_dict)})
 
-    def extension_step(self, cube_name, img, model_pipeline, crop_shape=(4, 100, 100)):
+    def extension_step(self, cube_name, img, model_pipeline, crop_shape=(4, 100, 100), labels_src='prior_mask', stride=10, batch_size=24):
         """ Awesome docstring
 
         Parameters
@@ -1231,15 +1236,15 @@ class SeismicCubeset(Dataset):
             To be removed after adding different directional crop 
         """
 
-        self.make_expand_grid(cube_name, crop_shape=crop_shape,
-                              labels_img=img, labels_idx=1)
+        self.make_expand_grid(cube_name, crop_shape=crop_shape, batch_size=batch_size, stride=stride,
+                              labels_img=img, labels_idx=0, labels_src=labels_src)
         self._predict_direction(model_pipeline, 'predicted_mask_x', 'xline')
         self._predict_direction(model_pipeline, 'predicted_mask_iline', 'iline')
 
         expanded_labels = {**self.predicted_mask_x[cube_name], **self.predicted_mask_iline[cube_name], **self.prior_mask[cube_name]}
         setattr(self, 'prior_mask', {cube_name: convert_to_numba_dict(expanded_labels)})
 
-    def expand_cycle(self, cube_name, crop_shape, path, return_image=False, prior_src='prior_mask', n_iters=10):
+    def expand_cycle(self, cube_name, crop_shape, path, return_image=False, prior_src='prior_mask', labels_src='prior_mask', n_iters=10, stride=10, batch_size=32):
         """ Awesome docstring
 
         Parameters
@@ -1256,5 +1261,5 @@ class SeismicCubeset(Dataset):
 
         for i in range(n_iters):
             img = self.show_labels(return_image=return_image, src=prior_src)
-            self.extension_step(cube_name, img, model_pipeline, crop_shape=crop_shape)
+            self.extension_step(cube_name, img, model_pipeline, crop_shape=crop_shape, labels_src=labels_src, stride=stride, batch_size=batch_size)
         return self

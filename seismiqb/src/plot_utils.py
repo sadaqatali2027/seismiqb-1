@@ -374,7 +374,7 @@ def show_extension_results(batch, val_pipeline, cubes_numbers, ext_result='ext_r
         truth_img = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline].T
         truth_labels = val_pipeline.get_variable(ext_result)[1][cube, :, :, iline, 0].T
         predicted_img = val_pipeline.get_variable(ext_result)[2][cube, :, :, iline, 0].T
-        cut_mask = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline + 2].T
+        cut_mask = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline + 4].T
         if baseline_result:
             predicted_simple = val_pipeline.get_variable(baseline_result)[2][cube, :, :, iline, 0].T
 

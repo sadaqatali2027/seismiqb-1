@@ -781,6 +781,7 @@ def compute_corrs(data):
 
 
 def create_predict_ppl(model_pipeline, crops_gen_name, crop_shape, axes):
+    """ Default predict pipeline for extension model. """
     pred_pipeline = (Pipeline()
                          .load_component(src=[D('geometries'), D('labels')],
                                          dst=['geometries', 'labels'])
@@ -789,16 +790,14 @@ def create_predict_ppl(model_pipeline, crops_gen_name, crop_shape, axes):
                                shape=crop_shape, passdown='predicted_labels')
                          .load_component(src=[D('prior_mask')], dst=['predicted_labels'])
                          .load_cubes(dst='images')
-                         .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
                          .create_masks(dst='cut_masks', width=1, n_horizons=1, src_labels='predicted_labels')
-                         .apply_transform(np.transpose, axes=axes, src=['images', 'masks', 'cut_masks'])
-                         .rotate_axes(src=['images', 'masks', 'cut_masks'])
+                         .apply_transform(np.transpose, axes=axes, src=['images', 'cut_masks'])
+                         .rotate_axes(src=['images', 'cut_masks'])
                          .scale(mode='normalize', src='images')
                          .import_model('extension', model_pipeline)
                          .init_variable('result_preds', default=list())
                          .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
                          .predict_model('extension', fetches='sigmoid',
                                           images=B('model_inputs'),
-                                          cut_masks=B('cut_masks'),
                                           save_to=V('result_preds', mode='e')))
     return pred_pipeline
