@@ -8,7 +8,7 @@ import segyio
 import cv2
 from scipy.signal import butter, lfilter, hilbert
 
-from ..batchflow import FilesIndex, Batch, acton, inbatch_parallel
+from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 from .utils import create_mask, aggregate, make_labels_dict, _get_horizons
 from .plot_utils import plot_batch_components
