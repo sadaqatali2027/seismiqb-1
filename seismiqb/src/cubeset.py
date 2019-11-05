@@ -42,7 +42,7 @@ class SeismicCubeset(Dataset):
 
         Parameters
         ----------
-        path : st
+        path : str
             Path to the dill-file to load geometries from.
 
         logs : bool
@@ -160,7 +160,7 @@ class SeismicCubeset(Dataset):
                 getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
         return self
 
-    def filter_labels(self, src='labels', dst='labels'):
+    def filter_labels(self, src='labels'):
         """ Remove labels corresponding to zero-traces.
 
         Parameters
@@ -172,7 +172,7 @@ class SeismicCubeset(Dataset):
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
             zero_matrix = geom.zero_traces
-            setattr(_filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
+            getattr(self, src)[ix] = _filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
 
     def save_labels(self, save_to, src='labels'):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
@@ -648,14 +648,13 @@ class SeismicCubeset(Dataset):
         ----------
         points : tuple or list
             upper left coordinates of the starting crop in the seismic cube coordinates.
-        crop_shape : tuple or list
+        crop_shape : array-like
             shape of the saved prior mask.
         cube_index : int
             index of the cube in `ds.indices` list.
         show_prior_mask : bool
             whether to show prior mask
         """
-        print('hey you')
         ds_points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
 
         start_predict_pipeline = (Pipeline()
@@ -698,7 +697,7 @@ class SeismicCubeset(Dataset):
             Instance of the Cubeset. Must have non-empy attributes `predicted labels` and `labels` (for debugging plots)
         points : tuple or list
             upper left coordinates of the starting crop in the seismic cube coordinates.
-        crop_shape : tuple or list
+        crop_shape : array-like
             shape of the crop fed to the model.
         max_iters : int
             max_number of extension steps. If we meet end of the cube we will make less steps.
@@ -724,7 +723,6 @@ class SeismicCubeset(Dataset):
             grid_info : dict
                 grid info based on the grid array with upper left coordinates of the crops
         """
-        print('hey you 2')
         show_count = max_iters if show_count is None else show_count
         geom = self.geometries[self.indices[cube_index]]
         grid_array = []
@@ -767,7 +765,6 @@ class SeismicCubeset(Dataset):
                        .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
                        .predict_model('extension', fetches='sigmoid',
                                       images=B('model_inputs'),
-#                                       cut_masks=B('cut_masks'),
                                       save_to=V('result_preds', mode='e')))
 
         for i in range(max_iters):
@@ -1082,9 +1079,18 @@ class SeismicCubeset(Dataset):
         ----------
         cube_name : str
             Reference to cube. Should be valid key for `geometries` attribute.
-
+        crop_shape : array-like
+            shape of the crop fed to the model.
+        labels_img : binary array of shape (ilines_len, xlines_len) with `1's` corresponding to known
+            labels.
+        labels_src : str
+            attribute name of known labels.
         labels_idx : int
-            To be removed after adding different directional crop 
+            To be removed after adding different directional crop.
+        stride : int
+            stride size.
+        batch_size : int
+            batch size fed to the model.
         """
         borders_img = labels_img
         border_coords = np.where(borders_img == 1)
@@ -1189,9 +1195,12 @@ class SeismicCubeset(Dataset):
 
 
     def _predict_direction(self, model_pipeline, dst, direction):
-        """ Awesome docstring
-
-        Parameters
+        """ Predict on crops neighbouring with known labels.
+        model_pipeline : Pipeline
+        dst : str
+            Attribute name where predicted labels will be saved.
+        direction : str
+            Either `iline` or `xline`.
         ----------
         """
         grid_info = getattr(self, direction + '_crops_info')
