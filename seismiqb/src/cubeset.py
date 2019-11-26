@@ -426,8 +426,9 @@ class SeismicCubeset(Dataset):
         paths_txt = {}
         for i in range(len(self)):
             dir_path = '/'.join(self.index.get_fullpath(self.indices[i]).split('/')[:-1])
-            dir_ = dir_path + horizon_dir
-            paths_txt[self.indices[i]] = glob(dir_)
+            if not horizon_dir.startswith(dir_path):
+                horizon_dir = dir_path + horizon_dir
+            paths_txt[self.indices[i]] = glob(horizon_dir)
 
         self.load_geometries()
         self.load_point_clouds(paths=paths_txt)
@@ -744,7 +745,7 @@ class SeismicCubeset(Dataset):
         print('AVG', np.mean(depth_map[depth_map != FILL_VALUE_A]))
 
 
-    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, _return=False):
+    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, _no_plot=False, _return=False):
         """ Compute correlations with the nearest traces along the horizon.
 
         Parameters
@@ -769,8 +770,9 @@ class SeismicCubeset(Dataset):
         corrs = compute_corrs(data)
         corrs[np.where(depth_map == FILL_VALUE_A)] = 0
 
-        plot_image(corrs, 'Correlation for {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
-        print('Average correlation is {}'.format(np.mean(corrs[depth_map != FILL_VALUE_A])))
+        if not _no_plot:
+            plot_image(corrs, 'Correlation for {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
+            print('Average correlation is {}'.format(np.mean(corrs[depth_map != FILL_VALUE_A])))
 
         if _return:
             return corrs
