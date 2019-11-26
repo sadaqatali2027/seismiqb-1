@@ -22,7 +22,7 @@ SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 @transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
 class SeismicCropBatch(Batch):
     """ Batch with ability to generate 3d-crops of various shapes."""
-    components = ('slices', 'geometries', 'labels')
+    components = ('slices',)
 
     def _init_component(self, *args, **kwargs):
         """ Create and preallocate a new attribute with the name ``dst`` if it
@@ -63,6 +63,10 @@ class SeismicCropBatch(Batch):
         chars = string.ascii_uppercase + string.digits
         return path + AFFIX + ''.join(random.choice(chars) for _ in range(SIZE_POSTFIX))
 
+    @staticmethod
+    def has_salt(path):
+        """ Check whether path is salted. """
+        return path[::-1].find(AFFIX) == SIZE_POSTFIX
 
     @staticmethod
     def unsalt(path):
@@ -126,13 +130,25 @@ class SeismicCropBatch(Batch):
         setattr(self, dst, labels)
         return self
 
-    def get_pos(self, data, component, index):
-        """ Get correct slice/key of a component-item based on its type.
-        """
-        if component in ('geometries', 'labels', 'segyfiles'):
-            return self.unsalt(index)
-        return super().get_pos(data, component, index)
 
+    def __getattr__(self, name):
+        if name in self.__dict__:
+            return getattr(self, name)
+        if name in self.dataset.__dict__:
+            return getattr(self.dataset, name)
+        return super().__getattr__(name)
+
+    def get(self, item, component):
+        if sum([attribute in component for attribute in ['label', 'geom']]):
+            if isinstance(item, str) and self.has_salt(item):
+                item = self.unsalt(item)
+            res = getattr(self, component)
+            if isinstance(res, dict) and item in res:
+                return res[item]
+            return res
+
+        item = self.get_pos(None, component, item)
+        return super().get(item, component)
 
     @action
     def load_component(self, src, dst):
