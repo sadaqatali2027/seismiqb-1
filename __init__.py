@@ -1,2 +1,5 @@
 """ Init file. """
-from seismiqb import * #pylint: disable=wildcard-import
+import os
+
+from .seismiqb import *
+__path__ = [os.path.join(os.path.dirname(__file__), 'seismiqb')]

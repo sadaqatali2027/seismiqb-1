@@ -138,7 +138,7 @@ class SeismicCropBatch(Batch):
             return getattr(self.dataset, name)
         return super().__getattr__(name)
 
-    def get(self, item, component):
+    def get(self, item=None, component=None):
         if sum([attribute in component for attribute in ['label', 'geom']]):
             if isinstance(item, str) and self.has_salt(item):
                 item = self.unsalt(item)
