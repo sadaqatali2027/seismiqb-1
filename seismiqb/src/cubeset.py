@@ -111,13 +111,23 @@ class SeismicCubeset(Dataset):
                 self.geometries[ix].horizon_list = paths[ix]
         return self
 
-    def filter_point_clouds(self, src='point_clouds'):
-        """ Remove points corresponding to zero-traces. """
+    def filter_point_clouds(self, src='point_clouds', filtering_matrix=None):
+        """ Remove points corresponding to ones in filtering matrix.
+
+        Parameters
+        ----------
+        src : str
+            Attribute with point clouds.
+
+        filtering_matrix : ndarray
+            Matrix of (n_ilines, n_xlines) shape with 1 on positions to remove.
+            Default behaviour is to filter zero-traces.
+        """
         for ix in self.indices:
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
-            zero_matrix = geom.zero_traces
-            getattr(self, src)[ix] = filter_point_cloud(getattr(self, src)[ix], zero_matrix,
+            filtering_matrix = filtering_matrix or geom.zero_traces
+            getattr(self, src)[ix] = filter_point_cloud(getattr(self, src)[ix], filtering_matrix,
                                                         ilines_offset, xlines_offset)
 
     def save_point_clouds(self, save_to):
@@ -173,19 +183,23 @@ class SeismicCubeset(Dataset):
                     getattr(self, dst)[ix] = make_labels_dict_f(transformed_pc)
         return self
 
-    def filter_labels(self, src='labels'):
-        """ Remove labels corresponding to zero-traces.
+    def filter_labels(self, src='labels', filtering_matrix=None):
+        """ Remove labels corresponding to ones in filtering matrix.
 
         Parameters
         ----------
         src : str
             Attribute with labels-dictionary.
+
+        filtering_matrix : ndarray
+            Matrix of (n_ilines, n_xlines) shape with 1 on positions to remove.
+            Default behaviour is to filter zero-traces.
         """
         for ix in self.indices:
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
-            zero_matrix = geom.zero_traces
-            filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
+            filtering_matrix = filtering_matrix or geom.zero_traces
+            filter_labels(getattr(self, src)[ix], filtering_matrix, ilines_offset, xlines_offset)
 
     def save_labels(self, save_to, src='labels'):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
