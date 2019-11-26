@@ -1,6 +1,7 @@
 """ Contains container for storing dataset of seismic crops. """
 import os
 from glob import glob
+from copy import copy
 
 import dill
 import numpy as np
@@ -10,7 +11,7 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
-from .utils import read_point_cloud, make_labels_dict, _filter_labels, _filter_point_cloud
+from .utils import read_point_cloud, filter_point_cloud, make_labels_dict, make_labels_dict_f, filter_labels
 from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
 from .utils import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes, compute_corrs, FILL_VALUE_A
 from .plot_utils import show_labels, show_sampler, plot_slide, plot_image
@@ -116,8 +117,8 @@ class SeismicCubeset(Dataset):
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
             zero_matrix = geom.zero_traces
-            getattr(self, src)[ix] = _filter_point_cloud(getattr(self, src)[ix], zero_matrix,
-                                                         ilines_offset, xlines_offset)
+            getattr(self, src)[ix] = filter_point_cloud(getattr(self, src)[ix], zero_matrix,
+                                                        ilines_offset, xlines_offset)
 
     def save_point_clouds(self, save_to):
         """ Save dill-serialized point clouds for a dataset of seismic-cubes on disk.
@@ -163,7 +164,13 @@ class SeismicCubeset(Dataset):
                 point_cloud = point_clouds.get(ix)
                 geom = getattr(self, 'geometries').get(ix)
                 transform = transforms.get(ix) or geom.height_correction
-                getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
+                if point_cloud.shape[1] == 4: # horizon: il, xl, height, index
+                    getattr(self, dst)[ix] = make_labels_dict(transform(point_cloud))
+                elif point_cloud.shape[1] == 5: # facies: il, xl, start_point, end_point, index
+                    transformed_pc = copy(point_cloud)
+                    transformed_pc[:, [0, 1, 2, 4]] = (transform(point_cloud[:, [0, 1, 2, 4]]).astype(np.int64))
+                    transformed_pc[:, 3] = (transform(point_cloud[:, [4, 4, 3, 4]])[:, 2].astype(np.int64))
+                    getattr(self, dst)[ix] = make_labels_dict_f(transformed_pc)
         return self
 
     def filter_labels(self, src='labels'):
@@ -178,7 +185,7 @@ class SeismicCubeset(Dataset):
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
             zero_matrix = geom.zero_traces
-            _filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
+            filter_labels(getattr(self, src)[ix], zero_matrix, ilines_offset, xlines_offset)
 
     def save_labels(self, save_to, src='labels'):
         """ Save dill-serialized labels for a dataset of seismic-cubes on disk. """
@@ -259,6 +266,12 @@ class SeismicCubeset(Dataset):
                 sampler = NumpySampler(**kwargs)
             elif mode[ix] == 'hist':
                 point_cloud = getattr(self, 'point_clouds')[ix]
+
+                if point_cloud.shape[1] == 5:
+                    point_cloud = np.vstack([point_cloud[:, 0],
+                                             point_cloud[:, 1]
+                                             (point_cloud[:, 2] + point_cloud[:, 3])//2,
+                                             point_cloud[:, -1]]).T
 
                 geom = getattr(self, 'geometries')[ix]
                 offsets = np.array([geom.ilines_offset, geom.xlines_offset, 0])
@@ -612,10 +625,10 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def show_slide(self, idx=0, n_line=0, overlap=True, mode='iline', **kwargs):
+    def show_slide(self, idx=0, n_line=0, plot_mode='overlap', mode='iline', **kwargs):
         """ Show full slide of the given cube on the given iline. """
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images',)
-        plot_slide(self, *components, idx=idx, n_line=n_line, overlap=overlap, mode=mode, **kwargs)
+        plot_slide(self, *components, idx=idx, n_line=n_line, plot_mode=plot_mode, mode=mode, **kwargs)
 
 
     def apply_to_horizon(self, idx=0, horizon_idx=0, labels_src=None, transform=None):

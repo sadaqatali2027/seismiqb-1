@@ -1,6 +1,7 @@
 """ Utility functions for plotting. """
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 
 from numba import njit
 from ..batchflow import Pipeline, D
@@ -42,7 +43,10 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
     plt.legend()
     plt.show()
 
-def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None, **kwargs):
+
+
+def plot_batch_components(batch, *components, idx=0, plot_mode='overlap', order_axes=None,
+                          cmaps=None, alphas=None, **kwargs):
     """ Plot components of batch.
 
     Parameters
@@ -54,8 +58,10 @@ def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=No
         If int, then index of desired image in list.
         If None, then no indexing is applied.
 
-    overlap : bool
-        Whether to draw images one over the other or on separate layouts.
+    plot_mode : bool
+        If 'overlap', then images are drawn one over the other.
+        If 'facies', then images are drawn one over the other with transparency.
+        If 'separate', then images are drawn on separate layouts.
 
     order_axes : sequence of int
         Determines desired order of the axis. The first two are plotted.
@@ -75,10 +81,13 @@ def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=No
     else:
         imgs = [getattr(batch, comp) for comp in components]
 
-    if overlap:
+    if plot_mode in ['overlap']:
         plot_images_overlap(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
-    else:
+    elif plot_mode in ['separate']:
         plot_images_separate(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
+    elif plot_mode in ['facies']:
+        plot_images_transparent(imgs, ', '.join(components), order_axes=order_axes,
+                                cmaps=cmaps, alphas=alphas, **kwargs)
 
 
 def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None, **kwargs):
@@ -99,7 +108,6 @@ def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None, **kw
         ax_.set_title(title, fontdict={'fontsize': 15})
     plt.show()
 
-
 def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
@@ -114,8 +122,21 @@ def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwar
     plt.title(title, fontdict={'fontsize': 15})
     plt.show()
 
+def plot_images_transparent(imgs, title, order_axes, cmaps=None, alphas=None, **kwargs):
+    """ Plot one or more images with overlap. """
+    cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
+    alphas = alphas or [1.0 for i in range(len(imgs))]
 
-def _to_img(data, order_axes=None, convert=False):
+    defaults = {'figsize': (15, 15)}
+    plt.figure(**{**defaults, **kwargs})
+    for i, (img, cmap, alpha) in enumerate(zip(imgs, cmaps, alphas)):
+        img = _to_img(img, order_axes=order_axes, convert=False, normalize=(i > 0))
+        plt.imshow(img, alpha=alpha, cmap=cmap)
+
+    plt.title(title, fontdict={'fontsize': 15})
+    plt.show()
+
+def _to_img(data, order_axes=None, convert=False, normalize=False):
     if order_axes:
         data = np.transpose(data, order_axes)
 
@@ -132,10 +153,17 @@ def _to_img(data, order_axes=None, convert=False):
         background[:, :, 0] = data
         background[:, :, -1] = (data != 0).astype(int)
         return background
+
+    if normalize:
+        colors = Normalize(0, np.max(data), clip=True)(data)
+        colors = plt.cm.gist_rainbow(colors)
+        colors[:, :, -1] = (data != 0).astype(int)
+        return colors
     return data
 
 
-def plot_slide(dataset, *components, idx=0, n_line=0, overlap=True, mode='iline', **kwargs):
+
+def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode='iline', **kwargs):
     """ Plot full slide of the given cube on the given iline. """
     cube_name = dataset.indices[idx]
     crop_shape = np.array(dataset.geometries[cube_name].cube_shape)
@@ -167,10 +195,11 @@ def plot_slide(dataset, *components, idx=0, n_line=0, overlap=True, mode='iline'
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
 
     if mode in ['i', 'il', 'iline']:
-        plot_batch_components(batch, *components, overlap=overlap, **kwargs)
+        plot_batch_components(batch, *components, plot_mode=plot_mode, **kwargs)
     elif mode in ['x', 'xl', 'xline']:
-        plot_batch_components(batch, *components, overlap=overlap, order_axes=(2, 1, 0), **kwargs)
+        plot_batch_components(batch, *components, plot_mode=plot_mode, order_axes=(2, 1, 0), **kwargs)
     return batch
+
 
 
 def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, **kwargs):
@@ -205,7 +234,6 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, **k
 
     plt.show()
 
-
 def show_labels(dataset, idx=0, hor_idx=None):
     """ Show labeled ilines/xlines for a horizon from above: yellow stands for labeled regions.
 
@@ -235,8 +263,7 @@ def show_labels(dataset, idx=0, hor_idx=None):
     plt.show()
 
 @njit
-def labels_matrix(background, possible_coordinates, labels,
-                  ilines_offset, xlines_offset, hor_idx):
+def labels_matrix(background, possible_coordinates, labels, ilines_offset, xlines_offset, hor_idx):
     """ Jit-accelerated function to check which ilines/xlines are labeled. """
     for i in range(len(possible_coordinates)):
         point = possible_coordinates[i, :]
@@ -247,7 +274,6 @@ def labels_matrix(background, possible_coordinates, labels,
             elif hor_arr[hor_idx] != -999:
                 background[point[0] - ilines_offset, point[1] - xlines_offset] += 1
     return background
-
 
 def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1):
     """ Generate a lot of points and plot their (iline, xline) positions.
@@ -315,6 +341,8 @@ def plot_stratum_predictions(cubes, targets, predictions, n_rows=None):
         axes[i, 0].set_title('Input crop')
         axes[i, 1].set_title('True mask')
         axes[i, 2].set_title('Predicted mask')
+
+
 
 def show_extension_results(batch, val_pipeline, cubes_numbers, ext_result='ext_result',
                            baseline_result=None, figsize=(25, 10)):

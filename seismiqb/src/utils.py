@@ -72,6 +72,7 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
         pass
 
 
+
 def convert_point_cloud(path, path_save, names=None, order=None, transform=None):
     """ Change set of columns in file with point cloud labels.
     Usually is used to remove redundant columns.
@@ -132,13 +133,11 @@ def read_point_cloud(paths, names=None, order=None, **kwargs):
     #pylint: disable=anomalous-backslash-in-string
     paths = [paths] if isinstance(paths, str) else paths
 
-    # default params of pandas-parser
-    names = names or ['iline', 'xline', 'height']
-    order = order or ['iline', 'xline', 'height']
-
     # read point clouds
     point_clouds = []
     for ix, path in enumerate(paths):
+        names = names or _get_default_names(path)
+        order = order or names
         cloud = pd.read_csv(path, sep='\s+', names=names, usecols=set(order), **kwargs)
 
         temp = np.hstack([cloud.loc[:, order].values,
@@ -147,17 +146,24 @@ def read_point_cloud(paths, names=None, order=None, **kwargs):
     point_cloud = np.concatenate(point_clouds)
     return np.rint(point_cloud).astype(np.int64)
 
+def _get_default_names(path):
+    with open(path) as file:
+        line = file.readline().split(' ')
+    if len(line) == 3:
+        return ['iline', 'xline', 'height']
+    return ['iline', 'xline', 's_point', 'e_point']
+
 
 @njit
-def _filter_point_cloud(point_cloud, zero_matrix, ilines_offset, xlines_offset):
+def filter_point_cloud(point_cloud, filtering_matrix, ilines_offset, xlines_offset):
     """ Remove entries corresponding to zero traces.
 
     Parameters
     ----------
     point_cloud : ndarray
         Point cloud with labels.
-    zero_matrix : ndarray
-        Matrix of (n_ilines, n_xlines) shape with 1 on positions of zero-traces.
+    filtering_matrix : ndarray
+        Matrix of (n_ilines, n_xlines) shape with 1 on positions to remove.
     ilines_offset, xlines_offset : int
         Offsets of numeration.
     """
@@ -166,9 +172,10 @@ def _filter_point_cloud(point_cloud, zero_matrix, ilines_offset, xlines_offset):
 
     for i in range(len(point_cloud)):
         il, xl = point_cloud[i, 0], point_cloud[i, 1]
-        if zero_matrix[il-ilines_offset, xl-xlines_offset] == 1:
+        if filtering_matrix[il-ilines_offset, xl-xlines_offset] == 1:
             mask[i] = 0
     return point_cloud[mask == 1, :]
+
 
 
 def make_labels_dict(point_cloud):
@@ -177,12 +184,12 @@ def make_labels_dict(point_cloud):
     Parameters
     ----------
     point_cloud : array
-        array `(n_points, 4)`, contains point cloud of labels in format `(x, y, z, horizon_number)`.
+        array `(n_points, 4)`, contains point cloud of labels in format `(il, xl, height, horizon_number)`.
 
     Returns
     -------
     numba.Dict
-        dict of labels `{(x, y): [z_1, z_2, ...]}`.
+        dict of labels `{(il, xl): [h_1, h_2, ...]}`.
     """
     # round and cast
     point_cloud = np.rint(point_cloud).astype(np.int64)
@@ -209,26 +216,97 @@ def make_labels_dict(point_cloud):
     return labels
 
 
+def make_labels_dict_f(point_cloud):
+    """ Make labels-dict using cloud of points.
+
+    Parameters
+    ----------
+    point_cloud : array
+        array `(n_points, 5)`, contains point cloud of labels in format
+        `(il, xl, start_height, end_height, horizon_number)`.
+
+    Returns
+    -------
+    numba.Dict
+        dict of labels `{(il, xl): (start_points, end_points, class_labels)}`.
+    """
+    key_type = types.Tuple((types.int64, types.int64))
+    value_type = types.int64
+    counts = Dict.empty(key_type, value_type)
+
+    @njit
+    def _fill_counts(counts, point_cloud):
+        """ Count number of facies on each trace. """
+        for i in range(point_cloud.shape[0]):
+            key = (point_cloud[i, 0], point_cloud[i, 1])
+
+            if counts.get(key) is None:
+                counts[key] = 1
+            else:
+                counts[key] += 1
+        return counts
+    counts = _fill_counts(counts, point_cloud)
+
+    key_type = types.Tuple((types.int64, types.int64))
+    value_type = types.Tuple((types.int64[:], types.int64[:], types.int64[:]))
+    labels = Dict.empty(key_type, value_type)
+
+    def _fill_labels(labels, counts, point_cloud):
+        """ Fill in actual labels.
+        Every value in the dictionary is a tuple of three arrays: starting points, ending points and class labels.
+        """
+        for i in range(point_cloud.shape[0]):
+            key = (point_cloud[i, 0], point_cloud[i, 1])
+            s_point, e_point, c = point_cloud[i, 2], point_cloud[i, 3], point_cloud[i, 4]
+
+            if key not in labels:
+                count = counts[key]
+                s_points = np.full((count, ), FILL_VALUE, np.int64)
+                e_points = np.full((count, ), FILL_VALUE, np.int64)
+                c_array = np.full((count, ), FILL_VALUE, np.int64)
+
+                s_points[0] = s_point
+                e_points[0] = e_point
+                c_array[0] = c
+
+                labels[key] = (s_points, e_points, c_array)
+            else:
+                (s_points, e_points, c_array) = labels[key]
+                for j, point in enumerate(s_points):
+                    if point == FILL_VALUE:
+                        idx = j
+                        break
+
+                s_points[idx] = s_point
+                e_points[idx] = e_point
+                c_array[idx] = c
+                labels[key] = (s_points, e_points, c_array)
+        return labels
+
+    labels = _fill_labels(labels, counts, point_cloud)
+    return labels
+
+
 @njit
-def _filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
-    """ Remove (inplace) keys from labels dictionary according to zero_matrix.
+def filter_labels(labels, filtering_matrix, ilines_offset, xlines_offset):
+    """ Remove (inplace) keys from labels dictionary according to filtering_matrix.
 
     Parameters
     ----------
     labels : dict
         Dictionary with keys in (iline, xline) format.
-    zero_matrix : ndarray
-        Matrix of (n_ilines, n_xlines) shape with 1 on positions of zero-traces.
+    filtering_matrix : ndarray
+        Matrix of (n_ilines, n_xlines) shape with 1 on positions to remove.
     ilines_offset, xlines_offset : int
         Offsets of numeration.
     """
-    n_zeros = int(np.sum(zero_matrix))
+    n_zeros = int(np.sum(filtering_matrix))
     if n_zeros > 0:
         c = 0
         to_remove = np.zeros((n_zeros, 2), dtype=np.int64)
 
         for il, xl in labels.keys():
-            if zero_matrix[il - ilines_offset, xl - xlines_offset] == 1:
+            if filtering_matrix[il - ilines_offset, xl - xlines_offset] == 1:
                 to_remove[c, 0] = il
                 to_remove[c, 1] = xl
                 c = c + 1
@@ -239,12 +317,13 @@ def _filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
                 labels.pop(key)
 
 
+
 @njit
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, ilines_offset, xlines_offset, geom_depth,
                 mode, width, single_horizon=False):
-    """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
-    This function is usually called inside SeismicCropBatch's method `load_masks`.
+    """ Jit-accelerated function for fast mask creation for seismic horizons.
+    This function is usually called inside SeismicCropBatch's method `create_masks`.
     """
     #pylint: disable=line-too-long, too-many-nested-blocks, too-many-branches
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
@@ -290,6 +369,31 @@ def create_mask(ilines_, xlines_, hs_,
                 raise ValueError('Mode should be either `horizon` or `stratum`')
             mask[i, j, :] = m_temp[hs_]
     return mask
+
+
+@njit
+def create_mask_f(ilines_, xlines_, hs_, il_xl_h, ilines_offset, xlines_offset, geom_depth):
+    """ Jit-accelerated function for fast mask creation for seismic facies.
+    This function is usually called inside SeismicCropBatch's method `create_masks`.
+    """
+    mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+
+    for i, iline_ in enumerate(ilines_):
+        for j, xline_ in enumerate(xlines_):
+            il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
+            if il_xl_h.get((il_, xl_)) is None:
+                continue
+
+            m_temp = np.zeros(geom_depth)
+            value = il_xl_h.get((il_, xl_))
+            s_points, e_points, classes = value
+
+            for s_p, e_p, c in zip(s_points, e_points, classes):
+                m_temp[max(0, s_p):min(e_p+1, geom_depth)] = c+1
+            mask[i, j, :] = m_temp[hs_]
+    return mask
+
+
 
 def _get_horizons(mask, threshold, averaging, transforms, separate=False):
     """ Compute horizons from a mask.
@@ -462,6 +566,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, order):
     return background
 
 
+
 @njit(parallel=True)
 def round_to_array(values, ticks):
     """ Jit-accelerated function to round values from one array to the
@@ -493,6 +598,7 @@ def round_to_array(values, ticks):
             else:
                 values[i] = ticks_[ix-1]
     return values
+
 
 
 @njit
@@ -589,6 +695,7 @@ def depth_map_to_labels(depth_map, geom, labels=None, horizon_idx=0):
     return _depth_map_to_labels(depth_map, geom.ilines_offset, geom.xlines_offset, labels, horizon_idx, max_count)
 
 
+
 def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scale=False):
     """ Get values from the cube along the horizon.
 
@@ -647,7 +754,6 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
                                         low, high, horizon_idx, offset)
     background = np.squeeze(background)
     return background, depth_map
-
 
 
 @njit
