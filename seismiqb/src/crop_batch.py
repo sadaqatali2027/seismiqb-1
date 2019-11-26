@@ -1,7 +1,9 @@
 """ Seismic Crop Batch."""
+import os
 import string
 import random
 from copy import copy
+from functools import lru_cache
 
 import numpy as np
 import segyio
@@ -17,6 +19,7 @@ from .plot_utils import plot_batch_components
 AFFIX = '___'
 SIZE_POSTFIX = 7
 SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
+LRU_CACHE_SIZE = os.environ.get('SEISMIQB_CACHE_SIZE') or 128
 
 
 @transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
@@ -165,6 +168,11 @@ class SeismicCropBatch(Batch):
             Intervals between successive slides along each dimension.
         loc : sequence of numbers
             Location of the point relative to the cut crop. Must be a location on unit cube.
+        side_view : bool or float
+            Determines whether to generate crops of transposed shape (xline, iline, height).
+            If False, then shape is never transposed.
+            If True, then shape is transposed with 0.5 probability.
+            If float, then shape is transposed with that probability.
         dst : str, optional
             Component of batch to put positions of crops in.
         passdown : str of list of str
@@ -352,10 +360,12 @@ class SeismicCropBatch(Batch):
 
         if axis == 0:
             crop = self.__load_h5py_i(geom, *slice_)
-        elif axis == 1:
+        elif axis == 1 and 'cube_x' in geom.h5py_file:
             crop = self.__load_h5py_x(geom, *slice_)
-        else:
+        elif axis == 2 and 'cube_h' in geom.h5py_file:
             crop = self.__load_h5py_h(geom, *slice_)
+        else: # backward compatibility
+            crop = self.__load_h5py_i(geom, *slice_)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = crop
@@ -367,7 +377,7 @@ class SeismicCropBatch(Batch):
 
         crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
         for i, iline in enumerate(ilines):
-            slide = h5py_cube[iline, :, :]
+            slide = self.__load_slide(h5py_cube, iline)
             crop[i, :, :] = slide[xlines, :][:, heights]
         return crop
 
@@ -377,7 +387,7 @@ class SeismicCropBatch(Batch):
 
         crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
         for i, xline in enumerate(xlines):
-            slide = h5py_cube[xline, :, :]
+            slide = self.__load_slide(h5py_cube, xline)
             crop[:, i, :] = slide[heights, :][:, ilines].transpose([1, 0])
         return crop
 
@@ -387,10 +397,21 @@ class SeismicCropBatch(Batch):
 
         crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
         for i, height in enumerate(heights):
-            slide = h5py_cube[height, :, :]
+            slide = self.__load_slide(h5py_cube, height)
             crop[:, :, i] = slide[ilines, :][:, xlines]
         return crop
 
+    @lru_cache(maxsize=LRU_CACHE_SIZE)
+    def __load_slide(self, cube, index):
+        """ Cached function for slide loading.
+        For random sampled crop locations provides a ~20% speed boost.
+
+        Notes
+        -----
+        To get stats of caching, use::
+        batch._SeismicCropBatch__load_slide.cache_info()
+        """
+        return cube[index, :, :]
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
