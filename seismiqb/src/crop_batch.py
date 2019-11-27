@@ -1,7 +1,9 @@
 """ Seismic Crop Batch."""
+import os
 import string
 import random
 from copy import copy
+from functools import lru_cache
 
 import numpy as np
 import segyio
@@ -17,6 +19,7 @@ from .plot_utils import plot_batch_components
 AFFIX = '___'
 SIZE_POSTFIX = 7
 SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
+LRU_CACHE_SIZE = os.environ.get('SEISMIQB_CACHE_SIZE') or 128
 
 
 @transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
@@ -148,7 +151,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape, dilations=(1, 1, 1), loc=(0, 0, 0), dst='slices', passdown=None):
+    def crop(self, points, shape, dilations=(1, 1, 1), loc=(0, 0, 0), side_view=False, dst='slices', passdown=None):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
 
@@ -165,6 +168,11 @@ class SeismicCropBatch(Batch):
             Intervals between successive slides along each dimension.
         loc : sequence of numbers
             Location of the point relative to the cut crop. Must be a location on unit cube.
+        side_view : bool or float
+            Determines whether to generate crops of transposed shape (xline, iline, height).
+            If False, then shape is never transposed.
+            If True, then shape is transposed with 0.5 probability.
+            If float, then shape is transposed with that probability.
         dst : str, optional
             Component of batch to put positions of crops in.
         passdown : str of list of str
@@ -194,12 +202,27 @@ class SeismicCropBatch(Batch):
             if hasattr(self, component):
                 setattr(new_batch, component, getattr(self, component))
 
+        if side_view:
+            side_view = side_view if isinstance(side_view, float) else 0.5
+        shape = np.asarray(shape)
+        shapes = []
+        for _ in points:
+            if not side_view:
+                shapes.append(shape)
+            else:
+                flag = np.random.random() > side_view
+                if flag:
+                    shapes.append(shape)
+                else:
+                    shapes.append(shape[[1, 0, 2]])
+        shapes = np.array(shapes)
+
         if not all((0 <= x <= 1) for x in loc):
             raise ValueError('Locations of crop anchor must be inside unit-cube, instead got {}'.format(loc))
 
         slices = []
-        for point in points:
-            slice_ = self._make_slice(point, shape, dilations, loc)
+        for point, shape_ in zip(points, shapes):
+            slice_ = self._make_slice(point, shape_, dilations, loc)
             slices.append(slice_)
         setattr(new_batch, dst, slices)
         return new_batch
@@ -235,7 +258,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def load_cubes(self, dst, fmt='h5py', src='slices'):
+    def load_cubes(self, dst, fmt='h5py', src='slices', view=None):
         """ Load data from cube in given positions.
 
         Parameters
@@ -253,11 +276,13 @@ class SeismicCropBatch(Batch):
             Batch with loaded crops in desired component.
         """
         if fmt.lower() in ['sgy', 'segy']:
+            _ = view
             return self._load_cubes_sgy(src=src, dst=dst)
         if fmt.lower() in ['h5py', 'h5']:
-            return self._load_cubes_h5py(src=src, dst=dst)
+            return self._load_cubes_h5py(src=src, dst=dst, view=view)
 
         return self
+
 
     def _sgy_init(self, *args, **kwargs):
         """ Create `dst` component and preemptively open all the .sgy files.
@@ -317,25 +342,76 @@ class SeismicCropBatch(Batch):
         getattr(self, dst)[pos] = crop
         return segyfile
 
+
     @inbatch_parallel(init='_init_component', target='threads')
-    def _load_cubes_h5py(self, ix, dst, src='slices'):
+    def _load_cubes_h5py(self, ix, dst, src='slices', view=None):
         """ Load data from .hdf5-cube in given positions. """
         geom = self.get(ix, 'geometries')
-        h5py_cube = geom.h5py_file['cube']
-        dtype = h5py_cube.dtype
-
         slice_ = self.get(ix, src)
-        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
 
-        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)), dtype=dtype)
-        for i, iline_ in enumerate(ilines_):
-            slide = h5py_cube[iline_, :, :]
-            crop[i, :, :] = slide[xlines_, :][:, hs_]
+        if view is None:
+            slice_lens = np.array([len(item) for item in slice_])
+            axis = np.argmin(slice_lens)
+        else:
+            mapping = {0: 0, 1: 1, 2: 2,
+                       'i': 0, 'x': 1, 'h': 2,
+                       'iline': 0, 'xline': 1, 'height': 2, 'depth': 2}
+            axis = mapping[view]
+
+        if axis == 0:
+            crop = self.__load_h5py_i(geom, *slice_)
+        elif axis == 1 and 'cube_x' in geom.h5py_file:
+            crop = self.__load_h5py_x(geom, *slice_)
+        elif axis == 2 and 'cube_h' in geom.h5py_file:
+            crop = self.__load_h5py_h(geom, *slice_)
+        else: # backward compatibility
+            crop = self.__load_h5py_i(geom, *slice_)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = crop
         return self
 
+    def __load_h5py_i(self, geom, ilines, xlines, heights):
+        h5py_cube = geom.h5py_file['cube']
+        dtype = h5py_cube.dtype
+
+        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
+        for i, iline in enumerate(ilines):
+            slide = self.__load_slide(h5py_cube, iline)
+            crop[i, :, :] = slide[xlines, :][:, heights]
+        return crop
+
+    def __load_h5py_x(self, geom, ilines, xlines, heights):
+        h5py_cube = geom.h5py_file['cube_x']
+        dtype = h5py_cube.dtype
+
+        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
+        for i, xline in enumerate(xlines):
+            slide = self.__load_slide(h5py_cube, xline)
+            crop[:, i, :] = slide[heights, :][:, ilines].transpose([1, 0])
+        return crop
+
+    def __load_h5py_h(self, geom, ilines, xlines, heights):
+        h5py_cube = geom.h5py_file['cube_h']
+        dtype = h5py_cube.dtype
+
+        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
+        for i, height in enumerate(heights):
+            slide = self.__load_slide(h5py_cube, height)
+            crop[:, :, i] = slide[ilines, :][:, xlines]
+        return crop
+
+    @lru_cache(maxsize=LRU_CACHE_SIZE)
+    def __load_slide(self, cube, index):
+        """ Cached function for slide loading.
+        For random sampled crop locations provides a ~20% speed boost.
+
+        Notes
+        -----
+        To get stats of caching, use::
+        batch._SeismicCropBatch__load_slide.cache_info()
+        """
+        return cube[index, :, :]
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
@@ -576,6 +652,20 @@ class SeismicCropBatch(Batch):
                               grid_info['predict_shape'], order)
         setattr(self, dst, assembled)
         return self
+
+
+    def _side_view_reshape_(self, crop, shape):
+        """ Changes axis of view to match desired shape.
+        Must be used in combination with `side_view` argument of `crop` action.
+
+        Parameters
+        ----------
+        shape : sequence
+            Desired shape of resulting crops.
+        """
+        if (np.array(crop.shape) != np.array(shape)).any():
+            return crop.transpose([1, 0, 2])
+        return crop
 
 
     def _rotate_axes_(self, crop):
