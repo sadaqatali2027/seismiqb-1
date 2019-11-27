@@ -135,9 +135,7 @@ class SeismicCropBatch(Batch):
 
 
     def __getattr__(self, name):
-        if name in self.__dict__:
-            return getattr(self, name)
-        if name in self.dataset.__dict__:
+        if hasattr(self.dataset, name):
             return getattr(self.dataset, name)
         return super().__getattr__(name)
 
