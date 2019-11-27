@@ -64,7 +64,7 @@ class SeismicGeometry():
         self.xlines_offset = min(self.xlines)
         self.ilines_len = len(self.ilines)
         self.xlines_len = len(self.xlines)
-        self.cube_shape = [self.ilines_len, self.xlines_len, self.depth]
+        self.cube_shape = np.asarray([self.ilines_len, self.xlines_len, self.depth])
 
         # Create transform to correct height with time-delay and sample rate
         def transform(array):
@@ -166,6 +166,8 @@ class SeismicGeometry():
 
         h5py_file = h5py.File(path_h5py, "a")
         cube_h5py = h5py_file.create_dataset('cube', self.cube_shape)
+        cube_h5py_x = h5py_file.create_dataset('cube_x', self.cube_shape[[1, 2, 0]])
+        cube_h5py_h = h5py_file.create_dataset('cube_h', self.cube_shape[[2, 0, 1]])
 
         # Copy traces from .sgy to .h5py
         with segyio.open(self.path, 'r', strict=False) as segyfile:
@@ -174,14 +176,45 @@ class SeismicGeometry():
             description = 'Converting {} to h5py'.format('/'.join(self.path.split('/')[-2:]))
             for il_ in tqdm(range(self.ilines_len), desc=description):
                 slide = np.zeros((1, self.xlines_len, self.depth))
+                iline = self.ilines[il_]
 
                 for xl_ in range(self.xlines_len):
-                    iline = self.ilines[il_]
                     xline = self.xlines[xl_]
                     tr_ = self.il_xl_trace.get((iline, xline))
                     if tr_ is not None:
-                        slide[0, xl_, :] = segyfile.trace[tr_]
-                cube_h5py[il_, :, :] = slide.astype(dtype)
+                        trace = segyfile.trace[tr_]
+                        slide[0, xl_, :] = trace
+
+                slide = slide.astype(dtype)
+                cube_h5py[il_, :, :] = slide
+
+            for xl_ in tqdm(range(self.xlines_len), desc='x_view'):
+                slide = np.zeros((self.depth, self.ilines_len))
+                xline = self.xlines[xl_]
+
+                for il_ in range(self.ilines_len):
+                    iline = self.ilines[il_]
+                    tr_ = self.il_xl_trace.get((iline, xline))
+                    if tr_ is not None:
+                        trace = segyfile.trace[tr_]
+                        slide[:, il_] = trace
+
+                slide = slide.astype(dtype)
+                cube_h5py_x[xl_, :, :,] = slide
+
+            for il_ in tqdm(range(self.ilines_len), desc='h_view'):
+                slide = np.zeros((self.depth, self.xlines_len))
+                iline = self.ilines[il_]
+
+                for xl_ in range(self.xlines_len):
+                    xline = self.xlines[xl_]
+                    tr_ = self.il_xl_trace.get((iline, xline))
+                    if tr_ is not None:
+                        trace = segyfile.trace[tr_]
+                        slide[:, xl_] = trace
+
+                slide = slide.astype(dtype)
+                cube_h5py_h[:, il_, :] = slide
 
         # Save all the necessary attributes to the `info` group
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
