@@ -140,6 +140,7 @@ class SeismicCropBatch(Batch):
         return super().__getattr__(name)
 
     def get(self, item=None, component=None):
+        """ Overload `get` in order to use it for some attributes (that are looking like geometries or labels). """
         if sum([attribute in component for attribute in ['label', 'geom']]):
             if isinstance(item, str) and self.has_salt(item):
                 item = self.unsalt(item)
@@ -231,9 +232,6 @@ class SeismicCropBatch(Batch):
                     shapes.append(shape[[1, 0, 2]])
         shapes = np.array(shapes)
 
-        if not all((0 <= x <= 1) for x in loc):
-            raise ValueError('Locations of crop anchor must be inside unit-cube, instead got {}'.format(loc))
-
         slices = []
         for point, shape_ in zip(points, shapes):
             slice_ = self._make_slice(point, shape_, dilations, loc)
@@ -248,7 +246,7 @@ class SeismicCropBatch(Batch):
             cube_shape = np.array(self.get(ix, 'geometries').cube_shape)
             slice_point = np.rint(point[1:].astype(float) * (cube_shape - np.array(shape))).astype(int)
         else:
-            slice_point = point[1:] - 1
+            slice_point = point[1:]
 
         slice_ = []
         for i in range(3):

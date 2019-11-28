@@ -111,7 +111,7 @@ def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None, **kw
 def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
-    alphas = alphas or [1.0 for i in range(len(imgs))]
+    alphas = alphas or [1.0]*len(imgs)
 
     defaults = {'figsize': (15, 15)}
     plt.figure(**{**defaults, **kwargs})
@@ -124,8 +124,8 @@ def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwar
 
 def plot_images_transparent(imgs, title, order_axes, cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images with overlap. """
-    cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
-    alphas = alphas or [1.0 for i in range(len(imgs))]
+    cmaps = cmaps or ['gray'] + [None]*len(imgs)
+    alphas = alphas or [1.0] + [0.25]*len(imgs)
 
     defaults = {'figsize': (15, 15)}
     plt.figure(**{**defaults, **kwargs})
@@ -275,7 +275,7 @@ def labels_matrix(background, possible_coordinates, labels, ilines_offset, xline
                 background[point[0] - ilines_offset, point[1] - xlines_offset] += 1
     return background
 
-def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1):
+def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1, show_unique=False):
     """ Generate a lot of points and plot their (iline, xline) positions.
 
     Parameters
@@ -302,7 +302,7 @@ def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1):
     array = array[array[:, 0] == name]
 
     if not isinstance(array[0, 1], int):
-        array[:, 1:] = (array[:, 1:]*geom.cube_shape).astype(int)
+        array[:, 1:] = np.rint(array[:, 1:].astype(float)*geom.cube_shape).astype(int)
 
     for point in array:
         background[point[1]-eps:point[1]+eps, point[2]-eps:point[2]+eps] += 1
@@ -319,6 +319,11 @@ def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1):
     plt.title('Height distribution of sampled points for cube {}'.format(name),
               fontdict={'fontsize': 20})
     plt.show()
+
+    if show_unique:
+        uniques = np.sort(np.unique(array[:, 1]))
+        print('Unique inlines are: {}'.format(uniques))
+
 
 
 def plot_stratum_predictions(cubes, targets, predictions, n_rows=None):

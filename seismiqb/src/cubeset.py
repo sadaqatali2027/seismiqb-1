@@ -126,7 +126,7 @@ class SeismicCubeset(Dataset):
         for ix in self.indices:
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
-            filtering_matrix = filtering_matrix or geom.zero_traces
+            filtering_matrix = filtering_matrix if filtering_matrix is not None else geom.zero_traces
             getattr(self, src)[ix] = filter_point_cloud(getattr(self, src)[ix], filtering_matrix,
                                                         ilines_offset, xlines_offset)
 
@@ -198,7 +198,7 @@ class SeismicCubeset(Dataset):
         for ix in self.indices:
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
-            filtering_matrix = filtering_matrix or geom.zero_traces
+            filtering_matrix = filtering_matrix if filtering_matrix is not None else geom.zero_traces
             filter_labels(getattr(self, src)[ix], filtering_matrix, ilines_offset, xlines_offset)
 
     def save_labels(self, save_to, src='labels'):
@@ -283,8 +283,8 @@ class SeismicCubeset(Dataset):
 
                 if point_cloud.shape[1] == 5:
                     point_cloud = np.vstack([point_cloud[:, 0],
-                                             point_cloud[:, 1]
-                                             (point_cloud[:, 2] + point_cloud[:, 3])//2,
+                                             point_cloud[:, 1],
+                                             (point_cloud[:, 2] + point_cloud[:, 3])/2,
                                              point_cloud[:, -1]]).T
 
                 geom = getattr(self, 'geometries')[ix]
@@ -418,7 +418,7 @@ class SeismicCubeset(Dataset):
         else:
             setattr(self, dst, sampler)
 
-    def show_sampler(self, idx=0, src_sampler='sampler', n=100000, eps=3):
+    def show_sampler(self, idx=0, src_sampler='sampler', n=100000, eps=3, show_unique=False):
         """ Generate a lot of points and look at their (iline, xline) positions.
 
         Parameters
@@ -433,7 +433,7 @@ class SeismicCubeset(Dataset):
         eps : int
             Window of painting.
         """
-        show_sampler(self, idx=idx, src_sampler=src_sampler, n=n, eps=eps)
+        show_sampler(self, idx=idx, src_sampler=src_sampler, n=n, eps=eps, show_unique=show_unique)
 
 
     def load(self, horizon_dir=None, p=None, filter_zeros=True):
