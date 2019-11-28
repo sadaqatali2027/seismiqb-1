@@ -1,9 +1,7 @@
 """ Seismic Crop Batch."""
-import os
 import string
 import random
 from copy import copy
-from functools import lru_cache
 
 import numpy as np
 import segyio
@@ -19,7 +17,6 @@ from .plot_utils import plot_batch_components
 AFFIX = '___'
 SIZE_POSTFIX = 7
 SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
-LRU_CACHE_SIZE = os.environ.get('SEISMIQB_CACHE_SIZE') or 128
 
 
 @transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
@@ -140,6 +137,7 @@ class SeismicCropBatch(Batch):
         return super().__getattr__(name)
 
     def get(self, item=None, component=None):
+        """ Overload `get` in order to use it for some attributes (that are looking like geometries or labels). """
         if sum([attribute in component for attribute in ['label', 'geom']]):
             if isinstance(item, str) and self.has_salt(item):
                 item = self.unsalt(item)
@@ -415,15 +413,12 @@ class SeismicCropBatch(Batch):
             crop[:, :, i] = slide[ilines, :][:, xlines]
         return crop
 
-    @lru_cache(maxsize=LRU_CACHE_SIZE)
     def __load_slide(self, cube, index):
-        """ Cached function for slide loading.
-        For random sampled crop locations provides a ~20% speed boost.
+        """ (Potentially) cached function for slide loading.
 
         Notes
         -----
-        To get stats of caching, use::
-        batch._SeismicCropBatch__load_slide.cache_info()
+        One must use thread-safe cache implementation.
         """
         return cube[index, :, :]
 
