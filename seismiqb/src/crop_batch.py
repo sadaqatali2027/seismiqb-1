@@ -246,9 +246,9 @@ class SeismicCropBatch(Batch):
         if isinstance(point[1], float) or isinstance(point[2], float) or isinstance(point[3], float):
             ix = point[0]
             cube_shape = np.array(self.get(ix, 'geometries').cube_shape)
-            slice_point = (point[1:] * (cube_shape - np.array(shape))).astype(int)
+            slice_point = np.rint(point[1:].astype(float) * (cube_shape - np.array(shape))).astype(int)
         else:
-            slice_point = point[1:]
+            slice_point = point[1:] - 1
 
         slice_ = []
         for i in range(3):

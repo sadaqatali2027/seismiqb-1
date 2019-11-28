@@ -391,7 +391,7 @@ class SeismicCubeset(Dataset):
             def filter_out(array):
                 shapes = np.array(list(map(get_shape, array[:, 0])))
                 ticks = np.array(list(map(get_ticks, array[:, 0])))
-                arr = (array[:, axis+1]*shapes).astype(int)
+                arr = np.rint(array[:, axis+1].astype(float)*shapes).astype(int)
                 array[:, axis+1] = round_to_array(arr, ticks) / shapes
                 return array
 
@@ -404,7 +404,7 @@ class SeismicCubeset(Dataset):
 
             def coords_to_cube(array):
                 shapes = np.array(list(map(get_shapes, array[:, 0])))
-                array[:, 1:] = (array[:, 1:] * shapes).astype(int)
+                array[:, 1:] = np.rint(array[:, 1:].astype(float) * shapes).astype(int)
                 return array
 
             sampler = sampler.apply(coords_to_cube)
