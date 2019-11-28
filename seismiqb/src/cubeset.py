@@ -436,7 +436,7 @@ class SeismicCubeset(Dataset):
         show_sampler(self, idx=idx, src_sampler=src_sampler, n=n, eps=eps, show_unique=show_unique)
 
 
-    def load(self, horizon_dir=None, p=None, filter_zeros=True):
+    def load(self, horizon_dir=None, p=None, bins=None, filter_zeros=True):
         """ Load everything: geometries, point clouds, labels, samplers.
 
         Parameters
@@ -461,7 +461,7 @@ class SeismicCubeset(Dataset):
         if filter_zeros:
             self.filter_point_clouds()
         self.create_labels()
-        self.create_sampler(p=p)
+        self.create_sampler(p=p, bins=bins)
         return self
 
     def save_attr(self, name, save_to):
