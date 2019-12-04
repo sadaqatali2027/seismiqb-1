@@ -407,17 +407,23 @@ def compare_horizons(dict_1, dict_2, printer=print, plot=False, sample_rate=1, o
         if dict_1.get(key) is None:
             not_present_2 += 1
 
-    printer('First horizont length:                    {}'.format(len(dict_1)))
-    printer('Second horizont length:                   {}'.format(len(dict_2)))
-    printer('Mean value/std of error:                  {:8.7} / {:8.7}' \
-            .format(np.mean(differences), np.std(differences)))
-    printer('Number in 5 ms window:                    {}' \
-            .format(np.sum(np.array(differences) <= 5/sample_rate)))
-    printer('Rate in 5 ms window:                      {:8.7}' \
-            .format(np.sum(np.array(differences) <= 5/sample_rate) / len(differences)))
+    mean_error, std_error = np.mean(differences), np.std(differences)
+    window_metric = np.sum(np.array(differences) <= 5/sample_rate)
+    window_metric_percentage = window_metric / len(differences)
+    area_metric = 1 - not_present_2/len(dict_2)
 
-    printer('Average height of FIRST horizont:         {:8.7}'.format(np.mean(vals_1)))
-    printer('Average height of SECOND horizont:        {:8.7}'.format(np.mean(vals_2)))
+    printer('Covered area of the SECOND by the FIRST:  {:8.7}'.format(area_metric))
+    printer('First horizon length:                     {}'.format(len(dict_1)))
+    printer('Second horizon length:                    {}'.format(len(dict_2)))
+    printer('Mean value/std of error:                  {:8.7} / {:8.7}' \
+            .format(mean_error, std_error))
+    printer('Number in 5 ms window:                    {}' \
+            .format(window_metric))
+    printer('Rate in 5 ms window:                      {:8.7}' \
+            .format(window_metric_percentage))
+
+    printer('Average height of FIRST horizon:          {:8.7}'.format(np.mean(vals_1)))
+    printer('Average height of SECOND horizon:         {:8.7}'.format(np.mean(vals_2)))
 
     printer('In the FIRST, but not in the SECOND:      {}'.format(not_present_1))
     printer('In the SECOND, but not in the FIRST:      {}'.format(not_present_2))
@@ -426,6 +432,8 @@ def compare_horizons(dict_1, dict_2, printer=print, plot=False, sample_rate=1, o
     if plot:
         plt.title('Distribution of errors', fontdict={'fontsize': 15})
         _ = plt.hist(differences, bins=100)
+    return window_metric_percentage, area_metric
+
 
 
 

@@ -16,7 +16,7 @@ from seismiqb import read_point_cloud, make_labels_dict, compare_horizons
 
 
 
-def matcher(horizont_1, horizont_2, eps=400):
+def matcher(horizont_1, horizont_2):
     """ Check if horizonts are close to each other.
 
     Parameters
@@ -36,7 +36,8 @@ def matcher(horizont_1, horizont_2, eps=400):
 
     mean_2 = pd.read_csv(horizont_2, names=['iline', 'xline', 'height'],
                          sep='\s+', usecols=['height'])['height'].mean()
-    return np.abs((mean_1 - mean_2)) < eps
+    error = np.abs((mean_1 - mean_2))
+    return error
 
 
 def compare(horizont_1, horizont_2, printer):
@@ -58,11 +59,12 @@ def compare(horizont_1, horizont_2, printer):
 
     printer('First horizont:  {}'.format('/'.join(horizont_1.split('/')[-3:])))
     printer('Second horizont: {}'.format('/'.join(horizont_2.split('/')[-3:])))
-    compare_horizons(labels_1, labels_2, printer=printer, plot=False,
-                     sample_rate=1, offset=1)
+    window_metric, area_metric = compare_horizons(labels_1, labels_2, printer=printer, plot=False,
+                                                  sample_rate=1, offset=1)
+    return window_metric, area_metric
 
 
-def main(dir_1, dir_2, printer=None):
+def main(dir_1, dir_2, printer=None, eps=200):
     """ Compare each pair of horizonts in passed lists.
 
     Parameters
@@ -77,13 +79,21 @@ def main(dir_1, dir_2, printer=None):
     list_2 = glob(dir_2)
     cross = [(item_1, item_2) for item_1 in list_1 for item_2 in list_2]
 
+    metrics = []
     for horizont_1, horizont_2 in tqdm(cross):
-
-        if not matcher(horizont_1, horizont_2):
-            printer('Horizonts {} \n          {} \nwere REJECTED\n'.format(horizont_1, horizont_2))
+        error = matcher(horizont_1, horizont_2)
+        if not (error < eps):
+            printer('Horizons {} \n           {} \
+                     \nwere REJECTED with error of: {}\n'.format(horizont_1, horizont_2, error))
             continue
 
-        info = compare(horizont_1, horizont_2, printer)
+        window_metric, area_metric = compare(horizont_1, horizont_2, printer)
+        metrics.append((window_metric, area_metric))
+
+    metrics = np.asarray(metrics).reshape((-1, 2))
+    metric = metrics[:, 0].dot(metrics[:, 1])
+    printer(metric)
+    return metric
 
 
 if __name__ == '__main__':

@@ -1,5 +1,5 @@
 {
-  "dir_1": "/notebooks/SEISMIC_DATA/CUBE_3/SCRIPT/*",
-  "dir_2": "/notebooks/SEISMIC_DATA/CUBE_3/LINE_HORIZONTS/*.txt",
-  "path_log": "/notebooks/tsimfer/cloned/seismiqb/scripts/logs/compare.log"
+  "dir_1": "/home/tsimfer/SEISMIC_DATA/CUBE_2/PREDICTED_HORIZONS/AUGUST/*",
+  "dir_2": "/home/tsimfer/SEISMIC_DATA/CUBE_2/BEST_HORIZONS/*",
+  "path_log": "/home/tsimfer/GIT/seismiqb/scripts/logs/compare.log"
 }

@@ -607,9 +607,9 @@ class SeismicCubeset(Dataset):
         labels = self.labels[cube_name]
         sample_rate = self.geometries[cube_name].sample_rate
 
-        compare_horizons(horizon, labels, printer=print, plot=plot,
-                         sample_rate=sample_rate, offset=offset)
-        return self
+        window_metric, area_metric = compare_horizons(horizon, labels, printer=print, plot=plot,
+                                                      sample_rate=sample_rate, offset=offset)
+        return window_metric, area_metric
 
 
     def show_slide(self, idx=0, n_line=0, overlap=True, mode='iline', **kwargs):

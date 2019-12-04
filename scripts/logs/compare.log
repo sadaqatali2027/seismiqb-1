@@ -1,56 +1,96 @@
-First horizont:  CUBE_3/SCRIPT/Horizon_0.csv
-Second horizont: CUBE_3/LINE_HORIZONTS/prb_B_anon.txt
-Mean value/std of error:                  1168.905 / 15.54446
-First horizont length:                    3859491
-Second horizont length:                   4187623
+Horizons /home/tsimfer/SEISMIC_DATA/CUBE_2/PREDICTED_HORIZONS/AUGUST/Hor_at_975 (1).txt 
+           /home/tsimfer/SEISMIC_DATA/CUBE_2/BEST_HORIZONS/t0_M_anon                      
+were REJECTED with error of: 466.48944493858994
+
+First horizont:  PREDICTED_HORIZONS/AUGUST/Hor_at_975 (1).txt
+Second horizont: CUBE_2/BEST_HORIZONS/t0_J1_anon
+Covered area of the SECOND by the FIRST:  0.9699449
+First horizon length:                     351480
+Second horizon length:                    358774
+Mean value/std of error:                  1.260182 / 1.192684
+Number in 5 ms window:                    343952
+Rate in 5 ms window:                      0.9883934
+Average height of FIRST horizon:          1953.465
+Average height of SECOND horizon:         1954.873
+In the FIRST, but not in the SECOND:      3489
+In the SECOND, but not in the FIRST:      10783
+
+
+
+Horizons /home/tsimfer/SEISMIC_DATA/CUBE_2/PREDICTED_HORIZONS/AUGUST/Hor_at_975 (1).txt 
+           /home/tsimfer/SEISMIC_DATA/CUBE_2/BEST_HORIZONS/t0_G_anon                      
+were REJECTED with error of: 983.3071403670665
+
+First horizont:  PREDICTED_HORIZONS/AUGUST/Hor_at_975 (1).txt
+Second horizont: CUBE_2/BEST_HORIZONS/t0_BV8_anon
+Covered area of the SECOND by the FIRST:  0.9699449
+First horizon length:                     351480
+Second horizon length:                    358774
+Mean value/std of error:                  172.0615 / 5.279984
 Number in 5 ms window:                    0
 Rate in 5 ms window:                           0.0
-Average height of FIRST horizont:         1126.064
-Average height of SECOND horizont:        2294.969
-In the FIRST, but not in the SECOND:      5309
-In the SECOND, but not in the FIRST:      333441
+Average height of FIRST horizon:          1953.465
+Average height of SECOND horizon:         1782.403
+In the FIRST, but not in the SECOND:      3489
+In the SECOND, but not in the FIRST:      10783
 
 
 
-First horizont:  CUBE_3/SCRIPT/Horizon_0.csv
-Second horizont: CUBE_3/LINE_HORIZONTS/prb_T_ALL_anon.txt
-Mean value/std of error:                  1211.499 /  17.4338
-First horizont length:                    3859491
-Second horizont length:                   4187623
+First horizont:  PREDICTED_HORIZONS/AUGUST/Hor_at_975 (1).txt
+Second horizont: CUBE_2/BEST_HORIZONS/t0_B_anon
+Covered area of the SECOND by the FIRST:  0.9699449
+First horizon length:                     351480
+Second horizon length:                    358774
+Mean value/std of error:                  13.39799 / 1.395506
+Number in 5 ms window:                    288
+Rate in 5 ms window:                      0.0008276076
+Average height of FIRST horizon:          1953.465
+Average height of SECOND horizon:         1941.067
+In the FIRST, but not in the SECOND:      3489
+In the SECOND, but not in the FIRST:      10783
+
+
+
+Horizons /home/tsimfer/SEISMIC_DATA/CUBE_2/PREDICTED_HORIZONS/AUGUST/Hor_at_999 (1).txt 
+           /home/tsimfer/SEISMIC_DATA/CUBE_2/BEST_HORIZONS/t0_M_anon                      
+were REJECTED with error of: 514.3719198821839
+
+First horizont:  PREDICTED_HORIZONS/AUGUST/Hor_at_999 (1).txt
+Second horizont: CUBE_2/BEST_HORIZONS/t0_J1_anon
+Covered area of the SECOND by the FIRST:  0.9691533
+First horizon length:                     351118
+Second horizon length:                    358774
+Mean value/std of error:                  47.46099 /  4.57863
 Number in 5 ms window:                    0
 Rate in 5 ms window:                           0.0
-Average height of FIRST horizont:         1126.064
-Average height of SECOND horizont:        2337.563
-In the FIRST, but not in the SECOND:      5309
-In the SECOND, but not in the FIRST:      333441
+Average height of FIRST horizon:          2001.354
+Average height of SECOND horizon:         1954.893
+In the FIRST, but not in the SECOND:      3411
+In the SECOND, but not in the FIRST:      11067
 
 
 
-First horizont:  CUBE_3/SCRIPT/Horizon_0.csv
-Second horizont: CUBE_3/LINE_HORIZONTS/prb_G_anon.txt
-Mean value/std of error:                  0.7258954 / 0.8021307
-First horizont length:                    3859491
-Second horizont length:                   4187623
-Number in 5 ms window:                    3850994
-Rate in 5 ms window:                      0.9991728
-Average height of FIRST horizont:         1126.064
-Average height of SECOND horizont:        1125.773
-In the FIRST, but not in the SECOND:      5309
-In the SECOND, but not in the FIRST:      333441
+Horizons /home/tsimfer/SEISMIC_DATA/CUBE_2/PREDICTED_HORIZONS/AUGUST/Hor_at_999 (1).txt 
+           /home/tsimfer/SEISMIC_DATA/CUBE_2/BEST_HORIZONS/t0_G_anon                      
+were REJECTED with error of: 1031.1896153106604
 
+Horizons /home/tsimfer/SEISMIC_DATA/CUBE_2/PREDICTED_HORIZONS/AUGUST/Hor_at_999 (1).txt 
+           /home/tsimfer/SEISMIC_DATA/CUBE_2/BEST_HORIZONS/t0_BV8_anon                      
+were REJECTED with error of: 218.58690123812949
 
-
-First horizont:  CUBE_3/SCRIPT/Horizon_0.csv
-Second horizont: CUBE_3/LINE_HORIZONTS/prb_M_anon.txt
-Mean value/std of error:                  652.0597 / 12.53908
-First horizont length:                    3859491
-Second horizont length:                   4187623
+First horizont:  PREDICTED_HORIZONS/AUGUST/Hor_at_999 (1).txt
+Second horizont: CUBE_2/BEST_HORIZONS/t0_B_anon
+Covered area of the SECOND by the FIRST:  0.9691533
+First horizon length:                     351118
+Second horizon length:                    358774
+Mean value/std of error:                  61.26292 / 4.307506
 Number in 5 ms window:                    0
 Rate in 5 ms window:                           0.0
-Average height of FIRST horizont:         1126.064
-Average height of SECOND horizont:        1778.124
-In the FIRST, but not in the SECOND:      5309
-In the SECOND, but not in the FIRST:      333441
+Average height of FIRST horizon:          2001.354
+Average height of SECOND horizon:         1941.092
+In the FIRST, but not in the SECOND:      3411
+In the SECOND, but not in the FIRST:      11067
 
 
 
+0.959489818102761
