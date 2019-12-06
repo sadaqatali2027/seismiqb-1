@@ -27,7 +27,7 @@ class HorizonDetectionController:
 
     def calc_metric(self, submission_path, public=True):
         extr_dir = os.path.join(*path.split('/')[:-1], '__' + str(time()))
-        with zipfile.ZipFile(path, 'r') as zip_ref:
+        with zipfile.ZipFile(submission_path, 'r') as zip_ref:
             zip_ref.extractall(extr_dir)
 
         list_1 = glob(extr_dir + '/*')
