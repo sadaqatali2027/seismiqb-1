@@ -42,7 +42,7 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
     plt.legend()
     plt.show()
 
-def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None, **kwargs):
+def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None, title=False, **kwargs):
     """ Plot components of batch.
 
     Parameters
@@ -74,9 +74,10 @@ def plot_batch_components(batch, *components, idx=0, overlap=True, order_axes=No
         imgs = [getattr(batch, comp)[idx] for comp in components]
     else:
         imgs = [getattr(batch, comp) for comp in components]
+    title = title or ', '.join(components)
 
     if overlap:
-        plot_images_overlap(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
+        plot_images_overlap(imgs, title, order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
     else:
         plot_images_separate(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
 
@@ -104,16 +105,19 @@ def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwar
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
     alphas = alphas or [1.0 for i in range(len(imgs))]
+    savefig = kwargs.pop('savefig', False)
 
     defaults = {'figsize': (15, 15)}
-    plt.figure(**{**defaults, **kwargs})
+    fig = plt.figure(**{**defaults, **kwargs}, frameon=False)
+#     fig.set_size_inches(10, 3)
     for i, (img, cmap, alpha) in enumerate(zip(imgs, cmaps, alphas)):
         img = _to_img(img, order_axes=order_axes, convert=(i > 0))
         plt.imshow(img, alpha=alpha, cmap=cmap)
+    if savefig:
+        plt.savefig(title + '.png', bbox_inches='tight', pad_inches=0, dpi=24)
 
     plt.title(title, fontdict={'fontsize': 15})
     plt.show()
-
 
 def _to_img(data, order_axes=None, convert=False):
     if order_axes:
@@ -164,17 +168,20 @@ def plot_slide(dataset, *components, idx=0, iline=0, overlap=True, **kwargs):
     return batch
 
 
-def plot_from_above(img, title, **kwargs):
+def plot_from_above(img, title, figsize=(12, 7), show=True, savefig=True, **kwargs):
     """ Plot image with a given title with predifined axis labels."""
     default_kwargs = dict(cmap='Paired')
-    plt.figure(figsize=(12, 7))
+    plt.figure(figsize=figsize)
     img_ = plt.imshow(img, **{**default_kwargs, **kwargs})
     plt.title(title, y=1.1, fontdict={'fontsize': 20})
     plt.colorbar(img_, fraction=0.022, pad=0.07)
     plt.xlabel('XLINES', fontdict={'fontsize': 20})
     plt.ylabel('ILINES', fontdict={'fontsize': 20})
     plt.tick_params(labeltop=True, labelright=True)
-    plt.show()
+    if savefig:
+        plt.savefig(title + '.png')
+    if show:
+        plt.show()
 
 
 def plot_from_above_rgb(img, title, **kwargs):

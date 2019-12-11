@@ -863,7 +863,9 @@ class SeismicCropBatch(Batch):
             If 'freq', compute instantaneous frequency.
         """
         analytic = hilbert(crop, axis=axis)
-        phase = np.unwrap(np.angle(analytic))
+        phase = (np.angle(analytic))
+        print('new')
+#         phase = np.unwrap(np.angle(analytic))
 
         if mode == 'phase':
             return phase

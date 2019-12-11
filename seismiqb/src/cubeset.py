@@ -441,6 +441,7 @@ class SeismicCubeset(Dataset):
             dir_path = '/'.join(self.index.get_fullpath(self.indices[i]).split('/')[:-1])
             dir_ = dir_path + horizon_dir
             paths_txt[self.indices[i]] = glob(dir_)
+            
 
         self.load_geometries()
         self.load_point_clouds(paths=paths_txt)
@@ -741,7 +742,7 @@ class SeismicCubeset(Dataset):
         print('AVG', np.mean(depth_map[depth_map != FILL_VALUE_A]))
 
 
-    def compute_corrs(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False):
+    def compute_corrs(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False, _return_all=False, support_il=-1, support_xl=-1, title=None, precomputed_data=None, show=False):
         """ Compute correlations with the nearest traces along the horizon.
 
         Parameters
@@ -762,19 +763,24 @@ class SeismicCubeset(Dataset):
         labels = labels_src or self.labels[self.indices[idx]]
         geom = self.geometries[self.indices[idx]]
         hor_name = os.path.basename(geom.horizon_list[labels_idx])
-
-        data, depth_map = get_cube_values(labels, geom, labels_idx, window, 0)
-        corrs = compute_corrs(data)
+        if not precomputed_data:
+            data, depth_map = get_cube_values(labels, geom, labels_idx, window, 0)
+        else:
+            data, depth_map = precomputed_data
+        corrs = compute_corrs(data, support_il, support_xl)
         corrs[np.where(depth_map == FILL_VALUE_A)] = 0
-
-        plot_from_above(corrs, 'Correlation for {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic')
+        if not title:
+            title = 'Correlation for {} on cube {}'.format(hor_name, self.indices[idx])
+        plot_from_above(corrs, title, cmap='seismic', show=show)
         print('Average correlation is {}'.format(np.mean(corrs[depth_map != FILL_VALUE_A])))
-
-        if _return:
+        if _return and not _return_all:
             return corrs
+        if _return_all:
+            return depth_map, corrs
         return None
 
-    def compute_hilbert_transform(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False, kernel_size=3, write_to_file=False, mode='median', eps=1e-5):
+    def compute_hilbert_transform(self, idx=0, labels_idx=0, labels_src=None, window=3, _return=False, kernel_size=3, write_to_file=False, mode='median', eps=1e-5, 
+                                  dst_fname='mean_phase_difference', **kwargs):
         """ Compute hilbert transform along the horizon.
 
         Parameters
@@ -799,7 +805,12 @@ class SeismicCubeset(Dataset):
         data, depth_map = get_cube_values(labels, geom, labels_idx, window, 0)
 
         analytic = hilbert(data, axis=-1)
-        phase = np.unwrap(np.angle(analytic))
+#         phase = np.unwrap(np.angle(analytic))
+        phase = (np.angle(analytic))
+        phase = phase % (2 * np.pi) - np.pi
+        print('phase shape', phase.shape)
+        print('depth_map shape', depth_map.shape)
+        print('np.min(phase), np.max(phase) ', np.min(phase), np.max(phase))
         phase[depth_map == FILL_VALUE_A, :] = 0
 
         height = phase.shape[-1]
@@ -827,7 +838,12 @@ class SeismicCubeset(Dataset):
         median_phase[depth_map == FILL_VALUE_A] = 0
 
         img = np.minimum(median_phase - horizon_phase, 2 * np.pi + horizon_phase - median_phase)
+        img[depth_map == FILL_VALUE_A] = 0
+        print('beforez) ', np.min(phase), np.max(phase))
+
         img = np.where(img < -np.pi, img + 2 * np. pi, img)
+        print('after) ', np.min(phase), np.max(phase))
+
 #         img = np.where(np.abs(median_phase - horizon_phase) - np.abs(2 * np.pi + horizon_phase - median_phase) < 0,
 #                        median_phase - horizon_phase,
 #                        2 * np.pi + horizon_phase - median_phase)
@@ -836,18 +852,17 @@ class SeismicCubeset(Dataset):
         plt.hist(img[depth_map != FILL_VALUE_A], weights=np.ones(hist_size) / float(hist_size))
         plt.show()
 
-        plot_from_above(img, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic', vmin=-np.pi, vmax=np.pi)
+        plot_from_above(img, 'Horizon {} on cube {}'.format(hor_name, self.indices[idx]), cmap='seismic', vmin=-np.pi, vmax=np.pi, **kwargs)
         print('Average phase difference from median is {}'.format(np.mean(np.abs(img[depth_map != FILL_VALUE_A]))))
 
         if write_to_file:
-            with open("mean_phase_difference.txt", "a") as f:
+            with open(dst_fname + ".txt", "a") as f:
                 f.write('\n')
-                f.write('{} on cube {} \t {}'.format(hor_name, self.indices[idx], np.mean(np.abs(img[depth_map != FILL_VALUE_A]))))
+                f.write('{} on cube {} average difference from {} with kernel_size {} \t {}'.format(hor_name, self.indices[idx], mode, kernel_size, np.mean(np.abs(img[depth_map != FILL_VALUE_A]))))
         if _return:
             return img, median_phase, phase
         return None
-
-
+        
     def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):
         """ Compare two horizons on l1 metric and on derivative differences.
 
@@ -892,3 +907,48 @@ class SeismicCubeset(Dataset):
         if _return:
             return metric_1, metric_2
         return None
+
+    def compute_gradients(self, hor_1, hor_1_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):
+        """ Compare two horizons on l1 metric and on derivative differences.
+
+        Parameters
+        ----------
+        idx : int
+            Number of cube to use.
+
+        hor_1, hor_2 : dict
+            Dictionaries with labeled horizons.
+
+        hor_1_idx, hor_2_idx : int
+            Index of used horizon from each respective dictionary.
+
+        axis : int
+            Axis to take derivative along.
+
+        cmap : str
+            Colormap of showing the results.
+        """
+        geom = self.geometries[self.indices[idx]]
+
+        # Create all depth maps
+        depth_map_1 = labels_to_depth_map(hor_1, geom, hor_1_idx, 0)
+        indicator = (np.minimum(depth_map_1, depth_map_2) == FILL_VALUE_A).astype(int)
+        depth_map_1[np.where(indicator == 1)] = 0
+        depth_map_2[np.where(indicator == 1)] = 0
+
+        # l1: mean absolute difference between depth maps
+        metric_1 = np.abs(depth_map_1 - depth_map_2)
+        metric_1[np.where(indicator == 1)] = 0
+        plot_from_above(metric_1, 'l1 metric on cube {}'.format(self.indices[idx]), cmap=cmap)
+        print('Average value of l1 is {}\n\n'.format(np.mean(metric_1[np.where(indicator == 0)])))
+
+        # ~: mean absolute difference between gradients of depth maps
+        metric_2 = np.abs(np.diff(depth_map_1, axis=axis, prepend=0) - np.diff(depth_map_2, axis=axis, prepend=0))
+        metric_2[np.where(indicator == 1)] = 0
+        plot_from_above(metric_2, '~ metric on cube {}'.format(self.indices[idx]), cmap=cmap)
+        print('Average value of ~ is {}'.format(np.mean(metric_2[np.where(indicator == 0)])))
+
+        if _return:
+            return metric_1, metric_2
+        return None
+

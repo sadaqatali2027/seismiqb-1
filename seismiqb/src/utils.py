@@ -1,6 +1,8 @@
 """ Utility functions. """
+import os
 import numpy as np
 import pandas as pd
+from collections import defaultdict
 import segyio
 from tqdm import tqdm
 from skimage.measure import label, regionprops
@@ -253,15 +255,13 @@ def _filter_labels(labels, zero_matrix, ilines_offset, xlines_offset):
 @njit
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, ilines_offset, xlines_offset, geom_depth,
-                mode, width, single_horizon=False):
+                mode, width, n_horizons=-1):
     """ Jit-accelerated function for fast mask creation from point cloud data stored in numba.typed.Dict.
     This function is usually called inside SeismicCropBatch's method `load_masks`.
     """
     #pylint: disable=line-too-long, too-many-nested-blocks, too-many-branches
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-    if single_horizon:
-        single_idx = -1
-
+    selected_idx = False
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
             il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
@@ -269,21 +269,23 @@ def create_mask(ilines_, xlines_, hs_,
                 continue
             m_temp = np.zeros(geom_depth)
             if mode == 'horizon':
-                filtered_idx = [idx for idx, height_ in enumerate(il_xl_h[(il_, xl_)])
-                                if height_ != FILL_VALUE]
-                filtered_idx = [idx for idx in filtered_idx
-                                if il_xl_h[(il_, xl_)][idx] > hs_[0] and il_xl_h[(il_, xl_)][idx] < hs_[-1]]
-                if len(filtered_idx) == 0:
-                    continue
-                if single_horizon:
-                    if single_idx == -1:
-                        single_idx = np.random.choice(filtered_idx)
-                        single_idx = filtered_idx[np.random.randint(len(filtered_idx))]
-                    value = il_xl_h[(il_, xl_)][single_idx]
-                    m_temp[max(0, value - width):min(value + width, geom_depth)] = 1
-                else:
-                    for idx in filtered_idx:
-                        m_temp[max(0, il_xl_h[(il_, xl_)][idx] - width):min(il_xl_h[(il_, xl_)][idx] + width, geom_depth)] = 1
+                heights = il_xl_h[(il_, xl_)]
+                if not selected_idx:
+                    filtered_idx = np.array([idx for idx, height_ in enumerate(heights)
+                                             if height_ != FILL_VALUE])
+                    filtered_idx = np.array([idx for idx in filtered_idx
+                                             if heights[idx] > hs_[0] and heights[idx] < hs_[-1]])
+                    if len(filtered_idx) == 0:
+                        continue
+                    if n_horizons != -1 and len(filtered_idx) >= n_horizons:
+                        filtered_idx = np.random.choice(filtered_idx, replace=False, size=n_horizons)
+                        selected_idx = True
+                for idx in filtered_idx:
+                    _height = heights[idx]
+                    if width == 0:
+                        m_temp[_height] = 1
+                    else:
+                        m_temp[max(0, _height - width):min(_height + width, geom_depth)] = 1
             elif mode == 'stratum':
                 current_col = 1
                 start = 0
@@ -677,14 +679,17 @@ def get_cube_values(labels, geom, labels_idx=0, window=3, offset=0, scale=False)
 
 
 @njit
-def compute_corrs(data):
+def compute_corrs(data, support_il=-1, support_xl=-1):
     """ Compute average correlation between each column in data and nearest traces. """
     i_range, x_range = data.shape[:2]
     corrs = np.zeros((i_range, x_range))
-
     for i in range(i_range):
         for x in range(x_range):
-            trace = data[i, x, :]
+            _il = i if support_il == -1 else support_il
+            _xl = x if support_xl == -1 else support_xl
+
+            trace = data[_il, _xl, :]
+
             if np.max(trace) == np.min(trace):
                 continue
 
@@ -716,7 +721,8 @@ def compute_corrs(data):
     return corrs
 
 @njit
-def running_mean(x, kernel_size, cumsum):
+def _compute_running_mean_jit(x, kernel_size, cumsum):
+    """ Jit accelerated running mean """
     k = kernel_size // 2
     i_max = cumsum.shape[0]
     j_max = cumsum.shape[1]
@@ -734,3 +740,63 @@ def running_mean(x, kernel_size, cumsum):
             c = cumsum[i + 1 + k, j - k]
             result[i - k, j - k] = float(d - b - c + a) /  float(kernel_size ** 2)
     return result
+
+def compute_running_mean(x, kernel_size):
+    """ Fast analogue of scipy.signal.convolve2d with gaussian filter """
+    k = kernel_size // 2
+    padded_x = np.pad(x, (k, k), mode='symmetric')
+    cumsum = np.cumsum(padded_x, axis=1)
+    cumsum = np.cumsum(cumsum, axis=0)
+    return _compute_running_mean_jit(x, kernel_size, cumsum)
+
+def convert_to_numba_dict(_labels):
+    """ Convert a dict to Numba dict.
+
+    Parameters
+    ----------
+    _labels : dict
+        Designed for a dict with special format
+        keys must be tuples of length 2 with int64 values;
+        dict's values must be arrays.
+
+    Returns
+    -------
+    A Numba dict.
+    """
+    key_type = types.Tuple((types.int64, types.int64))
+    value_type = types.int64[:]
+    _type_labels = Dict.empty(key_type, value_type)
+    for key, value in _labels.items():
+        _type_labels[key] = np.asarray(np.rint(value), dtype=np.int64)
+    return _type_labels
+
+def random_support_correlation(ds, idx, labels_idx, n_samples=10, window=20, safe_strip=100, path='support_corrs', show=False):
+    """
+    safe_strip : int
+        To be removed after checking that trace in nonzero (?)
+    """
+    geom = ds.geometries[ds.indices[idx]]
+    hor_name = os.path.basename(geom.horizon_list[labels_idx])
+    directory = os.path.join(path, 'window_' + str(window), ds.indices[idx], hor_name)
+    results = defaultdict(list)
+    h5py_cube = geom.h5py_file['cube']
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    labels = ds.labels[ds.indices[idx]]
+    data, depth_map = get_cube_values(labels, geom, labels_idx, window, 0)
+
+    i = 0 
+    while i < n_samples:
+        title = directory + '/trial_' + str(i)
+        _il = np.random.randint(safe_strip, geom.ilines_len - safe_strip)
+        _xl = np.random.randint(safe_strip, geom.xlines_len - safe_strip)
+        if np.sum(h5py_cube[_il, _xl, :]) < 1e-4:
+            continue
+        i += 1
+        depth_map, corrs = ds.compute_corrs(idx=idx, labels_idx=labels_idx, window=20, support_xl=_xl, support_il=_il,
+                                            _return_all=True, title=title, precomputed_data=(data, depth_map), show=show)
+        corr_values = corrs[depth_map != FILL_VALUE_A]
+        results['mean'].append(np.mean(corr_values))
+        results['std'].append(np.std(corr_values))    
+    return results, directory
