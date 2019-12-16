@@ -1,7 +1,6 @@
 [![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Python](https://img.shields.io/badge/python-3.5-blue.svg)](https://python.org)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-1.12-orange.svg)](https://tensorflow.org)
-[![Run Status](https://api.shippable.com/projects/5d5fbdc7d9f40a0006391187/badge?branch=master)](https://app.shippable.com/github/gazprom-neft/seismiqb)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-1.14-orange.svg)](https://tensorflow.org)
 
 # Seismiqb
 
