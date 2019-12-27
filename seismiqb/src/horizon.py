@@ -5,13 +5,15 @@
 """
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from numba import njit, types
 from numba.typed import Dict
 from skimage.measure import label, regionprops
-import matplotlib.pyplot as plt
+from scipy.signal import hilbert, medfilt
 
 from ._const import FILL_VALUE, FILL_VALUE_MAP
+from .utils import compute_running_mean
 
 
 
@@ -90,6 +92,7 @@ def dump_horizon(horizon, geometry, path_save, idx=None, offset=1):
               index=False, header=False)
 
 
+
 def compare_horizons(dict_1, dict_2, printer=print, plot=False, sample_rate=1, offset=0):
     """ Compare two horizons in dictionary format.
 
@@ -152,6 +155,28 @@ def compare_horizons(dict_1, dict_2, printer=print, plot=False, sample_rate=1, o
         plt.title('Distribution of errors', fontdict={'fontsize': 15})
         _ = plt.hist(differences, bins=100)
 
+
+
+def convert_to_numba_dict(labels):
+    """ Convert a dict to a Numba-typed dict.
+
+    Parameters
+    ----------
+    labels : dict
+        Dictionary with a special format:
+            Keys must be tuples of length 2 with int64 values;
+            Values must be arrays.
+
+    Returns
+    -------
+    A Numba-typed dict.
+    """
+    key_type = types.Tuple((types.int64, types.int64))
+    value_type = types.int64[:]
+    type_labels = Dict.empty(key_type, value_type)
+    for key, value in labels.items():
+        type_labels[key] = np.asarray(np.rint(value), dtype=np.int64)
+    return type_labels
 
 
 
@@ -275,7 +300,6 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
     background = np.squeeze(background)
     return background, depth_map
 
-
 @njit
 def _find_min_max(labels, horizon_idx):
     """ Fast way of finding minimum and maximum of horizon depth inside labels dictionary. """
@@ -287,7 +311,6 @@ def _find_min_max(labels, horizon_idx):
         if h < min_:
             min_ = h
     return min_, max_
-
 
 @njit
 def _update(background, depth_map, data, labels, horizon_idx, ilines_offset, xlines_offset,
@@ -324,7 +347,7 @@ def _update(background, depth_map, data, labels, horizon_idx, ilines_offset, xli
     return background, depth_map
 
 
-@njit
+
 def compute_local_corrs(data, zero_traces, locality=4):
     """ Compute average correlation between each column in data and nearest traces.
 
@@ -337,27 +360,36 @@ def compute_local_corrs(data, zero_traces, locality=4):
     locality : {4, 8}
         Defines number of nearest traces to average correlations from.
     """
-    #pylint: disable=too-many-nested-blocks
     if locality == 4:
         locs = [[-1, 0], [1, 0], [0, -1], [0, 1]]
     elif locality == 8:
         locs = [[-1, -1], [0, -1], [1, -1],
                 [-1, 0], [1, 0],
                 [-1, 1], [0, 1], [1, 1]]
+    locs = np.array(locs)
+
+    bad_traces = np.copy(zero_traces)
+    bad_traces[np.std(data, axis=-1) == 0.0] = 1
+    return _compute_local_corrs(data, bad_traces, locs)
+
+@njit
+def _compute_local_corrs(data, bad_traces, locs):
+    #pylint: disable=too-many-nested-blocks, consider-using-enumerate
     i_range, x_range = data.shape[:2]
     corrs = np.zeros((i_range, x_range))
 
     for il in range(i_range):
         for xl in range(x_range):
-            trace = data[il, xl, :]
+            if bad_traces[il, xl] == 0:
+                trace = data[il, xl, :]
 
-            if zero_traces[il, xl] == 0:
                 s, c = 0.0, 0
-                for loc in locs:
-                    il_, xl_ = il + loc[0], xl + loc[1]
+                for i in range(len(locs)):
+                    il_, xl_ = il + locs[i][0], xl + locs[i][1]
+
                     if (0 < il_ < i_range) and (0 < xl_ < x_range):
-                        trace_ = data[il_, xl_, :]
-                        if zero_traces[il_, xl_] == 0:
+                        if bad_traces[il_, xl_] == 0:
+                            trace_ = data[il_, xl_, :]
                             s += np.corrcoef(trace, trace_)[0, 1]
                             c += 1
                 if c != 0:
@@ -365,7 +397,7 @@ def compute_local_corrs(data, zero_traces, locality=4):
     return corrs
 
 
-def compute_support_corrs(data, supports, zero_traces, line_no=None):
+def compute_support_corrs(data, supports, zero_traces, safe_strip=0, line_no=None):
     """ Compute correlations with support traces.
 
     Parameters
@@ -380,82 +412,132 @@ def compute_support_corrs(data, supports, zero_traces, line_no=None):
         If sequence or ndarray, then must be of shape (N, 2) and is used as positions of support traces.
         If str, then must defines either `iline` or `xline` mode. In each respective one, given iline/xline is used
         to generate supports.
+    safe_strip : int
+        Used only for `int` mode of `supports` parameter and defines minimum distance from borders for sampled points.
     line_no : int
         Used only for `str` mode of `supports` parameter to define exact iline/xline to use.
     """
+    bad_traces = np.copy(zero_traces)
+    bad_traces[np.std(data, axis=-1) == 0.0] = 1
+
     if isinstance(supports, (int, tuple, list)):
         if isinstance(supports, int):
-            non_zero_traces = np.where(zero_traces == 0)
+            if safe_strip:
+                bad_traces[:, :safe_strip], bad_traces[:, -safe_strip:] = 1, 1
+                bad_traces[:safe_strip, :], bad_traces[-safe_strip:, :] = 1, 1
+
+            non_zero_traces = np.where(bad_traces == 0)
             indices = np.random.choice(len(non_zero_traces[0]), supports)
             supports = np.array([non_zero_traces[0][indices], non_zero_traces[1][indices]]).T
+
         elif isinstance(supports, (tuple, list)):
             if min(len(item) == 2 for item in supports) is False:
                 raise ValueError('Each of `supports` sequence must contain coordinate of trace (il, xl). ')
             supports = np.array(supports)
 
-        return _compute_support_corrs(data, supports, zero_traces)
+        return _compute_support_corrs(data, supports, bad_traces)
 
     if isinstance(supports, str):
         if supports.startswith('i'):
             support_il = line_no or data.shape[0] // 2
-            return _compute_iline_corrs(data, support_il, zero_traces)
+            return _compute_iline_corrs(data, support_il, bad_traces)
 
         if supports.startswith('x'):
             support_xl = line_no or data.shape[1] // 2
-            return _compute_xline_corrs(data, support_xl, zero_traces)
+            return _compute_xline_corrs(data, support_xl, bad_traces)
     raise ValueError('`Supports` must be either int, sequence, ndarray or string. ')
 
-
 @njit
-def _compute_support_corrs(data, supports, zero_traces):
+def _compute_support_corrs(data, supports, bad_traces):
     """ Jit-accelerated function to compute correlations with a number of support traces. """
     n_supports = len(supports)
     i_range, x_range, depth = data.shape
-    corrs = np.zeros((i_range, x_range, n_supports))
 
     support_traces = np.zeros((n_supports, depth))
+    stds = np.zeros((n_supports,))
     for i in range(n_supports):
         coord = supports[i]
         support_traces[i, :] = data[coord[0], coord[1], :]
+        stds[i] = np.std(support_traces[i, :])
+
+    corrs = np.zeros((i_range, x_range, n_supports))
 
     for il in range(i_range):
         for xl in range(x_range):
-            trace = data[il, xl, :]
+            if bad_traces[il, xl] == 0:
+                trace = data[il, xl, :]
 
-            if zero_traces[il, xl] == 0:
                 for i in range(n_supports):
                     corrs[il, xl, i] = np.corrcoef(trace, support_traces[i, :])[0, 1]
     return corrs
 
-
 @njit
-def _compute_iline_corrs(data, support_il, zero_traces):
+def _compute_iline_corrs(data, support_il, bad_traces):
     """ Jit-accelerated function to compute correlations along given iline"""
     i_range, x_range = data.shape[:2]
     corrs = np.zeros((i_range, x_range))
 
     for xl in range(x_range):
-        if zero_traces[support_il, xl] == 0:
+        if bad_traces[support_il, xl] == 0:
             support_trace = data[support_il, xl, :]
 
             for il in range(i_range):
-                if zero_traces[il, xl] == 0:
+                if bad_traces[il, xl] == 0:
                     trace = data[il, xl, :]
                     corrs[il, xl] = np.corrcoef(trace, support_trace)[0, 1]
     return corrs
 
 @njit
-def _compute_xline_corrs(data, support_xl, zero_traces):
+def _compute_xline_corrs(data, support_xl, bad_traces):
     """ Jit-accelerated function to compute correlations along given xline"""
     i_range, x_range = data.shape[:2]
     corrs = np.zeros((i_range, x_range))
 
     for il in range(i_range):
-        if zero_traces[il, support_xl] == 0:
+        if bad_traces[il, support_xl] == 0:
             support_trace = data[il, support_xl, :]
 
             for xl in range(x_range):
-                if zero_traces[il, xl] == 0:
+                if bad_traces[il, xl] == 0:
                     trace = data[il, xl, :]
                     corrs[il, xl] = np.corrcoef(trace, support_trace)[0, 1]
     return corrs
+
+
+def compute_hilbert(data, depth_map, mode='median', kernel_size=3, eps=1e-5):
+    """ Compute phase along the horizon. """
+    analytic = hilbert(data, axis=-1)
+    phase = (np.angle(analytic))
+    phase = phase % (2 * np.pi) - np.pi
+    phase[depth_map == FILL_VALUE_MAP, :] = 0
+
+    horizon_phase = phase[:, :, phase.shape[-1] // 2]
+    horizon_phase = correct_pi(horizon_phase, eps)
+
+    if mode == 'mean':
+        median_phase = compute_running_mean(horizon_phase, kernel_size)
+    else:
+        median_phase = medfilt(horizon_phase, kernel_size)
+    median_phase[depth_map == FILL_VALUE_MAP] = 0
+
+    img = np.minimum(median_phase - horizon_phase, 2 * np.pi + horizon_phase - median_phase)
+    img[depth_map == FILL_VALUE_MAP] = 0
+    img = np.where(img < -np.pi, img + 2 * np. pi, img)
+
+    metrics = np.zeros((*img.shape, 2+data.shape[2]))
+    metrics[:, :, 0] = img
+    metrics[:, :, 1] = median_phase
+    metrics[:, :, 2:] = phase
+    return metrics
+
+
+@njit
+def correct_pi(horizon_phase, eps):
+    """ Jit-accelerated function to <>. """
+    for i in range(horizon_phase.shape[0]):
+        prev = horizon_phase[i, 0]
+        for j in range(1, horizon_phase.shape[1] - 1):
+            if np.abs(np.abs(prev) - np.pi) <= eps and np.abs(np.abs(horizon_phase[i, j + 1]) - np.pi) <= eps:
+                horizon_phase[i, j] = prev
+            prev = horizon_phase[i, j]
+    return horizon_phase

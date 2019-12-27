@@ -19,7 +19,7 @@ from .plot_utils import show_labels, show_sampler, plot_slide, plot_image
 
 from .horizon import mask_to_horizon, compare_horizons, dump_horizon
 from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes
-from .horizon import compute_local_corrs, compute_support_corrs
+from .horizon import compute_local_corrs, compute_support_corrs, compute_hilbert
 
 
 
@@ -777,9 +777,10 @@ class SeismicCubeset(Dataset):
 
 
 
-    def compute_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None, mode='local_corrs', window=3,
-                               filter_zero_traces=True, _fill_value=0, _return=False, _show=True, **kwargs):
-        """ Astonishing docstring.
+    def compute_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None, window=3, mode='local_corrs',
+                               filter_zero_traces=True, _fill_value=0,
+                               aggregate=None, show=True, _return=False, **kwargs):
+        """ Compute metric along the horizon amplitudes.
 
         Parameters
         ----------
@@ -794,6 +795,7 @@ class SeismicCubeset(Dataset):
         window : int
             Width of trace used for computing metric.
         """
+        #pylint: disable=too-many-branches
         cube_name = idx if isinstance(idx, str) else self.indices[idx]
         labels = labels_src or self.labels[cube_name]
         geom = self.geometries[cube_name]
@@ -801,28 +803,65 @@ class SeismicCubeset(Dataset):
         data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, window, 0)
 
         if mode in ['local_corrs']:
-            metric = compute_local_corrs(data, geom.zero_traces)
+            locality = kwargs.get('locality', 4)
+            metric = compute_local_corrs(data, geom.zero_traces, locality)
+            scalar_metric = np.mean(metric[depth_map != FILL_VALUE_MAP])
+            title = 'local correlation'
+
         elif 'support' in mode:
-            supports, line_no = kwargs.get('supports', 1), kwargs.get('line_no', None)
-            metric = compute_support_corrs(data, supports, geom.zero_traces, line_no)
+            supports = kwargs.get('supports', 1)
+            safe_strip, line_no = kwargs.get('safe_strip', 0), kwargs.get('line_no', None)
+            metric = compute_support_corrs(data, supports, geom.zero_traces, safe_strip, line_no)
+            scalar_metric = np.mean(np.mean(metric[depth_map != FILL_VALUE_MAP], axis=(0, 1)))
+
+            if isinstance(supports, int):
+                title = 'correlation with {} random supports'.format(supports)
+            elif isinstance(supports, (tuple, list, np.ndarray)):
+                title = 'correlation with {} supports'.format(len(supports))
+            elif isinstance(supports, str):
+                title = 'correlation along {} {}'.format(line_no or 'middle', supports)
+
+        elif 'hilbert' in mode:
+            hilbert_mode = kwargs.get('hilbert_mode', 'median')
+            metric = compute_hilbert(data, depth_map, hilbert_mode)
+            scalar_metric = np.mean(metric[depth_map != FILL_VALUE_MAP])
+            title = 'phase by {}'.format(hilbert_mode)
 
         if filter_zero_traces:
             metric[np.where(depth_map == FILL_VALUE_MAP)] = _fill_value
 
-        if _show:
+        if aggregate is not None:
+            if callable(aggregate):
+                metric = aggregate(metric)
+            elif isinstance(aggregate, str):
+                metric = getattr(np, aggregate)(metric, axis=-1)
+            elif isinstance(aggregate, int):
+                metric = metric[:, :, aggregate]
+
+        if show:
             hor_name = os.path.basename(geom.horizon_list[horizon_idx])
-            plot_image(metric, '{} for {} on cube {}'.format(mode, hor_name, cube_name), cmap='seismic')
+            plot_image(metric, '{} for {} on cube {}'.format(title, hor_name, cube_name), cmap='seismic')
             print('Average {} is {:.3} (computed only on non-zero traces)'
-                  .format(mode, np.mean(metric[depth_map != FILL_VALUE_MAP])))
+                  .format(title, scalar_metric))
 
         if _return:
             return metric
         return None
 
-    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, _return=False, _show=True):
+    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3,
+                              aggregate=None, show=True, _return=False, **kwargs):
         """ Compute correlations with the nearest (locally) traces along the horizon. """
-        self.compute_horizon_metric(idx=idx, horizon_idx=horizon_idx, labels_src=labels_src, mode='local_corrs',
-                                    window=window, _return=_return, _show=_show)
+        return self.compute_horizon_metric(idx=idx, horizon_idx=horizon_idx, labels_src=labels_src, window=window,
+                                           mode='local_corrs',
+                                           aggregate=aggregate, show=show, _return=_return, **kwargs)
+
+
+    def compute_horizon_random_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, supports=20,
+                                     aggregate=None, show=True, _return=False, **kwargs):
+        """ Compute correlations with the nearest (locally) traces along the horizon. """
+        return self.compute_horizon_metric(idx=idx, horizon_idx=horizon_idx, labels_src=labels_src, window=window,
+                                           mode='support', supports=supports,
+                                           aggregate=aggregate, show=show, _return=_return, **kwargs)
 
 
     def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):

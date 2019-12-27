@@ -5,8 +5,8 @@ import segyio
 
 from numba import njit
 
-
 from ._const import FILL_VALUE
+
 
 
 def make_subcube(path, geometry, path_save, i_range, x_range):
@@ -145,7 +145,6 @@ def create_mask_f(ilines_, xlines_, hs_, il_xl_h, ilines_offset, xlines_offset, 
 
 
 
-
 @njit
 def count_nonfill(array):
     """ Jit-accelerated function to count non-fill elements. """
@@ -154,6 +153,7 @@ def count_nonfill(array):
         if i != FILL_VALUE:
             count += 1
     return count
+
 
 
 @njit
@@ -236,3 +236,33 @@ def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines
         val_max = maximum
 
     return val_min, val_max, matrix
+
+
+
+def compute_running_mean(x, kernel_size):
+    """ Fast analogue of scipy.signal.convolve2d with gaussian filter """
+    k = kernel_size // 2
+    padded_x = np.pad(x, (k, k), mode='symmetric')
+    cumsum = np.cumsum(padded_x, axis=1)
+    cumsum = np.cumsum(cumsum, axis=0)
+    return _compute_running_mean_jit(x, kernel_size, cumsum)
+
+@njit
+def _compute_running_mean_jit(x, kernel_size, cumsum):
+    """ Jit accelerated running mean """
+    #pylint: disable=invalid-name
+    k = kernel_size // 2
+    result = np.zeros_like(x).astype(np.float32)
+
+    canvas = np.zeros((cumsum.shape[0] + 2, cumsum.shape[1] + 2))
+    canvas[1:-1, 1:-1] = cumsum
+    cumsum = canvas
+
+    for i in range(k, x.shape[0] + k):
+        for j in range(k, x.shape[1] + k):
+            d = cumsum[i + k + 1, j + k + 1]
+            a = cumsum[i - k, j  - k]
+            b = cumsum[i - k, j + 1 + k]
+            c = cumsum[i + 1 + k, j - k]
+            result[i - k, j - k] = float(d - b - c + a) /  float(kernel_size ** 2)
+    return result
