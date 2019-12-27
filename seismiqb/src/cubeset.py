@@ -11,10 +11,15 @@ from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
-from .utils import read_point_cloud, filter_point_cloud, make_labels_dict, make_labels_dict_f, filter_labels
-from .utils import _get_horizons, compare_horizons, dump_horizon, round_to_array
-from .utils import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes, compute_corrs, FILL_VALUE_A
+
+from ._const import FILL_VALUE_MAP
+from .utils import round_to_array
+from .labels_utils import read_point_cloud, filter_point_cloud, make_labels_dict, make_labels_dict_f, filter_labels
 from .plot_utils import show_labels, show_sampler, plot_slide, plot_image
+
+from .horizon import mask_to_horizon, compare_horizons, dump_horizon
+from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes
+from .horizon import compute_local_corrs, compute_support_corrs
 
 
 
@@ -605,7 +610,7 @@ class SeismicCubeset(Dataset):
                           lambda h_: h_ + h_shift]
 
         # get horizons
-        setattr(self, dst, _get_horizons(mask, threshold, averaging, transforms, separate))
+        setattr(self, dst, mask_to_horizon(mask, threshold, averaging, transforms, separate))
 
         if separate:
             horizons = getattr(self, dst)
@@ -695,10 +700,10 @@ class SeismicCubeset(Dataset):
         hor_name = os.path.basename(geom.horizon_list[horizon_idx])
 
         depth_map = horizon_to_depth_map(labels, geom, horizon_idx)
-        depth_map[depth_map == FILL_VALUE_A] = 0
+        depth_map[depth_map == FILL_VALUE_MAP] = 0
 
         plot_image(depth_map, 'Heights {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
-        print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_A])))
+        print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_MAP])))
 
         if _return:
             return depth_map
@@ -730,8 +735,8 @@ class SeismicCubeset(Dataset):
         data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, 1, scale=scale)
 
         plot_image(data, 'Horizon {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
-        print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_A])))
-        print('Std of amplitudes is {}'.format(np.std(data[depth_map != FILL_VALUE_A])))
+        print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_MAP])))
+        print('Std of amplitudes is {}'.format(np.std(data[depth_map != FILL_VALUE_MAP])))
 
         if _return:
             return data
@@ -763,16 +768,18 @@ class SeismicCubeset(Dataset):
         data = data[:, :, (0, width, -1)]
         data -= data.min(axis=(0, 1)).reshape(1, 1, -1)
         data *= 1 / data.max(axis=(0, 1)).reshape(1, 1, -1)
-        data[depth_map == FILL_VALUE_A, :] = 0
+        data[depth_map == FILL_VALUE_MAP, :] = 0
         data = data[:, :, ::-1]
         data *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
 
         plot_image(data, 'RGB horizon {} on cube {}'.format(hor_name, cube_name), rgb=True)
-        print('AVG', np.mean(depth_map[depth_map != FILL_VALUE_A]))
+        print('AVG', np.mean(depth_map[depth_map != FILL_VALUE_MAP]))
 
 
-    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, _return=False):
-        """ Compute correlations with the nearest traces along the horizon.
+
+    def compute_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None, mode='local_corrs', window=3,
+                               filter_zero_traces=True, _fill_value=0, _return=False, _show=True, **kwargs):
+        """ Astonishing docstring.
 
         Parameters
         ----------
@@ -785,23 +792,37 @@ class SeismicCubeset(Dataset):
             If None, then horizon is taken from `labels` attribute.
             If dict, then must be a horizon.
         window : int
-            Width of trace used for computing correlations.
+            Width of trace used for computing metric.
         """
         cube_name = idx if isinstance(idx, str) else self.indices[idx]
         labels = labels_src or self.labels[cube_name]
         geom = self.geometries[cube_name]
-        hor_name = os.path.basename(geom.horizon_list[horizon_idx])
 
         data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, window, 0)
-        corrs = compute_corrs(data)
-        corrs[np.where(depth_map == FILL_VALUE_A)] = 0
 
-        plot_image(corrs, 'Correlation for {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
-        print('Average correlation is {}'.format(np.mean(corrs[depth_map != FILL_VALUE_A])))
+        if mode in ['local_corrs']:
+            metric = compute_local_corrs(data, geom.zero_traces)
+        elif 'support' in mode:
+            supports, line_no = kwargs.get('supports', 1), kwargs.get('line_no', None)
+            metric = compute_support_corrs(data, supports, geom.zero_traces, line_no)
+
+        if filter_zero_traces:
+            metric[np.where(depth_map == FILL_VALUE_MAP)] = _fill_value
+
+        if _show:
+            hor_name = os.path.basename(geom.horizon_list[horizon_idx])
+            plot_image(metric, '{} for {} on cube {}'.format(mode, hor_name, cube_name), cmap='seismic')
+            print('Average {} is {:.3} (computed only on non-zero traces)'
+                  .format(mode, np.mean(metric[depth_map != FILL_VALUE_MAP])))
 
         if _return:
-            return corrs
+            return metric
         return None
+
+    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, _return=False, _show=True):
+        """ Compute correlations with the nearest (locally) traces along the horizon. """
+        self.compute_horizon_metric(idx=idx, horizon_idx=horizon_idx, labels_src=labels_src, mode='local_corrs',
+                                    window=window, _return=_return, _show=_show)
 
 
     def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):
@@ -827,7 +848,7 @@ class SeismicCubeset(Dataset):
         # Create all depth maps
         depth_map_1 = horizon_to_depth_map(hor_1, geom, hor_1_idx, 0)
         depth_map_2 = horizon_to_depth_map(hor_2, geom, hor_2_idx, 0)
-        indicator = (np.minimum(depth_map_1, depth_map_2) == FILL_VALUE_A).astype(int)
+        indicator = (np.minimum(depth_map_1, depth_map_2) == FILL_VALUE_MAP).astype(int)
         depth_map_1[np.where(indicator == 1)] = 0
         depth_map_2[np.where(indicator == 1)] = 0
 

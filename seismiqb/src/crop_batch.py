@@ -10,13 +10,17 @@ from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, create_mask_f, aggregate, make_labels_dict, _get_horizons
+from .utils import create_mask, create_mask_f, aggregate
+from .horizon import mask_to_horizon
+from .labels_utils import make_labels_dict
 from .plot_utils import plot_batch_components
+
 
 
 AFFIX = '___'
 SIZE_POSTFIX = 7
 SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
+
 
 
 @transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
@@ -514,7 +518,7 @@ class SeismicCropBatch(Batch):
             transforms = (lambda i_: i_ + i_shift, lambda x_: x_ + x_shift,
                           lambda h_: h_ + h_shift)
 
-        return _get_horizons(mask, threshold, averaging, transforms, separate=False)
+        return mask_to_horizon(mask, threshold, averaging, transforms, separate=False)
 
 
     @action

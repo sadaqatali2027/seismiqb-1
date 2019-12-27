@@ -1,10 +1,13 @@
 """ Utility functions for plotting. """
 import numpy as np
+from numba import njit
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
-from numba import njit
 from ..batchflow import Pipeline, D
+
+
 
 def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=None):
     """ Plot losses.
