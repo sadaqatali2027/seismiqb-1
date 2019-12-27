@@ -126,8 +126,8 @@ class SeismicCubeset(Dataset):
         for ix in self.indices:
             geom = getattr(self, 'geometries').get(ix)
             ilines_offset, xlines_offset = geom.ilines_offset, geom.xlines_offset
-            filtering_matrix = filtering_matrix if filtering_matrix is not None else geom.zero_traces
-            getattr(self, src)[ix] = filter_point_cloud(getattr(self, src)[ix], filtering_matrix,
+            filtering_matrix_ = filtering_matrix[ix] if filtering_matrix is not None else geom.zero_traces
+            getattr(self, src)[ix] = filter_point_cloud(getattr(self, src)[ix], filtering_matrix_,
                                                         ilines_offset, xlines_offset)
 
     def save_point_clouds(self, save_to):
