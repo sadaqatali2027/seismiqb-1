@@ -696,8 +696,7 @@ class SeismicCubeset(Dataset):
         Parameters
         ----------
         idx : str, int
-            If str, then name of cube to use.
-            If int, then number of cube in the index to use.
+            Number of cube in the index to use.
         mode : str
             Axis to cut along. Can be either `iline` or `xline`.
         n_line : int
@@ -863,12 +862,12 @@ class SeismicCubeset(Dataset):
         mode : str or callable
             Type of metric to compute. Can be either callable, `local`, `support` or `hilbert`:
                 If callable, then function applied to data along the horizon. Must have following
-                signature (data, depth_map, filtering_matrix, **kwargs).
+                signature: (data, depth_map, filtering_matrix, **kwargs).
 
                 If `local`, then for each trace average of correlation with nearest 4 or 8 traces is computed.
                 Additional parameter `locality` can be passed via `kwargs`:
                     locality : {4, 8}
-                    Defines number of nearest traces to average correlations from.
+                        Defines number of nearest traces to average correlations from.
 
                 If `support`, then compute correlations between one or multiple fixed traces and rest of the cube.
                 Additional parameters `supports`, `safe_strip`, `line_no` can be passed via `kwargs`:

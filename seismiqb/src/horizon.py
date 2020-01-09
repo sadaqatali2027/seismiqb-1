@@ -269,6 +269,7 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
     chunk_size : int
         Size of data along height axis processed at a time.
     """
+    #pylint: disable=function-redefined
     low = window // 2
     high = max(window - low, 0)
 
@@ -277,6 +278,16 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
     i_len, x_len = geom.ilines_len, geom.xlines_len
     scale_val = (geom.value_max - geom.value_min)
 
+    if callable(scale):
+        pass
+    elif scale is True:
+        def scale(array):
+            array -= geom.value_min
+            array *= (1 / scale_val)
+            return array
+    elif scale is False:
+        def scale(array):
+            return array
 
     horizon_min, horizon_max = _find_min_max(labels, horizon_idx)
     chunk_size = min(chunk_size, horizon_max - horizon_min + window)
@@ -287,12 +298,7 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
     for h_start in range(horizon_min - low, horizon_max + high, chunk_size):
         h_end = min(h_start + chunk_size, horizon_max + high)
         data_chunk = h5py_cube[h_start:h_end, :, :]
-
-        if callable(scale):
-            data_chunk = scale(data_chunk)
-        elif scale is True:
-            data_chunk -= geom.value_min
-            data_chunk *= (1 / scale_val)
+        data_chunk = scale(data_chunk)
 
         background, depth_map = _update(background, depth_map, data_chunk, labels, horizon_idx, i_offset, x_offset,
                                         low, high, window, h_start, h_end, chunk_size, offset)
@@ -302,7 +308,7 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
 
 @njit
 def _find_min_max(labels, horizon_idx):
-    """ Fast way of finding minimum and maximum of horizon depth inside labels dictionary. """
+    """ Jit-accelerated function of finding minimum and maximum of horizon depth inside labels dictionary. """
     min_, max_ = np.iinfo(np.int32).max, np.iinfo(np.int32).min
     for value in labels.values():
         h = value[horizon_idx]
@@ -392,9 +398,10 @@ def _compute_local_corrs(data, bad_traces, locs):
 
                 s, c = 0.0, 0
                 for i in range(len(locs)):
-                    il_, xl_ = il + locs[i][0], xl + locs[i][1]
+                    loc = locs[i]
+                    il_, xl_ = il + loc[0], xl + loc[1]
 
-                    if (0 < il_ < i_range) and (0 < xl_ < x_range):
+                    if (0 <= il_ < i_range) and (0 <= xl_ < x_range):
                         if bad_traces[il_, xl_] == 0:
                             trace_ = data[il_, xl_, :]
                             s += np.corrcoef(trace, trace_)[0, 1]
@@ -417,8 +424,8 @@ def compute_support_corrs(data, zero_traces, supports=1, safe_strip=0, line_no=N
         Defines mode of generating support traces.
         If int, then that number of random non-zero traces positions are generated.
         If sequence or ndarray, then must be of shape (N, 2) and is used as positions of support traces.
-        If str, then must defines either `iline` or `xline` mode. In each respective one, given iline/xline is used
-        to generate supports.
+        If str, then must define either `iline` or `xline` mode. In each respective one, iline/xline given by
+        `line_no` argument is used to generate supports.
     safe_strip : int
         Used only for `int` mode of `supports` parameter and defines minimum distance from borders for sampled points.
     line_no : int
@@ -435,7 +442,7 @@ def compute_support_corrs(data, zero_traces, supports=1, safe_strip=0, line_no=N
     bad_traces = np.copy(zero_traces)
     bad_traces[np.std(data, axis=-1) == 0.0] = 1
 
-    if isinstance(supports, (int, tuple, list)):
+    if isinstance(supports, (int, tuple, list, np.ndarray)):
         if isinstance(supports, int):
             if safe_strip:
                 bad_traces[:, :safe_strip], bad_traces[:, -safe_strip:] = 1, 1
@@ -469,14 +476,11 @@ def _compute_support_corrs(data, supports, bad_traces):
     i_range, x_range, depth = data.shape
 
     support_traces = np.zeros((n_supports, depth))
-    stds = np.zeros((n_supports,))
     for i in range(n_supports):
         coord = supports[i]
         support_traces[i, :] = data[coord[0], coord[1], :]
-        stds[i] = np.std(support_traces[i, :])
 
     corrs = np.zeros((i_range, x_range, n_supports))
-
     for il in range(i_range):
         for xl in range(x_range):
             if bad_traces[il, xl] == 0:

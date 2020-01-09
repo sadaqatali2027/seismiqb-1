@@ -176,6 +176,16 @@ def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode=
 
     Parameters
     ----------
+    components : sequence
+        Names of components to plot. Usually it is either ('images',) or ('images', 'masks').
+    idx : int
+        Number of cube in the dataset index to use.
+    mode : str
+        Axis to cut along. Can be either `iline` or `xline`.
+    n_line : int
+        Number of line to show.
+    plot_mode : str
+        Way of showing results. Can be either `overlap`, `separate`, `facies`.
     """
     cube_name = dataset.indices[idx]
     geom = dataset.geometries[cube_name]

@@ -232,7 +232,7 @@ class SeismicGeometry():
 
     def __str__(self):
         return ('''Geometry for cube: {}
-                   Time delay and sample rate: {}
+                   Time delay and sample rate: {}, {}
                    Number of ilines: {}
                    Number of xlines: {}
                    Depth of one trace is: {}
