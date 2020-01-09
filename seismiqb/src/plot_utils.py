@@ -1,6 +1,6 @@
 """ Utility functions for plotting. """
+#pylint: disable=expression-not-assigned
 import numpy as np
-from numba import njit
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -9,25 +9,21 @@ from ..batchflow import Pipeline, D
 
 
 
-def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=None):
+def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=None, savefig=False, show_plot=True):
     """ Plot losses.
 
     Parameters
     ----------
     graph_lists : sequence of arrays
-        list of arrays to plot.
-
+        Arrays to plot.
     labels : sequence of str
-        labels for different graphs.
-
+        Labels for different graphs.
     ylabel : str
         y-axis label.
-
     figsize : tuple of int
-        size of resulting figure.
-
+        Size of the resulting figure.
     title : str
-        title of resulting figure.
+        Title of the resulting figure.
     """
     if not isinstance(graph_lists[0], (tuple, list)):
         graph_lists = [graph_lists]
@@ -44,11 +40,14 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
     if title:
         plt.title(title, fontdict={'fontsize': 15})
     plt.legend()
-    plt.show()
+
+    if savefig:
+        plt.savefig(savefig)
+    plt.show() if show_plot else plt.close()
 
 
 
-def plot_batch_components(batch, *components, idx=0, plot_mode='overlap', order_axes=None,
+def plot_batch_components(batch, *components, idx=0, plot_mode='overlap', order_axes=None, meta_title=None,
                           cmaps=None, alphas=None, **kwargs):
     """ Plot components of batch.
 
@@ -56,44 +55,40 @@ def plot_batch_components(batch, *components, idx=0, plot_mode='overlap', order_
     ----------
     batch : Batch
         Batch to get data from.
-
     idx : int or None
         If int, then index of desired image in list.
         If None, then no indexing is applied.
-
     plot_mode : bool
         If 'overlap', then images are drawn one over the other.
         If 'facies', then images are drawn one over the other with transparency.
         If 'separate', then images are drawn on separate layouts.
-
     order_axes : sequence of int
         Determines desired order of the axis. The first two are plotted.
-
     components : str or sequence of str
         Components to get from batch and draw.
-
     cmaps : str or sequence of str
         Color maps for showing images.
-
     alphas : number or sequence of numbers
         Opacity for showing images.
     """
     if idx is not None:
-        print('Image from {}'.format(batch.indices[idx][:-10]))
         imgs = [getattr(batch, comp)[idx] for comp in components]
     else:
         imgs = [getattr(batch, comp) for comp in components]
 
     if plot_mode in ['overlap']:
-        plot_images_overlap(imgs, ', '.join(components), order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
+        plot_images_overlap(imgs, ', '.join(components), order_axes=order_axes, meta_title=meta_title,
+                            cmaps=cmaps, alphas=alphas, **kwargs)
     elif plot_mode in ['separate']:
-        plot_images_separate(imgs, components, order_axes=order_axes, cmaps=cmaps, alphas=alphas, **kwargs)
+        plot_images_separate(imgs, components, order_axes=order_axes, meta_title=meta_title,
+                             cmaps=cmaps, alphas=alphas, **kwargs)
     elif plot_mode in ['facies']:
-        plot_images_transparent(imgs, ', '.join(components), order_axes=order_axes,
+        plot_images_transparent(imgs, ', '.join(components), order_axes=order_axes, meta_title=meta_title,
                                 cmaps=cmaps, alphas=alphas, **kwargs)
 
 
-def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None, **kwargs):
+def plot_images_separate(imgs, titles, order_axes, meta_title=None, savefig=False, show_plot=True,
+                         cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images on separate layouts. """
     cmaps = cmaps or ['gray'] + ['viridis']*len(imgs)
     cmaps = cmaps if isinstance(cmaps, (tuple, list)) else [cmaps]
@@ -109,9 +104,14 @@ def plot_images_separate(imgs, titles, order_axes, cmaps=None, alphas=None, **kw
         ax_ = ax[i] if len(imgs) > 1 else ax
         ax_.imshow(img, alpha=alpha, cmap=cmap)
         ax_.set_title(title, fontdict={'fontsize': 15})
-    plt.show()
+    plt.suptitle(meta_title)
 
-def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwargs):
+    if savefig:
+        plt.savefig(savefig)
+    plt.show() if show_plot else plt.close()
+
+def plot_images_overlap(imgs, title, order_axes, meta_title=None, savefig=False, show_plot=True,
+                        cmaps=None, alphas=None, **kwargs):
     """ Plot one or more images with overlap. """
     cmaps = cmaps or ['gray'] + ['Reds']*len(imgs)
     alphas = alphas or [1.0]*len(imgs)
@@ -122,11 +122,14 @@ def plot_images_overlap(imgs, title, order_axes, cmaps=None, alphas=None, **kwar
         img = _to_img(img, order_axes=order_axes, convert=(i > 0))
         plt.imshow(img, alpha=alpha, cmap=cmap)
 
-    plt.title(title, fontdict={'fontsize': 15})
-    plt.show()
+    plt.title('{}\n{}'.format(meta_title, title), fontdict={'fontsize': 15})
+    if savefig:
+        plt.savefig(savefig)
+    plt.show() if show_plot else plt.close()
 
-def plot_images_transparent(imgs, title, order_axes, cmaps=None, alphas=None, **kwargs):
-    """ Plot one or more images with overlap. """
+def plot_images_transparent(imgs, title, order_axes, meta_title=None, savefig=False, show_plot=True,
+                            cmaps=None, alphas=None, **kwargs):
+    """ Plot one or more images with overlap and transparency. """
     cmaps = cmaps or ['gray'] + [None]*len(imgs)
     alphas = alphas or [1.0] + [0.25]*len(imgs)
 
@@ -136,8 +139,10 @@ def plot_images_transparent(imgs, title, order_axes, cmaps=None, alphas=None, **
         img = _to_img(img, order_axes=order_axes, convert=False, normalize=(i > 0))
         plt.imshow(img, alpha=alpha, cmap=cmap)
 
-    plt.title(title, fontdict={'fontsize': 15})
-    plt.show()
+    plt.title('{}\n{}'.format(meta_title, title), fontdict={'fontsize': 15})
+    if savefig:
+        plt.savefig(savefig)
+    plt.show() if show_plot else plt.close()
 
 def _to_img(data, order_axes=None, convert=False, normalize=False):
     if order_axes:
@@ -167,9 +172,14 @@ def _to_img(data, order_axes=None, convert=False, normalize=False):
 
 
 def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode='iline', **kwargs):
-    """ Plot full slide of the given cube on the given iline. """
+    """ Plot full slide of the given cube on the given n_line.
+
+    Parameters
+    ----------
+    """
     cube_name = dataset.indices[idx]
-    crop_shape = np.array(dataset.geometries[cube_name].cube_shape)
+    geom = dataset.geometries[cube_name]
+    crop_shape = np.array(geom.cube_shape)
 
     if mode in ['i', 'il', 'iline']:
         point = np.array([[cube_name, n_line, 0, 0]], dtype=object)
@@ -198,14 +208,17 @@ def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode=
     batch = (pipeline << dataset).next_batch(len(dataset), n_epochs=None)
 
     if mode in ['i', 'il', 'iline']:
-        plot_batch_components(batch, *components, plot_mode=plot_mode, **kwargs)
+        meta_title = 'iline {} out of {} on {}'.format(n_line, geom.ilines_len, cube_name)
+        plot_batch_components(batch, *components, meta_title=meta_title, plot_mode=plot_mode, **kwargs)
     elif mode in ['x', 'xl', 'xline']:
-        plot_batch_components(batch, *components, plot_mode=plot_mode, order_axes=(2, 1, 0), **kwargs)
+        meta_title = 'xline {} out of {} on {}'.format(n_line, geom.xlines_len, cube_name)
+        plot_batch_components(batch, *components, meta_title=meta_title, plot_mode=plot_mode,
+                              order_axes=(2, 1, 0), **kwargs)
     return batch
 
 
 
-def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, **kwargs):
+def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, savefig=False, show_plot=True, **kwargs):
     """ Plot image with a given title with predifined axis labels.
 
     Parameters
@@ -220,8 +233,9 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, **k
         If False, then colorbar is added to image.
         If True, then channels of `img` are used to reflect colors.
     """
-    default_kwargs = dict(cmap='Paired') if not rgb else {}
-    plt.figure(figsize=kwargs.get('figsize') or (12, 7))
+    img = np.squeeze(img)
+    default_kwargs = dict(cmap='Paired') if rgb is False else {}
+    plt.figure(figsize=kwargs.get('figsize', (12, 7)))
 
     img_ = plt.imshow(img, **{**default_kwargs, **kwargs})
 
@@ -231,101 +245,51 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, **k
         plt.xlabel(xlabel, fontdict={'fontsize': 20})
     if ylabel:
         plt.ylabel(ylabel, fontdict={'fontsize': 20})
-    if not rgb:
+    if rgb is False:
         plt.colorbar(img_, fraction=0.022, pad=0.07)
     plt.tick_params(labeltop=True, labelright=True)
 
-    plt.show()
+    if savefig:
+        plt.savefig(savefig)
+    plt.show() if show_plot else plt.close()
 
-def show_labels(dataset, idx=0, hor_idx=None):
-    """ Show labeled ilines/xlines for a horizon from above: yellow stands for labeled regions.
 
-    Parameters
-    ----------
-    idx : int
-        Number of cube to show labels for.
-    hor_idx : int or None
-        if int, a pixel is labeled whenever it is covered by the horizon with number hor_idx.
-        if None, a pixel is labeled whenever it is covered by at least one horizon.
-    """
-    name = dataset.indices[idx]
-    geom = dataset.geometries[name]
-    labels = dataset.labels[name]
-    possible_coordinates = [[il, xl] for il in geom.ilines for xl in geom.xlines]
 
-    background = np.zeros((geom.ilines_len, geom.xlines_len))
-    img = labels_matrix(background, np.array(possible_coordinates), labels,
-                        geom.ilines_offset, geom.xlines_offset, hor_idx)
-    img[0, 0] = 0
-
-    plt.figure(figsize=(12, 7))
-    plt.imshow(img, cmap='Paired')
-    plt.title('Known labels for cube {}'.format(name), fontdict={'fontsize': 20})
-    plt.xlabel('XLINES', fontdict={'fontsize': 20})
-    plt.ylabel('ILINES', fontdict={'fontsize': 20})
-    plt.show()
-
-@njit
-def labels_matrix(background, possible_coordinates, labels, ilines_offset, xlines_offset, hor_idx):
-    """ Jit-accelerated function to check which ilines/xlines are labeled. """
-    for i in range(len(possible_coordinates)):
-        point = possible_coordinates[i, :]
-        hor_arr = labels.get((point[0], point[1]))
-        if hor_arr is not None:
-            if hor_idx is None:
-                background[point[0] - ilines_offset, point[1] - xlines_offset] += 1
-            elif hor_arr[hor_idx] != -999:
-                background[point[0] - ilines_offset, point[1] - xlines_offset] += 1
-    return background
-
-def show_sampler(dataset, idx=0, src_sampler='sampler', n=100000, eps=1, show_unique=False):
-    """ Generate a lot of points and plot their (iline, xline) positions.
-
-    Parameters
-    ----------
-    idx : int
-        cube-number to sample points for.
-    src_sampler : str
-        attribute to store the sampler.
-    n : int
-        size of generated sample.
-    eps : int
-        radius of a labeled point used for plotting.
-    """
-    name = dataset.indices[idx]
-    geom = dataset.geometries[name]
-
+def show_sampler(sampler, cube_name=None, geom=None, n=100000, eps=1, show_unique=False,
+                 savefig=False, show_plot=True, **kwargs):
+    """ Generate a lot of points and plot their (iline, xline) positions. """
+    _ = kwargs
     background = np.zeros((geom.ilines_len, geom.xlines_len))
 
-    sampler = getattr(dataset, src_sampler)
     if not callable(sampler):
         sampler = sampler.sample
-
     array = sampler(n)
-    array = array[array[:, 0] == name]
+    array = array[array[:, 0] == cube_name]
 
     if not isinstance(array[0, 1], int):
         array[:, 1:] = np.rint(array[:, 1:].astype(float)*geom.cube_shape).astype(int)
-
     for point in array:
         background[point[1]-eps:point[1]+eps, point[2]-eps:point[2]+eps] += 1
 
-    plt.figure(figsize=(10, 7))
-    plt.imshow(background)
-    plt.title('Sampled points for cube {}'.format(name), fontdict={'fontsize': 20})
-    plt.xlabel('XLINES', fontdict={'fontsize': 20})
-    plt.ylabel('ILINES', fontdict={'fontsize': 20})
-    plt.show()
+    _, ax = plt.subplots(2, 1, figsize=(10, 14))
+    ax[0].imshow(background)
+    ax[0].set_title('Sampled points for cube {}'.format(cube_name), fontdict={'fontsize': 20})
+    ax[0].set_xlabel('XLINES', fontdict={'fontsize': 20})
+    ax[0].set_ylabel('ILINES', fontdict={'fontsize': 20})
 
-    plt.figure(figsize=(10, 4))
-    plt.hist(array[:, -1].astype(float), bins=n//1000)
-    plt.title('Height distribution of sampled points for cube {}'.format(name),
-              fontdict={'fontsize': 20})
-    plt.show()
+    ax[1].hist(array[:, -1].astype(float), bins=n//1000)
+    ax[1].set_title('Height distribution of sampled points for cube {}'.format(cube_name),
+                    fontdict={'fontsize': 20})
 
-    if show_unique:
-        uniques = np.sort(np.unique(array[:, 1]))
-        print('Unique inlines are: {}'.format(uniques))
+    if savefig:
+        plt.savefig(savefig)
+    if show_plot:
+        plt.show()
+        if show_unique:
+            uniques = np.sort(np.unique(array[:, 1]))
+            print('Unique inlines are: {}'.format(uniques))
+    else:
+        plt.close()
 
 
 

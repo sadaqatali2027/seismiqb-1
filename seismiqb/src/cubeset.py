@@ -1,4 +1,5 @@
 """ Contains container for storing dataset of seismic crops. """
+#pylint: disable=too-many-lines
 import os
 from glob import glob
 from copy import copy
@@ -15,11 +16,11 @@ from .crop_batch import SeismicCropBatch
 from ._const import FILL_VALUE_MAP
 from .utils import round_to_array
 from .labels_utils import read_point_cloud, filter_point_cloud, make_labels_dict, make_labels_dict_f, filter_labels
-from .plot_utils import show_labels, show_sampler, plot_slide, plot_image
+from .plot_utils import show_sampler, plot_slide, plot_image
 
-from .horizon import mask_to_horizon, compare_horizons, dump_horizon
 from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes
 from .horizon import compute_local_corrs, compute_support_corrs, compute_hilbert
+from .horizon import mask_to_horizon, compare_horizons, dump_horizon
 
 
 
@@ -242,9 +243,48 @@ class SeismicCubeset(Dataset):
                 name = os.path.join(save_dir, os.path.basename(path))
                 dump_horizon(labels, geom, name, idx=idx, offset=0)
 
-    def show_labels(self, idx=0, hor_idx=None):
-        """ Draw points with hand-labeled horizons from above. """
-        show_labels(self, idx=idx, hor_idx=hor_idx)
+
+    def show_labels(self, idx=0, horizon_idx=0, labels_src=None, _return=False, **kwargs):
+        """ Show plot of labeled inline/xline points.
+
+        Parameters
+        ----------
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
+        horizon_idx : int
+            If int, then index of used horizon from `labels` dictionary.
+            If None, then union of the horizons is used.
+        labels_src : dict, optional
+            If None, then horizon is taken from `labels` attribute.
+            If dict, then must be a horizon dictionary.
+        """
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        labels = labels_src or self.labels[cube_name]
+        geom = self.geometries[cube_name]
+        hor_name = 'union' if horizon_idx is None else os.path.basename(geom.horizon_list[horizon_idx])
+
+        if horizon_idx is None:
+            horizon_indices = np.arange(len(geom.horizon_list))
+        elif isinstance(horizon_idx, int):
+            horizon_indices = [horizon_idx]
+        else:
+            raise ValueError('`horizon_idx` must be either int or None')
+
+        depth_map = np.zeros_like(geom.zero_traces)
+        for hor_idx in horizon_indices:
+            depth_map_ = horizon_to_depth_map(labels, geom, hor_idx)
+            depth_map_[depth_map_ != FILL_VALUE_MAP] = 1
+            depth_map_[depth_map_ == FILL_VALUE_MAP] = 0
+
+            depth_map += depth_map_
+        depth_map[0, 0] = 0
+
+        plot_image(depth_map, 'Labels {} on cube {}'.format(hor_name, cube_name), cmap='Paired', rgb=True, **kwargs)
+
+        if _return:
+            return depth_map
+        return None
 
 
     def create_sampler(self, mode='hist', p=None, transforms=None, dst='sampler', **kwargs):
@@ -423,13 +463,16 @@ class SeismicCubeset(Dataset):
         else:
             setattr(self, dst, sampler)
 
-    def show_sampler(self, idx=0, src_sampler='sampler', n=100000, eps=3, show_unique=False):
+    def show_sampler(self, idx=0, src_sampler='sampler', n=100000, eps=3, show_unique=False, **kwargs):
         """ Generate a lot of points and look at their (iline, xline) positions.
 
         Parameters
         ----------
-        idx : int
-            Number of cube to show sampler on.
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
+        horizon_idx : int
+            Index of used horizon from `labels` dictionary.
         src_sampler : str
             Name of attribute with sampler in it.
             Must generate points in cubic coordinates, which can be achieved by `modify_sampler` method.
@@ -438,7 +481,10 @@ class SeismicCubeset(Dataset):
         eps : int
             Window of painting.
         """
-        show_sampler(self, idx=idx, src_sampler=src_sampler, n=n, eps=eps, show_unique=show_unique)
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        geom = self.geometries[cube_name]
+        sampler = getattr(self, src_sampler)
+        show_sampler(sampler, cube_name, geom, n=n, eps=eps, show_unique=show_unique, **kwargs)
 
 
     def load(self, horizon_dir=None, p=None, bins=None, filter_zeros=True):
@@ -645,7 +691,20 @@ class SeismicCubeset(Dataset):
 
 
     def show_slide(self, idx=0, n_line=0, plot_mode='overlap', mode='iline', **kwargs):
-        """ Show full slide of the given cube on the given iline. """
+        """ Show full slide of the given cube on the given line.
+
+        Parameters
+        ----------
+        idx : str, int
+            If str, then name of cube to use.
+            If int, then number of cube in the index to use.
+        mode : str
+            Axis to cut along. Can be either `iline` or `xline`.
+        n_line : int
+            Number of line to show.
+        plot_mode : str
+            Way of showing results. Can be either `overlap`, `separate`, `facies`.
+        """
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images',)
         plot_slide(self, *components, idx=idx, n_line=n_line, plot_mode=plot_mode, mode=mode, **kwargs)
 
@@ -680,7 +739,7 @@ class SeismicCubeset(Dataset):
         depth_map_to_labels(depth_map, geom, labels, horizon_idx)
 
 
-    def show_horizon_depth_map(self, idx=0, horizon_idx=0, labels_src=None, _return=False):
+    def show_horizon_depth_map(self, idx=0, horizon_idx=0, labels_src=None, _return=False, **kwargs):
         """ Show depth map of a horizon.
 
         Parameters
@@ -702,7 +761,7 @@ class SeismicCubeset(Dataset):
         depth_map = horizon_to_depth_map(labels, geom, horizon_idx)
         depth_map[depth_map == FILL_VALUE_MAP] = 0
 
-        plot_image(depth_map, 'Heights {} on cube {}'.format(hor_name, cube_name), cmap='seismic')
+        plot_image(depth_map, 'Heights {} on cube {}'.format(hor_name, cube_name), cmap='seismic', **kwargs)
         print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_MAP])))
 
         if _return:
@@ -778,9 +837,16 @@ class SeismicCubeset(Dataset):
 
 
     def compute_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None, window=3, mode='local_corrs',
-                               filter_zero_traces=True, _fill_value=0,
-                               aggregate=None, show=True, _return=False, **kwargs):
+                               filter_zero_traces=True, _fill_value=0, aggregate=None,
+                               show=True, savefig=False, show_plot=True, show_scalar=True,
+                               _return=False, **kwargs):
         """ Compute metric along the horizon amplitudes.
+        Generally, this function does following:
+            Cuts data from the cube values along the horizon surface.
+            Applies metric computation function to the cut data.
+            Filters locations of zero traces, if needed.
+            Aggregates metric into (n_ilines, n_xlines) shape, if needed.
+            Plots visual representation of metric, if needed.
 
         Parameters
         ----------
@@ -791,9 +857,62 @@ class SeismicCubeset(Dataset):
             Index of used horizon from `labels` dictionary.
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
-            If dict, then must be a horizon.
+            If dict, then must be a horizon dictionary.
         window : int
             Width of trace used for computing metric.
+        mode : str or callable
+            Type of metric to compute. Can be either callable, `local`, `support` or `hilbert`:
+                If callable, then function applied to data along the horizon. Must have following
+                signature (data, depth_map, filtering_matrix, **kwargs).
+
+                If `local`, then for each trace average of correlation with nearest 4 or 8 traces is computed.
+                Additional parameter `locality` can be passed via `kwargs`:
+                    locality : {4, 8}
+                    Defines number of nearest traces to average correlations from.
+
+                If `support`, then compute correlations between one or multiple fixed traces and rest of the cube.
+                Additional parameters `supports`, `safe_strip`, `line_no` can be passed via `kwargs`:
+                    supports : int, sequence, ndarray or str
+                        Defines mode of generating support traces.
+                        If int, then that number of random non-zero traces positions are generated.
+                        If sequence or array, then must be of shape (N, 2) and is used as positions of support traces.
+                        If str, then must defines either `iline` or `xline` mode. In each respective one,
+                        given iline/xline is used to generate supports.
+                    safe_strip : int
+                        Used only for `int` mode of `supports` parameter and defines minimum distance
+                        from borders for sampled points.
+                    line_no : int
+                        Used only for `str` mode of `supports` parameter to define exact iline/xline to use.
+
+                If `hilbert`, then analytic transform is performed to get phases along the horizon.
+                Additional parameters `hilbert_mode`, `kernel_size`, `eps` can be passed via kwargs:
+                    hilbert_mode : str
+                        Way of averaging phase along trace. Can either be `median` or `mean`.
+                    kernel_size : int
+                        Kernel size of averaging.
+                    eps : float
+                        Tolerance of pi normalization.
+
+        filter_zero_traces : bool
+            Whether to fill points of zero traces with `_fill_value`.
+        aggregate : int, str or callable
+            Function to transform metric from ndarray of (n_ilines, n_xlines, N) shape to (n_ilines, n_xlines) shape.
+            If callable, then directly applied to the output of metric computation function.
+            If str, then must be a function from `numpy` module. Applied along the last axis only.
+            If int, then index of slice along the last axis to return.
+        show : bool
+            Whether to create image of metric.
+        savefig : bool or str
+            If False, then image is not saved.
+            If str, then path for image saving.
+        show_plot : bool
+            Whether to show created image of metric.
+        show_scalar : bool
+            Whether to show averaged value.
+        _return : bool
+            Whether to return metric ndarray.
+        **kwargs : dict
+            Other named arguments.
         """
         #pylint: disable=too-many-branches
         cube_name = idx if isinstance(idx, str) else self.indices[idx]
@@ -801,31 +920,28 @@ class SeismicCubeset(Dataset):
         geom = self.geometries[cube_name]
 
         data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, window, 0)
+        if callable(mode):
+            metric = mode(data, depth_map, geom.zero_traces, **kwargs)
+            title = 'custom metric'
 
-        if mode in ['local_corrs']:
-            locality = kwargs.get('locality', 4)
-            metric = compute_local_corrs(data, geom.zero_traces, locality)
-            scalar_metric = np.mean(metric[depth_map != FILL_VALUE_MAP])
+        elif mode in ['local_corrs'] or 'local' in mode:
+            metric = compute_local_corrs(data, geom.zero_traces, **kwargs)
             title = 'local correlation'
 
         elif 'support' in mode:
-            supports = kwargs.get('supports', 1)
-            safe_strip, line_no = kwargs.get('safe_strip', 0), kwargs.get('line_no', None)
-            metric = compute_support_corrs(data, supports, geom.zero_traces, safe_strip, line_no)
-            scalar_metric = np.mean(np.mean(metric[depth_map != FILL_VALUE_MAP], axis=(0, 1)))
+            metric = compute_support_corrs(data, geom.zero_traces, **kwargs)
 
+            supports = kwargs.get('supports', 1)
             if isinstance(supports, int):
                 title = 'correlation with {} random supports'.format(supports)
             elif isinstance(supports, (tuple, list, np.ndarray)):
                 title = 'correlation with {} supports'.format(len(supports))
             elif isinstance(supports, str):
-                title = 'correlation along {} {}'.format(line_no or 'middle', supports)
+                title = 'correlation along {} {}'.format(kwargs.get('line_no', 'middle'), supports)
 
         elif 'hilbert' in mode:
-            hilbert_mode = kwargs.get('hilbert_mode', 'median')
-            metric = compute_hilbert(data, depth_map, hilbert_mode)
-            scalar_metric = np.mean(metric[depth_map != FILL_VALUE_MAP])
-            title = 'phase by {}'.format(hilbert_mode)
+            metric = compute_hilbert(data, depth_map, **kwargs)
+            title = 'phase by {}'.format(kwargs.get('hilbert_mode', 'median'))
 
         if filter_zero_traces:
             metric[np.where(depth_map == FILL_VALUE_MAP)] = _fill_value
@@ -840,28 +956,37 @@ class SeismicCubeset(Dataset):
 
         if show:
             hor_name = os.path.basename(geom.horizon_list[horizon_idx])
-            plot_image(metric, '{} for {} on cube {}'.format(title, hor_name, cube_name), cmap='seismic')
-            print('Average {} is {:.3} (computed only on non-zero traces)'
+            plot_image(metric, '{} for {} on cube {}'.format(title, hor_name, cube_name),
+                       cmap='seismic', savefig=savefig, show_plot=show_plot)
+        if show_scalar:
+            scalar_metric = np.mean(metric[depth_map != FILL_VALUE_MAP])
+            print('{} aggregated into single scalar is {:.3} (computed only on non-zero traces)'
                   .format(title, scalar_metric))
-
         if _return:
             return metric
         return None
 
-    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3,
-                              aggregate=None, show=True, _return=False, **kwargs):
-        """ Compute correlations with the nearest (locally) traces along the horizon. """
+    def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, **kwargs):
+        """ Compute correlations with the nearest (locally) traces along the horizon.
+        Alias for `compute_horizon_metric` method with some predefined parameters. """
         return self.compute_horizon_metric(idx=idx, horizon_idx=horizon_idx, labels_src=labels_src, window=window,
-                                           mode='local_corrs',
-                                           aggregate=aggregate, show=show, _return=_return, **kwargs)
+                                           mode='local_corrs', **kwargs)
 
 
     def compute_horizon_random_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, supports=20,
-                                     aggregate=None, show=True, _return=False, **kwargs):
-        """ Compute correlations with the nearest (locally) traces along the horizon. """
+                                     aggregate=None, **kwargs):
+        """ Compute correlations with the nearest (locally) traces along the horizon.
+        Alias for `compute_horizon_metric` method with some predefined parameters."""
         return self.compute_horizon_metric(idx=idx, horizon_idx=horizon_idx, labels_src=labels_src, window=window,
-                                           mode='support', supports=supports,
-                                           aggregate=aggregate, show=show, _return=_return, **kwargs)
+                                           mode='support', supports=supports, aggregate=aggregate, **kwargs)
+
+
+    def compute_horizon_phase(self, idx=0, horizon_idx=0, labels_src=None, window=3, hilbert_mode='median',
+                              aggregate=1, **kwargs):
+        """ Compute phase along the horizon.
+        Alias for `compute_horizon_metric` method with some predefined parameters."""
+        return self.compute_horizon_metric(idx=idx, horizon_idx=horizon_idx, labels_src=labels_src, window=window,
+                                           mode='hilbert', hilbert_mode=hilbert_mode, aggregate=aggregate, **kwargs)
 
 
     def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):

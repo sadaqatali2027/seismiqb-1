@@ -227,8 +227,24 @@ class SeismicGeometry():
         self.h5py_file = h5py.File(path_h5py, "r")
 
 
+    def __repr__(self):
+        return 'Inferred geometry for {}: ({}x{}x{})'.format(os.path.basename(self.path), *self.cube_shape)
+
+    def __str__(self):
+        return ('''Geometry for cube: {}
+                   Time delay and sample rate: {}
+                   Number of ilines: {}
+                   Number of xlines: {}
+                   Depth of one trace is: {}
+                   ilines range from {} to {}
+                   xlines range from {} to {}'''
+                .format(self.path, self.delay, self.sample_rate, *self.cube_shape,
+                        min(self.ilines), max(self.ilines),
+                        min(self.xlines), max(self.xlines))
+                )
+
     def log(self, printer=None):
-        """ Log some info. """
+        """ Log some info into desired stream. """
         if not callable(printer):
             path_log = '/'.join(self.path.split('/')[:-1]) + '/CUBE_INFO.log'
             handler = logging.FileHandler(path_log, mode='w')
@@ -238,15 +254,4 @@ class SeismicGeometry():
             logger.setLevel(logging.INFO)
             logger.addHandler(handler)
             printer = logger.info
-
-        printer('Info for cube: {}'.format(self.path))
-
-        printer('Depth of one trace is: {}'.format(self.depth))
-        printer('Time delay: {}'.format(self.delay))
-        printer('Sample rate: {}'.format(self.sample_rate))
-
-        printer('Number of ILINES: {}'.format(self.ilines_len))
-        printer('Number of XLINES: {}'.format(self.xlines_len))
-
-        printer('ILINES range from {} to {}'.format(min(self.ilines), max(self.ilines)))
-        printer('ILINES range from {} to {}'.format(min(self.xlines), max(self.xlines)))
+        printer(str(self))

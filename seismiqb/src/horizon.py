@@ -348,7 +348,7 @@ def _update(background, depth_map, data, labels, horizon_idx, ilines_offset, xli
 
 
 
-def compute_local_corrs(data, zero_traces, locality=4):
+def compute_local_corrs(data, zero_traces, locality=4, **kwargs):
     """ Compute average correlation between each column in data and nearest traces.
 
     Parameters
@@ -365,6 +365,8 @@ def compute_local_corrs(data, zero_traces, locality=4):
     array-like
         Matrix of (n_ilines, n_xlines) shape with computed metric for each point.
     """
+    _ = kwargs
+
     if locality == 4:
         locs = [[-1, 0], [1, 0], [0, -1], [0, 1]]
     elif locality == 8:
@@ -402,7 +404,7 @@ def _compute_local_corrs(data, bad_traces, locs):
     return corrs
 
 
-def compute_support_corrs(data, supports, zero_traces, safe_strip=0, line_no=None):
+def compute_support_corrs(data, zero_traces, supports=1, safe_strip=0, line_no=None, **kwargs):
     """ Compute correlations with support traces.
 
     Parameters
@@ -428,6 +430,8 @@ def compute_support_corrs(data, supports, zero_traces, safe_strip=0, line_no=Non
         Matrix of either (n_ilines, n_xlines, n_supports) or (n_ilines, n_xlines) shape with
         computed metric for each point.
     """
+    _ = kwargs
+
     bad_traces = np.copy(zero_traces)
     bad_traces[np.std(data, axis=-1) == 0.0] = 1
 
@@ -515,8 +519,10 @@ def _compute_xline_corrs(data, support_xl, bad_traces):
     return corrs
 
 
-def compute_hilbert(data, depth_map, mode='median', kernel_size=3, eps=1e-5):
+def compute_hilbert(data, depth_map, mode='median', kernel_size=3, eps=1e-5, **kwargs):
     """ Compute phase along the horizon. """
+    mode = kwargs.get('hilbert_mode') or mode
+
     analytic = hilbert(data, axis=-1)
     phase = (np.angle(analytic))
     phase = phase % (2 * np.pi) - np.pi
