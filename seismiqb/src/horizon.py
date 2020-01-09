@@ -312,10 +312,11 @@ def _find_min_max(labels, horizon_idx):
     min_, max_ = np.iinfo(np.int32).max, np.iinfo(np.int32).min
     for value in labels.values():
         h = value[horizon_idx]
-        if h > max_:
-            max_ = h
-        if h < min_:
-            min_ = h
+        if h != FILL_VALUE:
+            if h > max_:
+                max_ = h
+            if h < min_:
+                min_ = h
     return min_, max_
 
 @njit
