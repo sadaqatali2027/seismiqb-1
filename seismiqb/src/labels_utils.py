@@ -127,29 +127,28 @@ def make_labels_dict(point_cloud):
     numba.Dict
         dict of labels `{(il, xl): [h_1, h_2, ...]}`.
     """
-    # round and cast
     point_cloud = np.rint(point_cloud).astype(np.int64)
-    max_count = point_cloud[-1, -1] + 1
 
-    # make typed Dict
     key_type = types.Tuple((types.int64, types.int64))
     value_type = types.int64[:]
     labels = Dict.empty(key_type, value_type)
-
-    @njit
-    def fill_labels(labels, point_cloud, max_count):
-        """ Fill in labels-dict.
-        """
-        for i in range(len(point_cloud)):
-            il, xl = point_cloud[i, :2]
-            if labels.get((il, xl)) is None:
-                labels[(il, xl)] = np.full((max_count, ), FILL_VALUE, np.int64)
-
-            idx = int(point_cloud[i, 3])
-            labels[(il, xl)][idx] = point_cloud[i, 2]
-
-    fill_labels(labels, point_cloud, max_count)
+    labels = _fill_labels(labels, point_cloud, point_cloud[-1, -1] + 1)
     return labels
+
+@njit
+def _fill_labels(labels, point_cloud, n_horizons):
+    """ Fill in labels-dict.
+    Every value in the dictionary is array of the fixed (number of horizons) length, containing depth of each surface.
+    """
+    for i in range(len(point_cloud)):
+        il, xl = point_cloud[i, :2]
+        if labels.get((il, xl)) is None:
+            labels[(il, xl)] = np.full((n_horizons, ), FILL_VALUE, np.int64)
+
+        idx = int(point_cloud[i, 3])
+        labels[(il, xl)][idx] = point_cloud[i, 2]
+    return labels
+
 
 
 def make_labels_dict_f(point_cloud):
@@ -169,58 +168,58 @@ def make_labels_dict_f(point_cloud):
     key_type = types.Tuple((types.int64, types.int64))
     value_type = types.int64
     counts = Dict.empty(key_type, value_type)
-
-    @njit
-    def _fill_counts(counts, point_cloud):
-        """ Count number of facies on each trace. """
-        for i in range(point_cloud.shape[0]):
-            key = (point_cloud[i, 0], point_cloud[i, 1])
-
-            if counts.get(key) is None:
-                counts[key] = 1
-            else:
-                counts[key] += 1
-        return counts
-    counts = _fill_counts(counts, point_cloud)
+    counts = _fill_counts_f(counts, point_cloud)
 
     key_type = types.Tuple((types.int64, types.int64))
     value_type = types.Tuple((types.int64[:], types.int64[:], types.int64[:]))
     labels = Dict.empty(key_type, value_type)
-
-    def _fill_labels(labels, counts, point_cloud):
-        """ Fill in actual labels.
-        Every value in the dictionary is a tuple of three arrays: starting points, ending points and class labels.
-        """
-        for i in range(point_cloud.shape[0]):
-            key = (point_cloud[i, 0], point_cloud[i, 1])
-            s_point, e_point, c = point_cloud[i, 2], point_cloud[i, 3], point_cloud[i, 4]
-
-            if key not in labels:
-                count = counts[key]
-                s_points = np.full((count, ), FILL_VALUE, np.int64)
-                e_points = np.full((count, ), FILL_VALUE, np.int64)
-                c_array = np.full((count, ), FILL_VALUE, np.int64)
-
-                s_points[0] = s_point
-                e_points[0] = e_point
-                c_array[0] = c
-
-                labels[key] = (s_points, e_points, c_array)
-            else:
-                (s_points, e_points, c_array) = labels[key]
-                for j, point in enumerate(s_points):
-                    if point == FILL_VALUE:
-                        idx = j
-                        break
-
-                s_points[idx] = s_point
-                e_points[idx] = e_point
-                c_array[idx] = c
-                labels[key] = (s_points, e_points, c_array)
-        return labels
-
-    labels = _fill_labels(labels, counts, point_cloud)
+    labels = _fill_labels_f(labels, counts, point_cloud)
     return labels
+
+@njit
+def _fill_counts_f(counts, point_cloud):
+    """ Count number of facies on each trace. """
+    for i in range(point_cloud.shape[0]):
+        key = (point_cloud[i, 0], point_cloud[i, 1])
+
+        if counts.get(key) is None:
+            counts[key] = 1
+        else:
+            counts[key] += 1
+    return counts
+
+def _fill_labels_f(labels, counts, point_cloud):
+    """ Fill in actual labels.
+    Every value in the dictionary is a tuple of three arrays: starting points, ending points and class labels.
+    """
+    for i in range(point_cloud.shape[0]):
+        key = (point_cloud[i, 0], point_cloud[i, 1])
+        s_point, e_point, c = point_cloud[i, 2], point_cloud[i, 3], point_cloud[i, 4]
+
+        if key not in labels:
+            count = counts[key]
+            s_points = np.full((count, ), FILL_VALUE, np.int64)
+            e_points = np.full((count, ), FILL_VALUE, np.int64)
+            c_array = np.full((count, ), FILL_VALUE, np.int64)
+
+            s_points[0] = s_point
+            e_points[0] = e_point
+            c_array[0] = c
+
+            labels[key] = (s_points, e_points, c_array)
+        else:
+            (s_points, e_points, c_array) = labels[key]
+            for j, point in enumerate(s_points):
+                if point == FILL_VALUE:
+                    idx = j
+                    break
+
+            s_points[idx] = s_point
+            e_points[idx] = e_point
+            c_array[idx] = c
+            labels[key] = (s_points, e_points, c_array)
+    return labels
+
 
 
 @njit

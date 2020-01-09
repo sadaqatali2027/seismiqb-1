@@ -240,7 +240,7 @@ def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines
 
 
 def compute_running_mean(x, kernel_size):
-    """ Fast analogue of scipy.signal.convolve2d with gaussian filter """
+    """ Fast analogue of scipy.signal.convolve2d with gaussian filter. """
     k = kernel_size // 2
     padded_x = np.pad(x, (k, k), mode='symmetric')
     cumsum = np.cumsum(padded_x, axis=1)
@@ -249,7 +249,7 @@ def compute_running_mean(x, kernel_size):
 
 @njit
 def _compute_running_mean_jit(x, kernel_size, cumsum):
-    """ Jit accelerated running mean """
+    """ Jit accelerated running mean. """
     #pylint: disable=invalid-name
     k = kernel_size // 2
     result = np.zeros_like(x).astype(np.float32)

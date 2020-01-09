@@ -359,6 +359,11 @@ def compute_local_corrs(data, zero_traces, locality=4):
         Matrix of (n_ilines, n_xlines) shape with 1 on positions to remove.
     locality : {4, 8}
         Defines number of nearest traces to average correlations from.
+
+    Returns
+    -------
+    array-like
+        Matrix of (n_ilines, n_xlines) shape with computed metric for each point.
     """
     if locality == 4:
         locs = [[-1, 0], [1, 0], [0, -1], [0, 1]]
@@ -416,6 +421,12 @@ def compute_support_corrs(data, supports, zero_traces, safe_strip=0, line_no=Non
         Used only for `int` mode of `supports` parameter and defines minimum distance from borders for sampled points.
     line_no : int
         Used only for `str` mode of `supports` parameter to define exact iline/xline to use.
+
+    Returns
+    -------
+    array-like
+        Matrix of either (n_ilines, n_xlines, n_supports) or (n_ilines, n_xlines) shape with
+        computed metric for each point.
     """
     bad_traces = np.copy(zero_traces)
     bad_traces[np.std(data, axis=-1) == 0.0] = 1
@@ -473,7 +484,7 @@ def _compute_support_corrs(data, supports, bad_traces):
 
 @njit
 def _compute_iline_corrs(data, support_il, bad_traces):
-    """ Jit-accelerated function to compute correlations along given iline"""
+    """ Jit-accelerated function to compute correlations along given iline. """
     i_range, x_range = data.shape[:2]
     corrs = np.zeros((i_range, x_range))
 
@@ -489,7 +500,7 @@ def _compute_iline_corrs(data, support_il, bad_traces):
 
 @njit
 def _compute_xline_corrs(data, support_xl, bad_traces):
-    """ Jit-accelerated function to compute correlations along given xline"""
+    """ Jit-accelerated function to compute correlations along given xline. """
     i_range, x_range = data.shape[:2]
     corrs = np.zeros((i_range, x_range))
 
