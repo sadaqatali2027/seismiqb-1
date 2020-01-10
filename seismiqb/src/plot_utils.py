@@ -321,7 +321,7 @@ def plot_image_roll(img, title=None, xlabel='xlines', ylabel='ilines', cols=2, r
                     ax[i][j].set_xlabel(xlabel, fontdict={'fontsize': 20})
                     ax[i][j].set_ylabel(ylabel, fontdict={'fontsize': 20})
                     ax[i][j].tick_params(labeltop=True, labelright=True)
-                    ax[i][j].set_title('trial {}; mean value is {:.4}'.format(n_axis+1, np.mean(img_n)),
+                    ax[i][j].set_title('trial {}; mean value is {:.4}'.format(n_axis+1, np.mean(img_n[img_n != 0.0])),
                                        fontdict={'fontsize': 15})
                     if rgb is False:
                         fig.colorbar(img_, ax=ax[i][j], fraction=fraction, pad=0.1)

@@ -250,7 +250,7 @@ def depth_map_to_labels(depth_map, geom, labels=None, horizon_idx=0):
 
 
 
-def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scale=False, chunk_size=128):
+def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scale=False, chunk_size=512):
     """ Get values from the cube along the horizon.
 
     Parameters
@@ -274,7 +274,7 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
     high = max(window - low, 0)
 
     h5py_cube = geom.h5py_file['cube_h']
-    i_offset, x_offset = geom.ilines_offset, geom.xlines_offset
+    i_offset, x_offset, depth = geom.ilines_offset, geom.xlines_offset, geom.depth
     i_len, x_len = geom.ilines_len, geom.xlines_len
     scale_val = (geom.value_max - geom.value_min)
 
@@ -296,12 +296,12 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
     depth_map = np.full((geom.ilines_len, geom.xlines_len), FILL_VALUE_MAP)
 
     for h_start in range(horizon_min - low, horizon_max + high, chunk_size):
-        h_end = min(h_start + chunk_size, horizon_max + high)
+        h_end = min(h_start + chunk_size, horizon_max + high, depth)
         data_chunk = h5py_cube[h_start:h_end, :, :]
         data_chunk = scale(data_chunk)
 
         background, depth_map = _update(background, depth_map, data_chunk, labels, horizon_idx, i_offset, x_offset,
-                                        low, high, window, h_start, h_end, chunk_size, offset)
+                                        depth, low, high, window, h_start, h_end, chunk_size, offset)
 
     background = np.squeeze(background)
     return background, depth_map
@@ -321,7 +321,7 @@ def _find_min_max(labels, horizon_idx):
 
 @njit
 def _update(background, depth_map, data, labels, horizon_idx, ilines_offset, xlines_offset,
-            low, high, window, h_start, h_end, chunk_size, offset):
+            depth, low, high, window, h_start, h_end, chunk_size, offset):
     """ Jit-accelerated function of cutting window of amplitudes along the horizon. """
     for key, value in labels.items():
         h = value[horizon_idx]
@@ -329,28 +329,29 @@ def _update(background, depth_map, data, labels, horizon_idx, ilines_offset, xli
             h += offset
         h_low, h_high = h - low, h + high
 
-        if h_start <= h_low < h_high < h_end: # window is completely inside the chunk
-            il, xl = key[0] - ilines_offset, key[1] - xlines_offset
-            idx_start = h_low - h_start
-            idx_end = h_high - h_start
-            background[il, xl, :] = data[idx_start:idx_end, il, xl]
-            depth_map[il, xl] = h
+        if h_high < depth:
+            if h_start <= h_low < h_high < h_end: # window is completely inside the chunk
+                il, xl = key[0] - ilines_offset, key[1] - xlines_offset
+                idx_start = h_low - h_start
+                idx_end = h_high - h_start
+                background[il, xl, :] = data[idx_start:idx_end, il, xl]
+                depth_map[il, xl] = h
 
-        elif h_start < h_low <= h_end: # window pierces the chunk from below
-            il, xl = key[0] - ilines_offset, key[1] - xlines_offset
-            idx_start = h_low - h_start
-            background[il, xl, 0:(chunk_size - idx_start)] = data[idx_start:min(chunk_size, idx_start+window),
-                                                                  il, xl]
-            depth_map[il, xl] = h
+            elif h_start < h_low <= h_end: # window pierces the chunk from below
+                il, xl = key[0] - ilines_offset, key[1] - xlines_offset
+                idx_start = h_low - h_start
+                background[il, xl, 0:(chunk_size - idx_start)] = data[idx_start:min(chunk_size, idx_start+window),
+                                                                      il, xl]
+                depth_map[il, xl] = h
 
-        elif h_start <= h_high < h_end: # window pierces the chunk from above
-            il, xl = key[0] - ilines_offset, key[1] - xlines_offset
-            idx_end = h_high - h_start
-            if idx_end != 0:
-                background[il, xl, -idx_end:] = data[max(0, idx_end-window):idx_end, il, xl]
-            else:
-                background[il, xl, 0] = data[0, il, xl]
-            depth_map[il, xl] = h
+            elif h_start <= h_high < h_end: # window pierces the chunk from above
+                il, xl = key[0] - ilines_offset, key[1] - xlines_offset
+                idx_end = h_high - h_start
+                if idx_end != 0:
+                    background[il, xl, -idx_end:] = data[max(0, idx_end-window):idx_end, il, xl]
+                else:
+                    background[il, xl, 0] = data[0, il, xl]
+                depth_map[il, xl] = h
     return background, depth_map
 
 
@@ -458,21 +459,47 @@ def compute_support_corrs(data, zero_traces, supports=1, safe_strip=0, line_no=N
                 raise ValueError('Each of `supports` sequence must contain coordinate of trace (il, xl). ')
             supports = np.array(supports)
 
-        return _compute_support_corrs(data, supports, bad_traces)
+        return _compute_support_corrs_np(data, supports, bad_traces)
 
     if isinstance(supports, str):
         if supports.startswith('i'):
             support_il = line_no or data.shape[0] // 2
-            return _compute_iline_corrs(data, support_il, bad_traces)
+            return _compute_line_corrs_np(data, bad_traces, support_il=support_il)
 
         if supports.startswith('x'):
             support_xl = line_no or data.shape[1] // 2
-            return _compute_xline_corrs(data, support_xl, bad_traces)
+            return _compute_line_corrs_np(data, bad_traces, support_xl=support_xl)
     raise ValueError('`Supports` must be either int, sequence, ndarray or string. ')
 
+def _compute_support_corrs_np(data, supports, bad_traces):
+    """ NumPy function to compute correlations with a number of support traces. """
+    n_supports = len(supports)
+    i_range, x_range, depth = data.shape
+
+    data_n = data - np.mean(data, axis=-1, keepdims=True)
+    data_stds = np.std(data, axis=-1)
+    bad_traces[data_stds == 0] = 1
+
+    support_traces = np.zeros((n_supports, depth))
+    for i in range(n_supports):
+        coord = supports[i]
+        support_traces[i, :] = data[coord[0], coord[1], :]
+    support_n = support_traces - np.mean(support_traces, axis=-1, keepdims=True)
+    support_stds = np.std(support_traces, axis=-1)
+
+    corrs = np.zeros((i_range, x_range, n_supports))
+    for i in range(n_supports):
+        cov = np.sum(support_n[i] * data_n, axis=-1) / depth
+        temp = cov / (support_stds[i] * data_stds)
+        temp[bad_traces == 1] = 0
+        corrs[:, :, i] = temp
+    return corrs
+
 @njit
-def _compute_support_corrs(data, supports, bad_traces):
-    """ Jit-accelerated function to compute correlations with a number of support traces. """
+def _compute_support_corrs_numba(data, supports, bad_traces):
+    """ Jit-accelerated function to compute correlations with a number of support traces.
+    Will become faster after keyword support implementation in Numba.
+    """
     n_supports = len(supports)
     i_range, x_range, depth = data.shape
 
@@ -491,8 +518,34 @@ def _compute_support_corrs(data, supports, bad_traces):
                     corrs[il, xl, i] = np.corrcoef(trace, support_traces[i, :])[0, 1]
     return corrs
 
+def _compute_line_corrs_np(data, bad_traces, support_il=None, support_xl=None):
+    depth = data.shape[-1]
+
+    data_n = data - np.mean(data, axis=-1, keepdims=True)
+    data_stds = np.std(data, axis=-1)
+    bad_traces[data_stds == 0] = 1
+
+    if support_il is not None and support_xl is not None:
+        raise ValueError('Use `compute_support_corrs` for given trace. ')
+
+    if support_il is not None:
+        support_traces = data[[support_il], :, :]
+        support_n = support_traces - np.mean(support_traces, axis=-1, keepdims=True)
+        support_stds = np.std(support_traces, axis=-1)
+        bad_traces[:, support_stds[0, :] == 0] = 1
+    if support_xl is not None:
+        support_traces = data[:, [support_xl], :]
+        support_n = support_traces - np.mean(support_traces, axis=-1, keepdims=True)
+        support_stds = np.std(support_traces, axis=-1)
+        bad_traces[support_stds[:, 0] == 0, :] = 1
+
+    cov = np.sum(support_n * data_n, axis=-1) / depth
+    corrs = cov / (support_stds * data_stds)
+    corrs[bad_traces == 1] = 0
+    return corrs
+
 @njit
-def _compute_iline_corrs(data, support_il, bad_traces):
+def _compute_iline_corrs_numba(data, support_il, bad_traces):
     """ Jit-accelerated function to compute correlations along given iline. """
     i_range, x_range = data.shape[:2]
     corrs = np.zeros((i_range, x_range))
@@ -508,7 +561,7 @@ def _compute_iline_corrs(data, support_il, bad_traces):
     return corrs
 
 @njit
-def _compute_xline_corrs(data, support_xl, bad_traces):
+def _compute_xline_corrs_numba(data, support_xl, bad_traces):
     """ Jit-accelerated function to compute correlations along given xline. """
     i_range, x_range = data.shape[:2]
     corrs = np.zeros((i_range, x_range))
