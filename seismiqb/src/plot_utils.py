@@ -24,6 +24,11 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
         Size of the resulting figure.
     title : str
         Title of the resulting figure.
+    savefig : bool or str
+        If str, then path for image saving.
+        If False, then image is not saved.
+    show_plot: bool
+        Whether to show image in output stream.
     """
     if not isinstance(graph_lists[0], (tuple, list)):
         graph_lists = [graph_lists]
@@ -104,7 +109,7 @@ def plot_images_separate(imgs, titles, order_axes, meta_title=None, savefig=Fals
         ax_ = ax[i] if len(imgs) > 1 else ax
         ax_.imshow(img, alpha=alpha, cmap=cmap)
         ax_.set_title(title, fontdict={'fontsize': 15})
-    plt.suptitle(meta_title)
+    plt.suptitle(meta_title, y=0.93, fontsize=20)
 
     if savefig:
         plt.savefig(savefig)
@@ -228,7 +233,7 @@ def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode=
 
 
 
-def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, savefig=False, show_plot=True, **kwargs):
+def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, savefig=False, show_plot=True, **kwargs):
     """ Plot image with a given title with predifined axis labels.
 
     Parameters
@@ -242,6 +247,11 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, sav
     rgb : bool
         If False, then colorbar is added to image.
         If True, then channels of `img` are used to reflect colors.
+    savefig : bool or str
+        If str, then path for image saving.
+        If False, then image is not saved.
+    show_plot: bool
+        Whether to show image in output stream.
     """
     img = np.squeeze(img)
     default_kwargs = dict(cmap='Paired') if rgb is False else {}
@@ -263,6 +273,65 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ylines', rgb=False, sav
         plt.savefig(savefig)
     plt.show() if show_plot else plt.close()
 
+
+def plot_image_roll(img, title=None, xlabel='xlines', ylabel='ilines', cols=2, rgb=False,
+                    savefig=False, show_plot=True, **kwargs):
+    """ Plot multiple images on grid.
+
+    Parameters
+    ----------
+    img : array-like
+        Image(s) to plot.
+    cols : int
+        Number of columns in grid.
+    xlabel, ylabel : str
+        Labels of axis.
+    title : str
+        Image title.
+    rgb : bool
+        If False, then colorbar is added to image.
+        If True, then channels of `img` are used to reflect colors.
+    savefig : bool or str
+        If str, then path for image saving.
+        If False, then image is not saved.
+    show_plot: bool
+        Whether to show image in output stream.
+    """
+    if img.ndim == 2 or img.shape[-1] == 1:
+        plot_image(img, title=title, xlabel=xlabel, ylabel=ylabel, rgb=rgb,
+                   savefig=savefig, show_plot=show_plot, **kwargs)
+    else:
+        default_kwargs = dict(cmap='Paired') if rgb is False else {}
+        n = img.shape[-1]
+        rows = n // cols + 1
+
+        if img.shape[0] > img.shape[1]:
+            col_size, row_size, fraction, y_margin = 8, 8, 0.098, 0.95
+        else:
+            col_size, row_size, fraction, y_margin = 12, 7, 0.021, 0.91
+
+        fig, ax = plt.subplots(rows, cols, figsize=(col_size*cols, row_size*rows))
+        for i in range(rows):
+            for j in range(cols):
+                n_axis = i*cols + j
+                if n_axis < n:
+                    img_n = img[:, :, n_axis]
+                    img_ = ax[i][j].imshow(img_n, **{**default_kwargs, **kwargs})
+
+                    ax[i][j].set_xlabel(xlabel, fontdict={'fontsize': 20})
+                    ax[i][j].set_ylabel(ylabel, fontdict={'fontsize': 20})
+                    ax[i][j].tick_params(labeltop=True, labelright=True)
+                    ax[i][j].set_title('trial {}; mean value is {:.4}'.format(n_axis+1, np.mean(img_n)),
+                                       fontdict={'fontsize': 15})
+                    if rgb is False:
+                        fig.colorbar(img_, ax=ax[i][j], fraction=fraction, pad=0.1)
+                else:
+                    fig.delaxes(ax[i][j])
+        plt.suptitle(title, y=y_margin, fontsize=20)
+
+        if savefig:
+            plt.savefig(savefig)
+        plt.show() if show_plot else plt.close()
 
 
 def show_sampler(sampler, cube_name=None, geom=None, n=100000, eps=1, show_unique=False,

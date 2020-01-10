@@ -16,7 +16,7 @@ from .crop_batch import SeismicCropBatch
 from ._const import FILL_VALUE_MAP
 from .utils import round_to_array
 from .labels_utils import read_point_cloud, filter_point_cloud, make_labels_dict, make_labels_dict_f, filter_labels
-from .plot_utils import show_sampler, plot_slide, plot_image
+from .plot_utils import show_sampler, plot_slide, plot_image, plot_image_roll
 
 from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes
 from .horizon import compute_local_corrs, compute_support_corrs, compute_hilbert
@@ -902,10 +902,10 @@ class SeismicCubeset(Dataset):
         show : bool
             Whether to create image of metric.
         savefig : bool or str
-            If False, then image is not saved.
             If str, then path for image saving.
-        show_plot : bool
-            Whether to show created image of metric.
+            If False, then image is not saved.
+        show_plot: bool
+            Whether to show created image in output stream.
         show_scalar : bool
             Whether to show averaged value.
         _return : bool
@@ -950,13 +950,13 @@ class SeismicCubeset(Dataset):
                 metric = aggregate(metric)
             elif isinstance(aggregate, str):
                 metric = getattr(np, aggregate)(metric, axis=-1)
-            elif isinstance(aggregate, int):
+            elif isinstance(aggregate, (int, slice)):
                 metric = metric[:, :, aggregate]
 
         if show:
             hor_name = os.path.basename(geom.horizon_list[horizon_idx])
-            plot_image(metric, '{} for {} on cube {}'.format(title, hor_name, cube_name),
-                       cmap='seismic', savefig=savefig, show_plot=show_plot)
+            plot_image_roll(metric, '{} for {} on cube {}'.format(title, hor_name, cube_name),
+                            cmap='seismic', savefig=savefig, show_plot=show_plot)
         if show_scalar:
             scalar_metric = np.mean(metric[depth_map != FILL_VALUE_MAP])
             print('{} aggregated into single scalar is {:.3} (computed only on non-zero traces)'
