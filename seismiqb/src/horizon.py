@@ -300,8 +300,9 @@ def get_horizon_amplitudes(labels, geom, horizon_idx=0, window=3, offset=0, scal
         data_chunk = h5py_cube[h_start:h_end, :, :]
         data_chunk = scale(data_chunk)
 
-        background, depth_map = _update(background, depth_map, data_chunk, labels, horizon_idx, i_offset, x_offset,
-                                        depth, low, high, window, h_start, h_end, chunk_size, offset)
+        background, depth_map = _get_horizon_amplitudes(background, depth_map, data_chunk, labels, horizon_idx,
+                                                        i_offset, x_offset, depth, low, high, window,
+                                                        h_start, h_end, chunk_size, offset)
 
     background = np.squeeze(background)
     return background, depth_map
@@ -320,8 +321,8 @@ def _find_min_max(labels, horizon_idx):
     return min_, max_
 
 @njit
-def _update(background, depth_map, data, labels, horizon_idx, ilines_offset, xlines_offset,
-            depth, low, high, window, h_start, h_end, chunk_size, offset):
+def _get_horizon_amplitudes(background, depth_map, data, labels, horizon_idx, ilines_offset, xlines_offset,
+                            depth, low, high, window, h_start, h_end, chunk_size, offset):
     """ Jit-accelerated function of cutting window of amplitudes along the horizon. """
     for key, value in labels.items():
         h = value[horizon_idx]
@@ -353,6 +354,73 @@ def _update(background, depth_map, data, labels, horizon_idx, ilines_offset, xli
                     background[il, xl, 0] = data[0, il, xl]
                 depth_map[il, xl] = h
     return background, depth_map
+
+
+
+def get_line_horizon_amplitudes(labels, geom, horizon_idx=0, orientation='i', line=None, window=3,
+                                offset=0, scale=False):
+    """ Amazing! """
+    #pylint: disable=function-redefined, too-many-branches
+    low = window // 2
+    high = max(window - low, 0)
+
+    i_offset, x_offset = geom.ilines_offset, geom.xlines_offset
+    i_len, x_len = geom.ilines_len, geom.xlines_len
+    scale_val = (geom.value_max - geom.value_min)
+
+    if orientation.startswith('i'):
+        h5py_cube = geom.h5py_file['cube']
+        slide_transform = lambda array: array
+        w_shape = (1, x_len, window)
+        filtering_matrix = geom.zero_traces[line, :].reshape(w_shape[:2])
+
+        depth_map = np.full((x_len,), FILL_VALUE_MAP)
+        for xl in range(x_len):
+            key = line + i_offset, xl + x_offset
+            value = labels.get(key)
+            if value is not None:
+                h = value[horizon_idx]
+                if h != FILL_VALUE:
+                    h += int(np.rint(offset))
+                    depth_map[xl] = h
+
+    elif orientation.startswith('x'):
+        h5py_cube = geom.h5py_file['cube_x']
+        slide_transform = lambda array: array.T
+        w_shape = (i_len, 1, window)
+        filtering_matrix = geom.zero_traces[:, line].reshape(w_shape[:2])
+
+        depth_map = np.full((i_len,), FILL_VALUE_MAP)
+        for il in range(i_len):
+            key = il + i_offset, line + x_offset
+            value = labels.get(key)
+            if value is not None:
+                h = value[horizon_idx]
+                if h != FILL_VALUE:
+                    h += int(np.rint(offset))
+                    depth_map[il] = h
+
+    if callable(scale):
+        pass
+    elif scale is True:
+        def scale(array):
+            array -= geom.value_min
+            array *= (1 / scale_val)
+            return array
+    elif scale is False:
+        def scale(array):
+            return array
+
+    slide = h5py_cube[line, :, :]
+    slide = slide_transform(slide)
+    slide = scale(slide)
+
+    background = np.zeros((len(depth_map), window))
+    for i, h in enumerate(depth_map):
+        if h != FILL_VALUE_MAP:
+            background[i, :] = slide[i, h-low:h+high]
+    background = background.reshape(w_shape)
+    return background, depth_map, filtering_matrix
 
 
 

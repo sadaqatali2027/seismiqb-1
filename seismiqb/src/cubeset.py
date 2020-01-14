@@ -18,7 +18,7 @@ from .utils import round_to_array
 from .labels_utils import read_point_cloud, filter_point_cloud, make_labels_dict, make_labels_dict_f, filter_labels
 from .plot_utils import show_sampler, plot_slide, plot_image, plot_image_roll
 
-from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes
+from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes, get_line_horizon_amplitudes
 from .horizon import compute_local_corrs, compute_support_corrs, compute_hilbert
 from .horizon import mask_to_horizon, compare_horizons, dump_horizon
 
@@ -764,7 +764,7 @@ class SeismicCubeset(Dataset):
         print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_MAP])))
 
         if _return:
-            return depth_map
+            return {'depth_map': depth_map}
         return None
 
 
@@ -797,7 +797,7 @@ class SeismicCubeset(Dataset):
         print('Std of amplitudes is {}'.format(np.std(data[depth_map != FILL_VALUE_MAP])))
 
         if _return:
-            return data
+            return {'data': data, 'depth_map': depth_map}
         return None
 
 
@@ -962,7 +962,7 @@ class SeismicCubeset(Dataset):
             print('{} aggregated into single scalar is {:.3} (computed only on non-zero traces)'
                   .format(title, scalar_metric))
         if _return:
-            return metric
+            return {'metric': metric, 'data': data, 'depth_map': depth_map}
         return None
 
     def compute_horizon_corrs(self, idx=0, horizon_idx=0, labels_src=None, window=3, **kwargs):
@@ -986,6 +986,76 @@ class SeismicCubeset(Dataset):
         Alias for `compute_horizon_metric` method with some predefined parameters."""
         return self.compute_horizon_metric(idx=idx, horizon_idx=horizon_idx, labels_src=labels_src, window=window,
                                            mode='hilbert', hilbert_mode=hilbert_mode, aggregate=aggregate, **kwargs)
+
+
+    def compute_line_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None,
+                                    orientation='iline', line=None, window=3, mode='support',
+                                    filter_zero_traces=True, _fill_value=0, aggregate=None,
+                                    show=True, savefig=False, show_plot=True, show_scalar=True,
+                                    _return=False, **kwargs):
+        """ Compute metric along the horizon along given line (either inline or xline).
+
+        Parameters
+        ----------
+        orientation : str
+            Iline or xline orientation to slice along.
+        line : int
+            Number of line to cut.
+        other arguments : dict
+            Same arguments as for :meth:`.compute_horizon_metric` method.
+        """
+        #pylint: disable=too-many-branches
+        cube_name = idx if isinstance(idx, str) else self.indices[idx]
+        labels = labels_src or self.labels[cube_name]
+        geom = self.geometries[cube_name]
+
+        data, depth_map, zero_traces = get_line_horizon_amplitudes(labels, geom, horizon_idx,
+                                                                   orientation, line, window, 0)
+
+        if callable(mode):
+            metric = mode(data, depth_map, zero_traces, **kwargs)
+            title = 'custom metric'
+
+        elif mode in ['local_corrs'] or 'local' in mode:
+            metric = compute_local_corrs(data, zero_traces, **kwargs)
+            title = 'local correlation'
+
+        elif 'support' in mode:
+            metric = compute_support_corrs(data, zero_traces, **kwargs)
+
+            supports = kwargs.get('supports', 1)
+            if isinstance(supports, int):
+                title = 'correlation with {} random supports'.format(supports)
+            elif isinstance(supports, (tuple, list, np.ndarray)):
+                title = 'correlation with {} supports'.format(len(supports))
+
+        elif 'hilbert' in mode:
+            metric = compute_hilbert(data, depth_map, **kwargs)
+            title = 'phase by {}'.format(kwargs.get('hilbert_mode', 'median'))
+
+        metric = np.squeeze(metric)
+
+        if filter_zero_traces:
+            metric[np.where(depth_map == FILL_VALUE_MAP)] = _fill_value
+
+        if aggregate is not None:
+            if callable(aggregate):
+                metric = aggregate(metric)
+            elif isinstance(aggregate, str):
+                metric = getattr(np, aggregate)(metric, axis=-1)
+            elif isinstance(aggregate, (int, slice)):
+                metric = metric[:, :, aggregate]
+
+        _ = title, show, savefig, show_plot
+
+        if show_scalar:
+            scalar_metric = np.mean(metric[depth_map != FILL_VALUE_MAP])
+            print('{} aggregated into single scalar is {:.3} (computed only on non-zero traces)'
+                  .format(title, scalar_metric))
+
+        if _return:
+            return {'metric': metric, 'data': data, 'depth_map': depth_map, 'zero_traces': zero_traces}
+        return None
 
 
     def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):
