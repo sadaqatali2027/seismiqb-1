@@ -10,7 +10,7 @@ from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, aggregate, make_labels_dict, _get_horizons
+from .utils import create_mask, create_mask_f, aggregate, make_labels_dict, _get_horizons
 from .plot_utils import plot_batch_components
 
 
@@ -229,9 +229,6 @@ class SeismicCropBatch(Batch):
                     shapes.append(shape[[1, 0, 2]])
         shapes = np.array(shapes)
 
-        if not all((0 <= x <= 1) for x in loc):
-            raise ValueError('Locations of crop anchor must be inside unit-cube, instead got {}'.format(loc))
-
         slices = []
         for point, shape_ in zip(points, shapes):
             slice_ = self._make_slice(point, shape_, dilations, loc)
@@ -244,7 +241,7 @@ class SeismicCropBatch(Batch):
         if isinstance(point[1], float) or isinstance(point[2], float) or isinstance(point[3], float):
             ix = point[0]
             cube_shape = np.array(self.get(ix, 'geometries').cube_shape)
-            slice_point = (point[1:] * (cube_shape - np.array(shape))).astype(int)
+            slice_point = np.rint(point[1:].astype(float) * (cube_shape - np.array(shape))).astype(int)
         else:
             slice_point = point[1:]
 
@@ -452,13 +449,19 @@ class SeismicCropBatch(Batch):
         -----
         Can be run only after labels-dict is loaded into labels-component.
         """
+        #pylint: disable=protected-access
         geom = self.get(ix, 'geometries')
         il_xl_h = self.get(ix, src_labels)
 
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-        mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
-                           geom.ilines_offset, geom.xlines_offset, geom.depth, mode, width, single_horizon)
+        if not hasattr(il_xl_h._dict_type.value_type, '__len__'):
+            mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
+                               geom.ilines_offset, geom.xlines_offset, geom.depth,
+                               mode, width, single_horizon)
+        else:
+            mask = create_mask_f(ilines_, xlines_, hs_, il_xl_h,
+                                 geom.ilines_offset, geom.xlines_offset, geom.depth)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
@@ -915,7 +918,7 @@ class SeismicCropBatch(Batch):
         raise ValueError('Unknown `mode` parameter.')
 
 
-    def plot_components(self, *components, idx=0, overlap=True, order_axes=None, cmaps=None, alphas=None):
+    def plot_components(self, *components, idx=0, plot_mode='overlap', order_axes=None, cmaps=None, alphas=None):
         """ Plot components of batch.
 
         Parameters
@@ -925,8 +928,10 @@ class SeismicCropBatch(Batch):
             If None, then no indexing is applied.
         components : str or sequence of str
             Components to get from batch and draw.
-        overlap : bool
-            Whether to draw images one over the other or not.
+        plot_mode : bool
+            If 'overlap', then images are drawn one over the other.
+            If 'facies', then images are drawn one over the other with transparency.
+            If 'separate', then images are drawn on separate layouts.
         order_axes : sequence of int
             Determines desired order of the axis. The first two are plotted.
         cmaps : str or sequence of str
@@ -934,5 +939,5 @@ class SeismicCropBatch(Batch):
         alphas : number or sequence of numbers
             Opacity for showing images.
         """
-        plot_batch_components(self, *components, idx=idx, overlap=overlap,
+        plot_batch_components(self, *components, idx=idx, plot_mode=plot_mode,
                               order_axes=order_axes, cmaps=cmaps, alphas=alphas)
