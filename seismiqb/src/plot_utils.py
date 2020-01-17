@@ -47,7 +47,7 @@ def plot_loss(graph_lists, labels=None, ylabel='Loss', figsize=(8, 5), title=Non
     plt.legend()
 
     if savefig:
-        plt.savefig(savefig)
+        plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
     plt.show() if show_plot else plt.close()
 
 
@@ -129,7 +129,7 @@ def plot_images_overlap(imgs, title, order_axes, meta_title=None, savefig=False,
 
     plt.title('{}\n{}'.format(meta_title, title), fontdict={'fontsize': 15})
     if savefig:
-        plt.savefig(savefig)
+        plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
     plt.show() if show_plot else plt.close()
 
 def plot_images_transparent(imgs, title, order_axes, meta_title=None, savefig=False, show_plot=True,
@@ -146,7 +146,7 @@ def plot_images_transparent(imgs, title, order_axes, meta_title=None, savefig=Fa
 
     plt.title('{}\n{}'.format(meta_title, title), fontdict={'fontsize': 15})
     if savefig:
-        plt.savefig(savefig)
+        plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
     plt.show() if show_plot else plt.close()
 
 def _to_img(data, order_axes=None, convert=False, normalize=False):
@@ -270,7 +270,7 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, sav
     plt.tick_params(labeltop=True, labelright=True)
 
     if savefig:
-        plt.savefig(savefig)
+        plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
     plt.show() if show_plot else plt.close()
 
 
@@ -330,7 +330,7 @@ def plot_image_roll(img, title=None, xlabel='xlines', ylabel='ilines', cols=2, r
         plt.suptitle(title, y=y_margin, fontsize=20)
 
         if savefig:
-            plt.savefig(savefig)
+            plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
         plt.show() if show_plot else plt.close()
 
 
@@ -361,7 +361,7 @@ def show_sampler(sampler, cube_name=None, geom=None, n=100000, eps=1, show_uniqu
                     fontdict={'fontsize': 20})
 
     if savefig:
-        plt.savefig(savefig)
+        plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
     if show_plot:
         plt.show()
         if show_unique:
