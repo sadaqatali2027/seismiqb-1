@@ -71,15 +71,13 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
 @njit
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, ilines_offset, xlines_offset, geom_depth,
-                mode, width, single_horizon=False):
+                mode, width,  n_horizons=-1):
     """ Jit-accelerated function for fast mask creation for seismic horizons.
     This function is usually called inside SeismicCropBatch's method `create_masks`.
     """
     #pylint: disable=line-too-long, too-many-nested-blocks, too-many-branches
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-    if single_horizon:
-        single_idx = -1
-
+    all_horizons = True
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
             il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
@@ -87,21 +85,23 @@ def create_mask(ilines_, xlines_, hs_,
                 continue
             m_temp = np.zeros(geom_depth)
             if mode == 'horizon':
-                filtered_idx = [idx for idx, height_ in enumerate(il_xl_h[(il_, xl_)])
-                                if height_ != FILL_VALUE]
-                filtered_idx = [idx for idx in filtered_idx
-                                if il_xl_h[(il_, xl_)][idx] > hs_[0] and il_xl_h[(il_, xl_)][idx] < hs_[-1]]
-                if len(filtered_idx) == 0:
-                    continue
-                if single_horizon:
-                    if single_idx == -1:
-                        single_idx = np.random.choice(filtered_idx)
-                        single_idx = filtered_idx[np.random.randint(len(filtered_idx))]
-                    value = il_xl_h[(il_, xl_)][single_idx]
-                    m_temp[max(0, value - width):min(value + width, geom_depth)] = 1
-                else:
-                    for idx in filtered_idx:
-                        m_temp[max(0, il_xl_h[(il_, xl_)][idx] - width):min(il_xl_h[(il_, xl_)][idx] + width, geom_depth)] = 1
+                heights = il_xl_h[(il_, xl_)]
+                if all_horizons:
+                    filtered_idx = np.array([idx for idx, height_ in enumerate(heights)
+                                             if height_ != FILL_VALUE])
+                    filtered_idx = np.array([idx for idx in filtered_idx
+                                             if heights[idx] > hs_[0] and heights[idx] < hs_[-1]])
+                    if len(filtered_idx) == 0:
+                        continue
+                    if n_horizons != -1 and len(filtered_idx) >= n_horizons:
+                        filtered_idx = np.random.choice(filtered_idx, replace=False, size=n_horizons)
+                        all_horizons = False
+                for idx in filtered_idx:
+                    _height = heights[idx]
+                    if width == 0:
+                        m_temp[_height] = 1
+                    else:
+                        m_temp[max(0, _height - width):min(_height + width, geom_depth)] = 1
             elif mode == 'stratum':
                 current_col = 1
                 start = 0

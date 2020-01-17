@@ -425,7 +425,8 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', single_horizon=False):
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', n_horizons=-1):
+
         """ Create masks from labels-dictionary in given positions.
 
         Parameters
@@ -443,6 +444,11 @@ class SeismicCropBatch(Batch):
             1 to number_of_horizons + 1.
         width : int
             Width of horizons in the `horizon` mode.
+        src_labels : str
+            Component of batch with labels dict.
+        n_horizons : int
+            Maximum number of horizons per crop.
+            If -1, all possible horizons will be added.
 
         Returns
         -------
@@ -462,7 +468,7 @@ class SeismicCropBatch(Batch):
         if not hasattr(il_xl_h._dict_type.value_type, '__len__'):
             mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
                                geom.ilines_offset, geom.xlines_offset, geom.depth,
-                               mode, width, single_horizon)
+                               mode, width, n_horizons)
         else:
             mask = create_mask_f(ilines_, xlines_, hs_, il_xl_h,
                                  geom.ilines_offset, geom.xlines_offset, geom.depth)
