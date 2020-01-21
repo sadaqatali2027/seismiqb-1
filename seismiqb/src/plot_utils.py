@@ -214,8 +214,9 @@ def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode=
                 )
 
     if 'masks' in components:
+        n_horizons = kwargs.pop('n_horizons', -1)
         labels_pipeline = (Pipeline()
-                           .create_masks(dst='masks', width=2)
+                           .create_masks(dst='masks', width=2, n_horizons=n_horizons)
                            .rotate_axes(src='masks')
                            )
         pipeline = pipeline + labels_pipeline

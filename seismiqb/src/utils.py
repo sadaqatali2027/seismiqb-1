@@ -71,7 +71,7 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
 @njit
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, ilines_offset, xlines_offset, geom_depth,
-                mode, width,  n_horizons=-1):
+                mode, width,  n_horizons=-1, horizons_idx=[-1]):
     """ Jit-accelerated function for fast mask creation for seismic horizons.
     This function is usually called inside SeismicCropBatch's method `create_masks`.
     """
@@ -95,6 +95,9 @@ def create_mask(ilines_, xlines_, hs_,
                         continue
                     if n_horizons != -1 and len(filtered_idx) >= n_horizons:
                         filtered_idx = np.random.choice(filtered_idx, replace=False, size=n_horizons)
+                        all_horizons = False
+                    if horizons_idx[0] != -1:
+                        filtered_idx = np.array(horizons_idx)
                         all_horizons = False
                 for idx in filtered_idx:
                     _height = heights[idx]
