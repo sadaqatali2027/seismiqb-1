@@ -71,13 +71,14 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
 @njit
 def create_mask(ilines_, xlines_, hs_,
                 il_xl_h, ilines_offset, xlines_offset, geom_depth,
-                mode, width, n_horizons=-1, horizons_idx=[-1]):
+                mode, width, horizons_idx, n_horizons=-1):
     """ Jit-accelerated function for fast mask creation for seismic horizons.
     This function is usually called inside SeismicCropBatch's method `create_masks`.
     """
     #pylint: disable=line-too-long, too-many-nested-blocks, too-many-branches
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
     all_horizons = True
+    horizons_idx = horizons_idx or [-1]
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
             il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset

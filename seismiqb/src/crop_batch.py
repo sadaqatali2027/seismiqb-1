@@ -477,7 +477,7 @@ class SeismicCropBatch(Batch):
                 n_horizons = -1
             mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
                                geom.ilines_offset, geom.xlines_offset, geom.depth,
-                               mode, width, n_horizons, horizons_idx)
+                               mode, width, horizons_idx, n_horizons)
         else:
             mask = create_mask_f(ilines_, xlines_, hs_, il_xl_h,
                                  geom.ilines_offset, geom.xlines_offset, geom.depth)
