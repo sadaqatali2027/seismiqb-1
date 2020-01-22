@@ -78,7 +78,6 @@ def create_mask(ilines_, xlines_, hs_,
     #pylint: disable=line-too-long, too-many-nested-blocks, too-many-branches
     mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
     all_horizons = True
-    horizons_idx = horizons_idx or [-1]
     for i, iline_ in enumerate(ilines_):
         for j, xline_ in enumerate(xlines_):
             il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
