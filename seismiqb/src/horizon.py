@@ -420,7 +420,7 @@ def get_line_horizon_amplitudes(labels, geom, horizon_idx=0, orientation='i', li
         if h != FILL_VALUE_MAP:
             background[i, :] = slide[i, h-low:h+high]
     background = background.reshape(w_shape)
-    return background, depth_map, filtering_matrix
+    return slide, background, depth_map, filtering_matrix
 
 
 

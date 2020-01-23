@@ -835,7 +835,8 @@ class SeismicCubeset(Dataset):
 
 
 
-    def compute_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None, window=3, mode='local_corrs',
+    def compute_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None, data_slice=None,
+                               window=3, mode='local_corrs',
                                filter_zero_traces=True, _fill_value=0, aggregate=None,
                                show=True, savefig=False, show_plot=True, show_scalar=True,
                                _return=False, **kwargs):
@@ -857,6 +858,8 @@ class SeismicCubeset(Dataset):
         labels_src : dict, optional
             If None, then horizon is taken from `labels` attribute.
             If dict, then must be a horizon dictionary.
+        data_slice : None or slice
+            Slice to cut from data from the cube.
         window : int
             Width of trace used for computing metric.
         mode : str or callable
@@ -919,16 +922,24 @@ class SeismicCubeset(Dataset):
         geom = self.geometries[cube_name]
 
         data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, window, 0)
+
+        if data_slice:
+            data = data[data_slice]
+            depth_map = depth_map[data_slice]
+
+        bad_traces = np.copy(geom.zero_traces)
+        bad_traces[np.where(depth_map == FILL_VALUE_MAP)] = 1
+
         if callable(mode):
-            metric = mode(data, depth_map, geom.zero_traces, **kwargs)
+            metric = mode(data, depth_map, bad_traces, **kwargs)
             title = 'custom metric'
 
         elif mode in ['local_corrs'] or 'local' in mode:
-            metric = compute_local_corrs(data, geom.zero_traces, **kwargs)
+            metric = compute_local_corrs(data, bad_traces, **kwargs)
             title = 'local correlation'
 
         elif 'support' in mode:
-            metric = compute_support_corrs(data, geom.zero_traces, **kwargs)
+            metric = compute_support_corrs(data, bad_traces, **kwargs)
 
             supports = kwargs.get('supports', 1)
             if isinstance(supports, int):
@@ -988,7 +999,7 @@ class SeismicCubeset(Dataset):
                                            mode='hilbert', hilbert_mode=hilbert_mode, aggregate=aggregate, **kwargs)
 
 
-    def compute_line_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None,
+    def compute_line_horizon_metric(self, idx=0, horizon_idx=0, labels_src=None, data_slice=None,
                                     orientation='iline', line=None, window=3, mode='support',
                                     filter_zero_traces=True, _fill_value=0, aggregate=None,
                                     show=True, savefig=False, show_plot=True, show_scalar=True,
@@ -1009,8 +1020,17 @@ class SeismicCubeset(Dataset):
         labels = labels_src or self.labels[cube_name]
         geom = self.geometries[cube_name]
 
-        data, depth_map, zero_traces = get_line_horizon_amplitudes(labels, geom, horizon_idx,
-                                                                   orientation, line, window, 0)
+        slide, data, depth_map, zero_traces = get_line_horizon_amplitudes(labels, geom, horizon_idx,
+                                                                          orientation, line, window, 0)
+
+        data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, window, 0)
+
+        if data_slice:
+            data = data[data_slice]
+            depth_map = depth_map[data_slice]
+
+        bad_traces = np.copy(zero_traces)
+        bad_traces[np.where(depth_map == FILL_VALUE_MAP)] = 1
 
         if callable(mode):
             metric = mode(data, depth_map, zero_traces, **kwargs)
@@ -1054,7 +1074,7 @@ class SeismicCubeset(Dataset):
                   .format(title, scalar_metric))
 
         if _return:
-            return {'metric': metric, 'data': data, 'depth_map': depth_map, 'zero_traces': zero_traces}
+            return {'metric': metric, 'slide': slide, 'data': data, 'depth_map': depth_map, 'zero_traces': zero_traces}
         return None
 
 

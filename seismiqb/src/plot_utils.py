@@ -255,7 +255,7 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, sav
     """
     img = np.squeeze(img)
     default_kwargs = dict(cmap='Paired') if rgb is False else {}
-    plt.figure(figsize=kwargs.get('figsize', (12, 7)))
+    plt.figure(figsize=kwargs.pop('figsize', (12, 7)))
 
     img_ = plt.imshow(img, **{**default_kwargs, **kwargs})
 
