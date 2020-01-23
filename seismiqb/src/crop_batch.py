@@ -425,7 +425,8 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', single_horizon=False):
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', n_horizons=-1):
+
         """ Create masks from labels-dictionary in given positions.
 
         Parameters
@@ -443,6 +444,15 @@ class SeismicCropBatch(Batch):
             1 to number_of_horizons + 1.
         width : int
             Width of horizons in the `horizon` mode.
+        src_labels : str
+            Component of batch with labels dict.
+        n_horizons : int or array-like of ints
+            Maximum number of horizons per crop.
+            If -1, all possible horizons will be added.
+            If array-like then elements are interpreted as indices of the desired horizons
+            and must be ints in range [0, len(horizons) - 1].
+            Note if you want to pass an index of a single horizon it must a list with one
+            element.
 
         Returns
         -------
@@ -460,9 +470,14 @@ class SeismicCropBatch(Batch):
         slice_ = self.get(ix, src)
         ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
         if not hasattr(il_xl_h._dict_type.value_type, '__len__'):
+            if isinstance(n_horizons, int):
+                horizons_idx = [-1]
+            else:
+                horizons_idx = n_horizons
+                n_horizons = -1
             mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
                                geom.ilines_offset, geom.xlines_offset, geom.depth,
-                               mode, width, single_horizon)
+                               mode, width, horizons_idx, n_horizons)
         else:
             mask = create_mask_f(ilines_, xlines_, hs_, il_xl_h,
                                  geom.ilines_offset, geom.xlines_offset, geom.depth)
@@ -523,7 +538,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def filter_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None):
+    def filter_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None, length=None):
         """ Cut mask for horizont extension task.
 
         Parameters
@@ -540,7 +555,7 @@ class SeismicCropBatch(Batch):
             labeled.
         expr : callable, optional.
             Some vectorized function. Accepts points in cube, returns either float.
-            If not None, high or low should also be supplied.
+            If not None, low or high/length should also be supplied.
         """
         if not (src and dst):
             raise ValueError('Src and dst must be provided')
@@ -574,6 +589,9 @@ class SeismicCropBatch(Batch):
                 cond &= np.greater_equal(expr(coords), low)
             if high is not None:
                 cond &= np.less_equal(expr(coords), high)
+            if length is not None:
+                low = 0 if not low else low
+                cond &= np.less_equal(expr(coords), low + length)
             coords *= np.reshape(mask.shape, newshape=(1, 3))
             coords = np.round(coords).astype(np.int32)[cond]
             new_mask[coords[:, 0], coords[:, 1], coords[:, 2]] = mask[coords[:, 0], coords[:, 1], coords[:, 2]]
