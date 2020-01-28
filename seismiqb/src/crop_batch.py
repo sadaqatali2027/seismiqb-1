@@ -773,7 +773,7 @@ class SeismicCropBatch(Batch):
         """
         shape = crop.shape
         matrix = cv2.getRotationMatrix2D((shape[1]//2, shape[0]//2), angle, 1)
-        return cv2.warpAffine(crop, matrix, (shape[1], shape[0]))
+        return cv2.warpAffine(crop, matrix, (shape[1], shape[0])).reshape(shape)
 
     def _flip_(self, crop, axis=0):
         """ Flip crop along the given axis.
@@ -783,7 +783,7 @@ class SeismicCropBatch(Batch):
         axis : int
             Axis to flip along
         """
-        return cv2.flip(crop, axis)
+        return cv2.flip(crop, axis).reshape(crop.shape)
 
     def _scale_2d_(self, crop, scale):
         """ Zoom in or zoom out along the first two axes of crop.
@@ -795,7 +795,7 @@ class SeismicCropBatch(Batch):
         """
         shape = crop.shape
         matrix = cv2.getRotationMatrix2D((shape[1]//2, shape[0]//2), 0, scale)
-        return cv2.warpAffine(crop, matrix, (shape[1], shape[0]))
+        return cv2.warpAffine(crop, matrix, (shape[1], shape[0])).reshape(shape)
 
     def _affine_transform_(self, crop, alpha_affine=10):
         """ Perspective transform. Moves three points to other locations.
@@ -822,7 +822,7 @@ class SeismicCropBatch(Batch):
 
 
         matrix = cv2.getAffineTransform(pts1, pts2)
-        return cv2.warpAffine(crop, matrix, (shape[1], shape[0]))
+        return cv2.warpAffine(crop, matrix, (shape[1], shape[0])).reshape(crop.shape)
 
     def _perspective_transform_(self, crop, alpha_persp):
         """ Perspective transform. Moves four points to other four.
@@ -849,7 +849,7 @@ class SeismicCropBatch(Batch):
         pts2 = pts1 + rnd(-alpha_persp, alpha_persp, size=pts1.shape).astype(np.float32)
 
         matrix = cv2.getPerspectiveTransform(pts1, pts2)
-        return cv2.warpPerspective(crop, matrix, (shape[1], shape[0]))
+        return cv2.warpPerspective(crop, matrix, (shape[1], shape[0])).reshape(crop.shape)
 
     def _elastic_transform_(self, crop, alpha=40, sigma=4):
         """ Transform indexing grid of the first two axes.
@@ -885,7 +885,7 @@ class SeismicCropBatch(Batch):
         distorted_img = cv2.remap(crop, grid_x, grid_y,
                                   borderMode=cv2.BORDER_REFLECT_101,
                                   interpolation=cv2.INTER_LINEAR)
-        return distorted_img
+        return distorted_img.reshape(crop.shape)
 
     def _bandwidth_filter_(self, crop, lowcut=None, highcut=None, fs=1, order=3):
         """ Keep only frequences between lowcut and highcut.
