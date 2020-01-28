@@ -471,8 +471,6 @@ class SeismicCubeset(Dataset):
         idx : str, int
             If str, then name of cube to use.
             If int, then number of cube in the index to use.
-        horizon_idx : int
-            Index of used horizon from `labels` dictionary.
         src_sampler : str
             Name of attribute with sampler in it.
             Must generate points in cubic coordinates, which can be achieved by `modify_sampler` method.
@@ -1022,15 +1020,12 @@ class SeismicCubeset(Dataset):
 
         slide, data, depth_map, zero_traces = get_line_horizon_amplitudes(labels, geom, horizon_idx,
                                                                           orientation, line, window, 0)
-
-        data, depth_map = get_horizon_amplitudes(labels, geom, horizon_idx, window, 0)
-
         if data_slice:
             data = data[data_slice]
             depth_map = depth_map[data_slice]
 
         bad_traces = np.copy(zero_traces)
-        bad_traces[np.where(depth_map == FILL_VALUE_MAP)] = 1
+        bad_traces[0, np.where(depth_map == FILL_VALUE_MAP)] = 1
 
         if callable(mode):
             metric = mode(data, depth_map, zero_traces, **kwargs)
