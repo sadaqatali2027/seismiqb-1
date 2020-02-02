@@ -10,7 +10,7 @@ from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, create_mask_f, aggregate, make_labels_dict, _get_horizons
+from .utils import create_mask, create_mask_f, aggregate, make_labels_dict, _get_horizons, check_if_joinable, merge_horizons
 from .plot_utils import plot_batch_components
 
 
@@ -469,7 +469,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    @inbatch_parallel(init='indices', post='_assemble_labels', target='threads')
+    @inbatch_parallel(init='indices', target='threads')
     def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
                         threshold=0.5, averaging='mean', coordinates='cubic', to_numba=False):
         """ Convert labels from horizons-mask into point-cloud format.
@@ -505,6 +505,9 @@ class SeismicCropBatch(Batch):
         mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
 
         # prepare args
+        if isinstance(dst, str):
+            dst = getattr(self, dst)
+
         i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
         geom = self.get(ix, 'geometries')
         if coordinates == 'lines':
@@ -514,8 +517,16 @@ class SeismicCropBatch(Batch):
             transforms = (lambda i_: i_ + i_shift, lambda x_: x_ + x_shift,
                           lambda h_: h_ + h_shift)
 
-        return _get_horizons(mask, threshold, averaging, transforms, separate=False)
+        # get horizons and merge them with matching aggregated ones
+        horizons = _get_horizons(mask, threshold, averaging, transforms, separate=True)
 
+        for hor_new, hor_union in zip(horizons, dst):
+            if check_if_joinable(hor_new, hor_union):
+                merge_horizons(hor_new, hor_union)
+            else:
+                dst_.append(hor_new)
+
+        return self
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
