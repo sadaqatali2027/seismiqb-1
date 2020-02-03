@@ -462,7 +462,27 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1):
 
 
 def merge_horizons(horizon_1, horizon_2):
-    pass
+    """ Merge horizons that can be stitched together.
+    """
+    # merge horizons
+    result = dict()
+    keyset_1, keyset_2 = set(horizon_1.keys()), set(horizon_2.keys())
+
+    for key in keyset_1 | keyset_2:
+        # take average hotizon-height if needed
+        height_1, height_2 = horizon_1.get(key), horizon_2.get(key)
+        ctr = 0
+        value = 0
+        if height_1 is not None:
+            ctr += 1
+            value += height_1[0]
+        if height_2 is not None:
+            ctr += 1
+            value += height_2[0]
+
+        # update horizons-union
+        result.update({key: [value / ctr]})
+    return result
 
 
 def _get_horizons(mask, threshold, averaging, transforms, separate=False):
