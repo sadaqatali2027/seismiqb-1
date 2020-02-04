@@ -11,6 +11,7 @@ from numba import njit, types
 from numba.typed import Dict
 from skimage.measure import label, regionprops
 from scipy.signal import hilbert, medfilt
+from skimage.morphology import binary_dilation, selem
 
 from ._const import FILL_VALUE, FILL_VALUE_MAP
 from .utils import compute_running_mean
@@ -58,6 +59,96 @@ def mask_to_horizon(mask, threshold, averaging, transforms, separate=False):
                 else:
                     horizons[key] = [h]
     return horizons
+
+
+def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1):
+    """ Check whether a pair of horizons can be stitched together.
+    """
+    # check whether the horizons have overlap in covered area
+    keyset_1, keyset_2 = set(horizon_1.keys()), set(horizon_2.keys())
+    shared_keys = keyset_1 & keyset_2
+
+    if len(shared_keys) > 0:
+        # horizons have area overlap. check if they can be joined
+        ctr_same, ctr_differ = 0, 0
+        for key in shared_keys:
+            if np.isclose(horizon_1.get(key)[0], horizon_2.get(key)[0]):
+                ctr_same += 1
+        else:
+            ctr_differ += 1
+        if ctr_same == 0:
+            # horizon-areas overlap but the horizon itself differ
+            return False
+        elif ctr_differ > 0:
+            # horizon diverge so they cannot be merged
+            return False
+        else:
+            # horizons can be merged just fine
+            return True
+    else:
+        # horizons don't have area overlap
+        # we still have to check whether they are adjacent
+
+        # find shared horizons-border
+        xs_1, xs_2 = [{x for x, y in keyset} for keyset in [keyset_1, keyset_2]]
+        ys_1, ys_2 = [{y for x, y in keyset} for keyset in [keyset_1, keyset_2]]
+        min_x, min_y = min(xs_1 | xs_2), min(ys_1 | ys_2)
+        max_x, max_y = max(xs_1 | xs_2), max(ys_1 | ys_2)
+        area_1 = np.zeros(shape=(max_x - min_x + 1, max_y - min_y + 1))
+        area_2 = np.zeros_like(area_1)
+
+        # put each horizon on respective area-copy
+        for keyset, area in zip([keyset_1, keyset_2], [area_1, area_2]):
+            for x, y in keyset:
+                area[x - min_x, y - min_y] = 1
+
+        # apply dilation to each horizon-area to determine borders-intersection
+        area_1 = binary_dilation(area_1, selem.diamond(border_margin))
+        borders = area_1 * area_2
+        border_pairs = np.argwhere(borders > 0)
+        if len(border_pairs) == 0:
+            # horizons don't have adjacent borders so cannot be joined
+            return False
+        else:
+            for x, y in border_pairs:
+                x, y = x + min_x, y + min_y
+                height_2 = horizon_2.get((x, y))
+                # get first horizon-height selecting suitable bordering pixel
+                for key in ([(x + i, y) for i in range(-border_margin, border_margin + 1)] +
+                            [(x, y + i) for i in range(-border_margin, border_margin + 1)]):
+                    height_1 = horizon_1.get(key)
+                    if height_1 is not None:
+                        break
+                height_1 = [-999.0] if height_1 is None else height_1
+
+                # determine whether the horizon-heights are close
+                if np.abs(height_1[0] - height_2[0]) <= height_margin:
+                    return True
+            return False
+
+
+def merge_horizons(horizon_1, horizon_2):
+    """ Merge horizons that can be stitched together.
+    """
+    # merge horizons
+    result = dict()
+    keyset_1, keyset_2 = set(horizon_1.keys()), set(horizon_2.keys())
+
+    for key in keyset_1 | keyset_2:
+        # take average hotizon-height if needed
+        height_1, height_2 = horizon_1.get(key), horizon_2.get(key)
+        ctr = 0
+        value = 0
+        if height_1 is not None:
+            ctr += 1
+            value += height_1[0]
+        if height_2 is not None:
+            ctr += 1
+            value += height_2[0]
+
+        # update horizons-union
+        result.update({key: [value / ctr]})
+    return result
 
 
 
