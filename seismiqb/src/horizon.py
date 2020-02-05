@@ -127,29 +127,14 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1):
             return False
 
 
-def merge_horizons(horizon_1, horizon_2):
-    """ Merge horizons that can be stitched together.
+def merge_horizon_into_another(horizon_1, horizon_2):
+    """ Merge the first horizon into the second one assuming they can be stitched together.
     """
-    # merge horizons
-    result = dict()
-    keyset_1, keyset_2 = set(horizon_1.keys()), set(horizon_2.keys())
-
-    for key in keyset_1 | keyset_2:
-        # take average hotizon-height if needed
-        height_1, height_2 = horizon_1.get(key), horizon_2.get(key)
-        ctr = 0
-        value = 0
-        if height_1 is not None:
-            ctr += 1
-            value += height_1[0]
-        if height_2 is not None:
-            ctr += 1
-            value += height_2[0]
-
-        # update horizons-union
-        result.update({key: [value / ctr]})
-    return result
-
+    for key in horizon_1:
+        if key in horizon_2:
+            horizon_2.update({key: (horizon_2.get(key) + horizon_1.get(key)) / 2})
+        else:
+            horizon_2.update({key: horizon_1.get(key)})
 
 
 def dump_horizon(horizon, geometry, path_save, idx=None, offset=1):
