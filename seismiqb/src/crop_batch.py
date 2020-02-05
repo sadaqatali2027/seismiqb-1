@@ -11,7 +11,7 @@ from scipy.signal import butter, lfilter, hilbert
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 from .utils import create_mask, create_mask_f, aggregate
-from .horizon import mask_to_horizon, check_if_joinable, merge_horizons
+from .horizon import mask_to_horizon, check_if_joinable, merge_horizon_into_another
 from .labels_utils import make_labels_dict
 from .plot_utils import plot_batch_components
 
@@ -101,7 +101,7 @@ class SeismicCropBatch(Batch):
                 for horizon_target in dst:
                     if check_if_joinable(horizon_candidate, horizon_target):
                         flag = True
-                        merge_horizons(horizon_candidate, horizon_target)
+                        merge_horizon_into_another(horizon_candidate, horizon_target)
                         break
 
                 # if a horizon cannot be stitched to a horizon from dst, we enrich dst with it
