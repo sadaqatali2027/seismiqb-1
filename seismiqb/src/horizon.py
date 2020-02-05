@@ -129,6 +129,7 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1):
 
 def merge_horizon_into_another(horizon_1, horizon_2):
     """ Merge the first horizon into the second one assuming they can be stitched together.
+        Changes the second horizon inplace.
     """
     for key in horizon_1:
         if key in horizon_2:
