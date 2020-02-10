@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 from numba import njit, types
 from numba.typed import Dict
 from skimage.measure import label, regionprops
-from skimage.morphology import binary_dilation, selem
 from scipy.signal import hilbert, medfilt
 
 from ._const import FILL_VALUE, FILL_VALUE_MAP
@@ -61,7 +60,7 @@ def mask_to_horizon(mask, threshold, averaging, transforms, separate=False):
     return horizons
 
 
-def check_if_joinable_(horizon_1, horizon_2, border_margin=1, height_margin=1, diverge_threshold=0.9):
+def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, diverge_threshold=0.9): #pylint: disable=too-many-branches
     """ Check whether a pair of horizons can be stiched together.
     """
     # check whether the horizons have overlap in covered area

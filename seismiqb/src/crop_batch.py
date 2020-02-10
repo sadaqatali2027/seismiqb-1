@@ -12,7 +12,6 @@ from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 from .utils import create_mask, create_mask_f, aggregate
 from .horizon import mask_to_horizon, check_if_joinable, merge_horizon_into_another
-from .labels_utils import make_labels_dict
 from .plot_utils import plot_batch_components
 
 
