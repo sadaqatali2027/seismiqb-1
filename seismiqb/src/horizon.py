@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 from numba import njit, types
 from numba.typed import Dict
 from skimage.measure import label, regionprops
-from scipy.signal import hilbert, medfilt
 from skimage.morphology import binary_dilation, selem
+from scipy.signal import hilbert, medfilt
 
 from ._const import FILL_VALUE, FILL_VALUE_MAP
 from .utils import compute_running_mean
@@ -61,8 +61,8 @@ def mask_to_horizon(mask, threshold, averaging, transforms, separate=False):
     return horizons
 
 
-def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1):
-    """ Check whether a pair of horizons can be stitched together.
+def check_if_joinable_(horizon_1, horizon_2, border_margin=1, height_margin=1, diverge_threshold=0.9):
+    """ Check whether a pair of horizons can be stiched together.
     """
     # check whether the horizons have overlap in covered area
     horizon_lesser, horizon_larger = ((horizon_1, horizon_2) if len(horizon_1) <= len(horizon_2)
@@ -80,45 +80,49 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1):
 
     # horizons don't have area overlap
     # we still have to check whether they are adjacent
-    keyset_1, keyset_2 = set(horizon_1.keys()), set(horizon_2.keys())
-    shared_keys = keyset_1 & keyset_2
+    # let's find borders of the lesser horizon
+    ilines_to_minmax = dict()
+    for iline, xline in horizon_lesser:
+        if ilines_to_minmax.get(iline) is None:
+            ilines_to_minmax[iline] = [xline, xline]
+        else:
+            if xline < ilines_to_minmax[iline][0]:
+                ilines_to_minmax[iline][0] = xline
+            elif xline > ilines_to_minmax[iline][1]:
+                ilines_to_minmax[iline][1] = xline
 
-    # find shared horizons-border
-    xs_1, xs_2 = [{x for x, y in keyset} for keyset in [keyset_1, keyset_2]]
-    ys_1, ys_2 = [{y for x, y in keyset} for keyset in [keyset_1, keyset_2]]
-    min_x, min_y = min(xs_1 | xs_2), min(ys_1 | ys_2)
-    max_x, max_y = max(xs_1 | xs_2), max(ys_1 | ys_2)
-    area_1 = np.zeros(shape=(max_x - min_x + 1, max_y - min_y + 1))
-    area_2 = np.zeros_like(area_1)
+    # let's use borders-dict to check whether the horizons are adjacent
+    ctr_bordering, ctr_same = 0, 0
+    for iline, (min_xline, max_xline) in ilines_to_minmax.items():
+        value_min_1, value_max_1 = horizon_lesser[(iline, min_xline)], horizon_lesser[(iline, max_xline)]
+        value_min_2, value_max_2 = np.nan, np.nan
 
-    # put each horizon on respective area-copy
-    for keyset, area in zip([keyset_1, keyset_2], [area_1, area_2]):
-        for x, y in keyset:
-            area[x - min_x, y - min_y] = 1
+        # check left-edge adjacency
+        for key in ([(iline, min_xline + i) for i in range(-border_margin, 1)]):
+            if key in horizon_larger:
+                ctr_bordering += 1
+                value_min_2 = horizon_larger[key]
+                break
+        if np.abs(value_min_1 - value_min_2) <= height_margin:
+            ctr_same += 1
 
-    # apply dilation to each horizon-area to determine borders-intersection
-    area_1 = binary_dilation(area_1, selem.diamond(border_margin))
-    borders = area_1 * area_2
-    border_pairs = np.argwhere(borders > 0)
-    if len(border_pairs) == 0:
-        # horizons don't have adjacent borders so cannot be joined
-        return False
-    else:
-        for x, y in border_pairs:
-            x, y = x + min_x, y + min_y
-            height_2 = horizon_2.get((x, y))
-            # get first horizon-height selecting suitable bordering pixel
-            for key in ([(x + i, y) for i in range(-border_margin, border_margin + 1)] +
-                        [(x, y + i) for i in range(-border_margin, border_margin + 1)]):
-                height_1 = horizon_1.get(key)
-                if height_1 is not None:
-                    break
-            height_1 = [-999.0] if height_1 is None else height_1
+        # check right-edge adjacency
+        for key in ([(iline, max_xline + i) for i in range(0, border_margin + 1)]):
+            if key in horizon_larger:
+                ctr_bordering += 1
+                value_max_2 = horizon_larger[key]
+                break
+        if np.abs(value_max_1 - value_max_2) <= height_margin:
+            ctr_same += 1
+    if ctr_bordering > 0:
+        if ctr_same / ctr_bordering <= diverge_threshold:
+            # horizons diverge
+            return False
+        # horizons overlap at (almost) all points near the border
+        return True
 
-            # determine whether the horizon-heights are close
-            if np.abs(height_1[0] - height_2[0]) <= height_margin:
-                return True
-        return False
+    # no bordering values whatsoever
+    return False
 
 
 def merge_horizon_into_another(horizon_1, horizon_2):
