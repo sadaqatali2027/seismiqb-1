@@ -11,7 +11,7 @@ from scipy.signal import butter, lfilter, hilbert
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 from .utils import create_mask, create_mask_f, aggregate
-from .horizon import mask_to_horizon
+from .horizon import mask_to_horizon, convert_to_numba_dict, update_horizon_dict
 from .labels_utils import make_labels_dict
 from .plot_utils import plot_batch_components
 
@@ -519,7 +519,6 @@ class SeismicCropBatch(Batch):
             batch with fetched labels.
         """
         _ = dst, to_numba
-
         # threshold the mask
         mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
 
@@ -532,8 +531,8 @@ class SeismicCropBatch(Batch):
         else:
             transforms = (lambda i_: i_ + i_shift, lambda x_: x_ + x_shift,
                           lambda h_: h_ + h_shift)
-
-        return mask_to_horizon(mask, threshold, averaging, transforms, separate=False)
+        _il_xl = mask_to_horizon(mask, threshold, averaging, transforms, separate=False)
+        return _il_xl
 
 
     @action
@@ -962,3 +961,48 @@ class SeismicCropBatch(Batch):
             Opacity for showing images.
         """
         plot_batch_components(self, *components, idx=idx, plot_mode=plot_mode, order_axes=order_axes, **kwargs)
+
+    @action
+    def generate_point(self, stride, shape, labels_src='predicted_labels', dst='next_point'):
+        """ Generates top left corner of the next crop to extend a horizon
+        on the slide in the direction of increasing xlines.
+
+        Parameters:
+        -----------
+        stride : int
+            a distance between top left corners of the last and
+            the next crop.
+
+        """
+        ds = self.dataset
+        geom = ds.geometries[ds.indices[0]]
+        height = shape[-1]
+        overlap = shape[1] - stride
+        labels = getattr(self, labels_src)[ds.indices[0]]
+        right_border = [0, 0, 0]
+        min_il = 10000
+        for key, value in labels.items():
+            if key[1] > right_border[1]:
+                right_border = [*key, value[0]]
+            if key[0] < min_il:
+                min_il = key[0]
+        new_point = [min_il - geom.ilines_offset, right_border[1] - geom.xlines_offset - overlap, right_border[2] - height // 2]
+        new_point = np.array([ds.indices[0], *new_point], dtype=np.object).reshape(1, -1)
+        setattr(self, dst, new_point)
+        return self
+
+    @action
+    def merge_point_clouds(self, src, dst='predicted_labels'):
+        """ Update horizon dict with predicted horizon dict.
+
+        Parameters
+        ----------
+        src : str
+            Component with predicted horizon point cloud saved as dict.
+        dst : str
+            Component to be updated.
+        """
+        new = convert_to_numba_dict(getattr(self, src)[self.dataset.indices[0]])
+        old = getattr(self, dst)[self.dataset.indices[0]]
+        setattr(self, dst, {self.dataset.indices[0]: update_horizon_dict(old, new)})
+        return self

@@ -684,3 +684,11 @@ def correct_pi(horizon_phase, eps):
                 horizon_phase[i, j] = prev
             prev = horizon_phase[i, j]
     return horizon_phase
+
+
+def update_horizon_dict(first, second):
+    """ Left merge two dicts. """
+    for k, v in second.items():
+        if not k in first:
+            first.update({k: v})
+    return first

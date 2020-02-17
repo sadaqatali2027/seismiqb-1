@@ -7,7 +7,8 @@ from copy import copy
 import dill
 import numpy as np
 
-from ..batchflow import Dataset, Sampler
+from ..batchflow import Dataset, Sampler, Pipeline
+from ..batchflow import B, V, D
 from ..batchflow import HistoSampler, NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
@@ -19,7 +20,7 @@ from .labels_utils import read_point_cloud, filter_point_cloud, make_labels_dict
 from .plot_utils import show_sampler, plot_slide, plot_image, plot_image_roll
 
 from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes, get_line_horizon_amplitudes
-from .horizon import compute_local_corrs, compute_support_corrs, compute_hilbert
+from .horizon import compute_local_corrs, compute_support_corrs, compute_hilbert, convert_to_numba_dict
 from .horizon import mask_to_horizon, compare_horizons, dump_horizon
 
 
@@ -608,7 +609,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates='cubic', separate=True):
+    def get_point_cloud(self, src, dst, threshold=0.5, averaging='mean', coordinates='cubic', separate=True, transforms=None):
         """ Compute point cloud of horizons from a mask, save it into the 'cubeset'-attribute.
 
         Parameters
@@ -643,7 +644,8 @@ class SeismicCubeset(Dataset):
 
         # prepare coordinate-transforms
         if coordinates is None:
-            transforms = [lambda x: x for _ in range(3)]
+            if transforms is None:
+                transforms = [lambda x: x for _ in range(3)]
         elif coordinates == 'cubic':
             shifts = [axis_range[0] for axis_range in self.grid_info['range']]
             transforms = [lambda x_, shift=shift: x_ + shift for shift in shifts]
@@ -1073,7 +1075,7 @@ class SeismicCubeset(Dataset):
         return None
 
 
-    def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):
+    def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', show_plot=True, _return=False):
         """ Compare two horizons on l1 metric and on derivative differences.
 
         Parameters
@@ -1103,15 +1105,62 @@ class SeismicCubeset(Dataset):
         # l1: mean absolute difference between depth maps
         metric_1 = np.abs(depth_map_1 - depth_map_2)
         metric_1[np.where(indicator == 1)] = 0
-        plot_image(metric_1, 'l1 metric on cube {}'.format(cube_name), cmap=cmap)
+        if show_plot:
+            plot_image(metric_1, 'l1 metric on cube {}'.format(cube_name), cmap=cmap)
         print('Average value of l1 is {}\n\n'.format(np.mean(metric_1[np.where(indicator == 0)])))
 
         # ~: mean absolute difference between gradients of depth maps
         metric_2 = np.abs(np.diff(depth_map_1, axis=axis, prepend=0) - np.diff(depth_map_2, axis=axis, prepend=0))
         metric_2[np.where(indicator == 1)] = 0
-        plot_image(metric_2, '~ metric on cube {}'.format(cube_name), cmap=cmap)
+        if show_plot:
+            plot_image(metric_2, '~ metric on cube {}'.format(cube_name), cmap=cmap)
         print('Average value of ~ is {}'.format(np.mean(metric_2[np.where(indicator == 0)])))
 
         if _return:
-            return metric_1, metric_2
+            return metric_1, metric_2, indicator
         return None
+
+
+    def subset_labels(self, points, crop_shape=(2, 64, 64), cube_index=0, show_prior_mask=False, n_horizons=1,
+                      dst='prior_mask', **kwargs):
+        """Save prior mask to a dst cubeset attribute to test horizon extention model.
+
+        Parameters
+        ----------
+        points : tuple or list
+            upper left coordinates of the starting crop in the seismic cube coordinates.
+        crop_shape : array-like
+            shape of the saved prior mask.
+        cube_index : int
+            index of the cube in `ds.indices` list.
+        show_prior_mask : bool
+            whether to show prior mask
+        """
+        ds_points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
+
+        start_predict_pipeline = (Pipeline()
+                                  .load_component(src=[D('geometries'), D('labels')],
+                                                  dst=['geometries', 'labels'])
+                                  .crop(points=ds_points, shape=crop_shape)
+                                  .load_cubes(dst='images')
+                                  .create_masks(dst='masks', width=2, n_horizons=n_horizons, src_labels='labels')
+                                  .rotate_axes(src=['images', 'masks'])
+                                  .add_axis(src='masks', dst='masks')
+                                  .scale(mode='normalize', src='images')) << self
+
+        batch = start_predict_pipeline.next_batch(len(self.indices), n_epochs=None)
+
+        if show_prior_mask:
+            batch.plot_components('masks', **kwargs)
+
+        i_shift, x_shift, h_shift = [slices[0] for slices in batch.slices[0]]
+        transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + i_shift],
+                      lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
+                      lambda h_: h_ + h_shift]
+        self.get_point_cloud(np.moveaxis(batch.masks[0][:, :, :, 0], -1, 0),
+                             threshold=0.5, dst=dst, coordinates=None, transforms=transforms, separate=True)
+        if len(getattr(self, dst)[0]) == 0:
+            raise ValueError("Prior mask is empty")
+        numba_horizon = convert_to_numba_dict(getattr(self, dst)[0])
+        setattr(self, dst, {self.indices[cube_index]: numba_horizon})
+        return self

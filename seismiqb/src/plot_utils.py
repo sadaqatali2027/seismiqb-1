@@ -417,11 +417,11 @@ def show_extension_results(batch, val_pipeline, cubes_numbers, ext_result='ext_r
         iline = 0
 
         truth_img = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline].T
-        truth_labels = val_pipeline.get_variable(ext_result)[1][cube, :, :, iline, 0].T
-        predicted_img = val_pipeline.get_variable(ext_result)[2][cube, :, :, iline, 0].T
-        cut_mask = val_pipeline.get_variable(ext_result)[0][cube, :, :, iline + 2].T
+        truth_labels = val_pipeline.get_variable(ext_result)[1][cube, :, :, iline].T
+        predicted_img = val_pipeline.get_variable(ext_result)[2][cube, :, :, iline].T
+        cut_mask = val_pipeline.get_variable(ext_result)[-1][cube, :, :, iline].T
         if baseline_result:
-            predicted_simple = val_pipeline.get_variable(baseline_result)[2][cube, :, :, iline, 0].T
+            predicted_simple = val_pipeline.get_variable(baseline_result)[2][cube, :, :, iline].T
 
         fig = plt.figure(figsize=figsize)
         fig.add_subplot(1, 5, 1)
