@@ -1,11 +1,104 @@
 """ Utility functions. """
 from tqdm import tqdm
+from collections import OrderedDict
+from threading import RLock
 import numpy as np
 import segyio
 
 from numba import njit
 
 from ._const import FILL_VALUE
+
+
+
+class classproperty:
+    """ Adds property to the class, not to its instances. """
+    def __init__(self, prop):
+        self.prop = prop
+    def __get__(self, obj, owner):
+        return self.prop(owner)
+
+
+
+class Singleton:
+    """ There must be only one!"""
+    instance = None
+    def __init__(self):
+        if not Singleton.instance:
+            Singleton.instance = self
+
+class LruCache(object):
+    """ Thread-safe least recent used cache.
+
+    Parameters
+    ----------
+    maxsize : int
+        Maximum amount of stored values.
+
+    Examples
+    --------
+    Store loaded slides::
+
+    @LruCache(maxsize=128)
+    def load_slide(cube_name, slide_no):
+        pass
+
+    Notes
+    -----
+    All arguments to the method must be hashable.
+    """
+    def __init__(self, maxsize=None):
+        self.maxsize = maxsize
+        self.default = Singleton()
+        self.lock = RLock()
+
+        self.cache = OrderedDict()
+        self.is_full = False
+        self.stats = {'hit': 0, 'miss': 0}
+
+    def __call__(self, func):
+
+        def wrapper(*args, **kwargs):
+            key = self.make_key(args, kwargs)
+            with self.lock:
+                result = self.cache.get(key, self.default)
+                if result is not self.default:
+                    del self.cache[key]
+                    self.cache[key] = result
+                    self.stats['hit'] += 1
+                    return result
+            result = func(*args, **kwargs)
+            with self.lock:
+                self.stats['miss'] += 1
+                if key in self.cache:
+                    pass
+                elif self.is_full:
+                    self.cache.popitem(last=False)
+                    self.cache[key] = result
+                else:
+                    self.cache[key] = result
+                    self.is_full = (len(self.cache) >= self.maxsize)
+            return result
+
+        wrapper.__name__ = func.__name__
+        wrapper.cache = self.cache
+        wrapper.reset = self.reset
+        wrapper.stats = self.stats
+        return wrapper
+
+    def reset(self):
+        self.cache = OrderedDict()
+        self.is_full = False
+        self.stats = {'hit': 0, 'miss': 0}
+
+    @staticmethod
+    def make_key(args, kwargs):
+        key = args
+        if kwargs:
+            sorted_items = sorted(kwargs.items())
+            for item in sorted_items:
+                key += item
+        return key
 
 
 

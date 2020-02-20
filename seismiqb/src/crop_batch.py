@@ -10,7 +10,7 @@ from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import create_mask, create_mask_f, aggregate
+from .utils import LruCache, classproperty, create_mask, create_mask_f, aggregate
 from .horizon import mask_to_horizon
 from .labels_utils import make_labels_dict
 from .plot_utils import plot_batch_components
@@ -414,6 +414,7 @@ class SeismicCropBatch(Batch):
             crop[:, :, i] = slide[ilines, :][:, xlines]
         return crop
 
+    @LruCache(96)
     def __load_slide(self, cube, index):
         """ (Potentially) cached function for slide loading.
 
@@ -422,6 +423,15 @@ class SeismicCropBatch(Batch):
         One must use thread-safe cache implementation.
         """
         return cube[index, :, :]
+
+    @classproperty
+    def cache_stats(self):
+        return self._SeismicCropBatch__load_slide.stats
+
+    @classmethod
+    def reset_cache(cls):
+        return cls._SeismicCropBatch__load_slide.reset()
+
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
@@ -484,6 +494,32 @@ class SeismicCropBatch(Batch):
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask
+        return self
+
+
+    @action
+    @inbatch_parallel(init='indices', post='_post_mask_rebatch', target='threads',
+                      src='masks', threshold=0.8, passdown=None)
+    def mask_rebatch(self, ix, src='masks', threshold=0.8, passdown=None):
+        pos = self.get_pos(None, src, ix)
+        mask = getattr(self, src)[pos]
+
+        reduced = np.max(mask, axis=-1) > 0.0
+        return np.sum(reduced) / np.prod(reduced.shape)
+
+    def _post_mask_rebatch(self, areas, *args, src=None, passdown=None, threshold=None, **kwargs):
+        new_index = [self.indices[i] for i, area in enumerate(areas) if area > threshold]
+        new_dict = {idx: self.index._paths[idx] for idx in new_index}
+        self.index = FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False)
+
+        passdown = passdown or []
+        passdown.extend([src, 'slices'])
+        passwodn = list(set(passdown))
+
+        for compo in passdown:
+            new_data = [getattr(self, compo)[i] for i, area in enumerate(areas) if area > threshold]
+            setattr(self, compo, np.array(new_data))
+        setattr(self, '__areas', np.array(areas))
         return self
 
 
