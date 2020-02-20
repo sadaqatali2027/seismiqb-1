@@ -301,12 +301,34 @@ class SeismicCropBatch(Batch):
         return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
                 for ix in self.indices]
 
+
     def _sgy_post(self, segyfiles, *args, **kwargs):
         """ Close opened .sgy files."""
         _, _ = args, kwargs
         for segyfile in segyfiles:
             segyfile.close()
         return self
+
+
+    def _stitch_clouds(self, all_clouds, *args, dst=None, height_margin=2, border_margin=1, **kwargs):
+        """ Stitch a set of point-clouds to a point cloud form dst if possible.
+        Post for `get_point_cloud`-action.
+        """
+        # remember, all_clouds contains lists of horizons
+        for horizons_set in all_clouds:
+            for horizon_candidate in horizons_set:
+                flag = False
+                for horizon_target in dst:
+                    if check_if_joinable(horizon_candidate, horizon_target, height_margin=height_margin, border_margin=border_margin):
+                        flag = True
+                        merge_horizon_into_another(horizon_candidate, horizon_target)
+                        break
+
+                # if a horizon cannot be stitched to a horizon from dst, we enrich dst with it
+                if not flag:
+                    dst.append(horizon_candidate)
+        return self
+
 
     @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
     def _load_cubes_sgy(self, ix, segyfile, dst, src='slices'):
@@ -464,7 +486,8 @@ class SeismicCropBatch(Batch):
     @action
     @inbatch_parallel(init='indices', target='threads', post='_stitch_clouds')
     def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
-                        threshold=0.5, averaging='mean', coordinates='cubic'):
+                        threshold=0.5, averaging='mean', coordinates='cubic', order=(2, 0, 1),
+                        height_margin=2, border_margin=1):
         """ Convert labels from horizons-mask into point-cloud format.
 
         Parameters
@@ -491,8 +514,10 @@ class SeismicCropBatch(Batch):
         """
         _ = dst
 
-        # threshold the mask
-        mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
+        # threshold the mask, reshape and rotate the mask if needed
+        mask = (getattr(self, src_masks)[self.get_pos(None, src_masks, ix)] > threshold).astype(np.float32)
+        mask = np.reshape(mask, mask.shape[:3])
+        mask = np.transpose(mask, axes=order)
 
         # prepare args
         if isinstance(dst, str):

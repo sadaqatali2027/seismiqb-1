@@ -70,7 +70,7 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, di
     for key in horizon_lesser:
         if horizon_larger.get(key) is not None:
             ctr_common += 1
-            if not np.isclose(horizon_larger.get(key), horizon_lesser.get(key)):
+            if not np.isclose(horizon_larger.get(key)[0], horizon_lesser.get(key)[0]):
                 # horizons differ at least at one common point, they cannot be joined
                 return False
 
@@ -81,7 +81,15 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, di
     # we still have to check whether they are adjacent
     # let's find borders of the lesser horizon
     ilines_to_minmax = dict()
+    ilines_min, ilines_max = np.PINF, np.NINF
     for iline, xline in horizon_lesser:
+        # renew max-min values of ilines
+        if iline > ilines_max:
+            ilines_max = iline
+        if iline < ilines_min:
+            ilines_min = iline
+
+        # renew dict values
         if ilines_to_minmax.get(iline) is None:
             ilines_to_minmax[iline] = [xline, xline]
         else:
@@ -90,29 +98,64 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, di
             elif xline > ilines_to_minmax[iline][1]:
                 ilines_to_minmax[iline][1] = xline
 
-    # let's use borders-dict to check whether the horizons are adjacent
+    # form sets of bordering keys for left and right horizon-edge
+    left_group = set()
+    right_group = set()
+    for iline, xline in horizon_lesser:
+        if iline == ilines_min:
+            left_group.add((iline, xline))
+        elif iline == ilines_max:
+            right_group.add((iline, xline))
+
+    # use borders-dict to check lower and upper adjacency
     ctr_bordering, ctr_same = 0, 0
     for iline, (min_xline, max_xline) in ilines_to_minmax.items():
-        value_min_1, value_max_1 = horizon_lesser[(iline, min_xline)], horizon_lesser[(iline, max_xline)]
+        value_min_1, value_max_1 = horizon_lesser[(iline, min_xline)][0], horizon_lesser[(iline, max_xline)][0]
         value_min_2, value_max_2 = np.nan, np.nan
 
-        # check left-edge adjacency
+        # check lower adjacency
         for key in ([(iline, min_xline + i) for i in range(-border_margin, 1)]):
             if key in horizon_larger:
                 ctr_bordering += 1
-                value_min_2 = horizon_larger[key]
+                value_min_2 = horizon_larger[key][0]
                 break
         if np.abs(value_min_1 - value_min_2) <= height_margin:
             ctr_same += 1
 
-        # check right-edge adjacency
+        # check upper adjacency
         for key in ([(iline, max_xline + i) for i in range(0, border_margin + 1)]):
             if key in horizon_larger:
                 ctr_bordering += 1
-                value_max_2 = horizon_larger[key]
+                value_max_2 = horizon_larger[key][0]
                 break
         if np.abs(value_max_1 - value_max_2) <= height_margin:
             ctr_same += 1
+
+    # use groups of left and right keys to check left and right adjacency
+    value_left_2, value_right_2 = np.nan, np.nan
+
+    # check left adjacency
+    for iline, xline in left_group:
+        value_left_1 = horizon_lesser[(iline, xline)][0]
+        for key in [(iline - i, xline) for i in range(1, border_margin + 1)]:
+            if key in horizon_larger:
+                ctr_bordering += 1
+                value_left_2 = horizon_larger[key][0]
+                break
+        if np.abs(value_left_1 - value_left_2) <= height_margin:
+            ctr_same += 1
+
+    # check right adjacency
+    for iline, xline in right_group:
+        value_right_1 = horizon_lesser[(iline, xline)][0]
+        for key in [(iline + i, xline) for i in range(1, border_margin + 1)]:
+            if key in horizon_larger:
+                ctr_bordering += 1
+                value_right_2 = horizon_larger[key][0]
+                break
+        if np.abs(value_right_1 - value_right_2) <= height_margin:
+            ctr_same += 1
+
     if ctr_bordering > 0:
         if ctr_same / ctr_bordering <= diverge_threshold:
             # horizons diverge
@@ -130,7 +173,7 @@ def merge_horizon_into_another(horizon_1, horizon_2):
     """
     for key in horizon_1:
         if key in horizon_2:
-            horizon_2.update({key: (horizon_2.get(key) + horizon_1.get(key)) / 2})
+            horizon_2.update({key: np.array([(horizon_2.get(key)[0] + horizon_1.get(key)[0]) / 2])})
         else:
             horizon_2.update({key: horizon_1.get(key)})
 
