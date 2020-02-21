@@ -20,7 +20,7 @@ from .plot_utils import show_sampler, plot_slide, plot_image, plot_image_roll
 
 from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes, get_line_horizon_amplitudes
 from .horizon import compute_local_corrs, compute_support_corrs, compute_hilbert
-from .horizon import mask_to_horizon, compare_horizons, dump_horizon
+from .horizon import mask_to_horizon, compare_horizons, dump_horizon, check_if_joinable, merge_horizon_into_another
 
 
 
@@ -662,6 +662,48 @@ class SeismicCubeset(Dataset):
             for i, horizon in enumerate(horizons):
                 setattr(self, dst+'_'+str(i), horizon)
         return self
+
+
+    def stitch_point_clouds(self, src, height_margin=2, border_margin=1):
+        """ Iterate over a list of horizons and merge what can be merged. Can be called after
+        running a pipeline with `get_point_cloud`-action. Changes the list of horizons inplace.
+
+        Parameters
+        ----------
+        src : str or list
+            Source-horizons. Can be either a name of attribute or list itself.
+        height_margin : int
+            if adjacent horizons do not diverge for more than this distance, they can be merged together.
+        border_margin : int
+            max distance between a pair of horizon-borders when the horizons can be adjacent.
+        """
+        # fetch list of point-clouds
+        clouds = getattr(self, src) if isinstance(src, str) else src
+
+        # iterate over list of point-clouds to merge what can be merged
+        i = 0
+        flag = True
+        while flag:
+            # the procedure continues while at least a pair of horizons is mergeable
+            flag = False
+            while True:
+                if i >= len(clouds):
+                    break
+
+                j = i + 1
+                while True:
+                    # attempt to merge each horizon to i-th horizon with fixed i
+                    if j >= len(clouds):
+                        break
+
+                    if check_if_joinable(clouds[i], clouds[j], height_margin=height_margin, border_margin=border_margin):
+                        # merge j-th horizon into i-th and remove j-th horizon from a list
+                        merge_horizon_into_another(clouds[j], clouds[i])
+                        _ = clouds.pop(j)
+                        flag = True
+                    else:
+                        j += 1
+                i += 1
 
 
     def compare_to_labels(self, horizon, idx=0, offset=1, plot=True):

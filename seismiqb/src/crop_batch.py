@@ -488,7 +488,8 @@ class SeismicCropBatch(Batch):
     def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
                         threshold=0.5, averaging='mean', coordinates='cubic', order=(2, 0, 1),
                         height_margin=2, border_margin=1):
-        """ Convert labels from horizons-mask into point-cloud format.
+        """ Convert labels from horizons-mask into point-cloud format. Fetches point-clouds from
+        a batch of masks, then merges resulting clouds to those stored in `dst`, whenever possible.
 
         Parameters
         ----------
@@ -506,6 +507,14 @@ class SeismicCropBatch(Batch):
             coordinates-mode to use for keys of point-cloud. Can be either 'cubic'
             or 'lines'. In case of `lines`-option, `geometries` must be loaded as
             a component of batch.
+        order : tuple of int
+            axes-param for `transpose`-operation, applied to a mask before fetching point clouds.
+            Default value of (2, 0, 1) is applicable to standart pipeline with one `rotate_axes`
+            applied to images-tensor.
+        height_margin : int
+            if adjacent horizons do not diverge for more than this distance, they can be merged together.
+        border_margin : int
+            max distance between a pair of horizon-borders when the horizons can be adjacent.
 
         Returns
         -------
