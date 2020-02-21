@@ -101,10 +101,11 @@ def create_mask(ilines_, xlines_, hs_,
                                                  if height_ != FILL_VALUE and idx in horizons_idx])
                 for idx in filtered_idx:
                     _height = heights[idx]
-                    if width == 0:
-                        m_temp[_height] = 1
-                    else:
-                        m_temp[max(0, _height - width):min(_height + width, geom_depth)] = 1
+                    if _height != FILL_VALUE:
+                        if width == 0:
+                            m_temp[_height] = 1
+                        else:
+                            m_temp[max(0, _height - width):min(_height + width, geom_depth)] = 1
             elif mode == 'stratum':
                 current_col = 1
                 start = 0
