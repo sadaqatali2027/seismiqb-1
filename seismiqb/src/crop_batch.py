@@ -27,7 +27,7 @@ SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 @transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
 class SeismicCropBatch(Batch):
     """ Batch with ability to generate 3d-crops of various shapes."""
-    components = ('points', 'shapes',)
+    components = ('slices', 'points', 'shapes',)
 
     def _init_component(self, *args, **kwargs):
         """ Create and preallocate a new attribute with the name ``dst`` if it
@@ -40,7 +40,6 @@ class SeismicCropBatch(Batch):
             dst = (dst,)
         for comp in dst:
             if not hasattr(self, comp):
-                self.add_components(comp, None)
                 setattr(self, comp, np.array([None] * len(self.index)))
         return self.indices
 
@@ -238,7 +237,7 @@ class SeismicCropBatch(Batch):
         if make_slices:
             slices = [self._make_slice(point, shape, dilations, loc)
                       for point, shape in zip(points, shapes)]
-            self.add_components(dst, None)
+
             setattr(new_batch, dst, slices)
         return new_batch
 
@@ -299,6 +298,7 @@ class SeismicCropBatch(Batch):
     @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
     def load_segy_trace(self, ix, segyfile, dst, src='points'):
         """ Load data from .sgy-cube in given positions. """
+        geom = self.get(ix, 'geometries')
         point = self.get(ix, src)
         trace = segyfile.trace[point[1]]
 
