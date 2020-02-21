@@ -60,7 +60,7 @@ def mask_to_horizon(mask, threshold, averaging, transforms, separate=False):
     return horizons
 
 
-def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, diverge_threshold=0.9): #pylint: disable=too-many-branches, too-many-statements)
+def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, diverge_threshold=0.9): #pylint: disable=too-many-branches, too-many-statements
     """ Check whether a pair of horizons can be stiched together.
     """
     # check whether the horizons have overlap in covered area
