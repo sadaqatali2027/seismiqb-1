@@ -696,7 +696,8 @@ class SeismicCubeset(Dataset):
                     if j >= len(clouds):
                         break
 
-                    if check_if_joinable(clouds[i], clouds[j], height_margin=height_margin, border_margin=border_margin):
+                    if check_if_joinable(clouds[i], clouds[j], height_margin=height_margin,
+                                         border_margin=border_margin):
                         # merge j-th horizon into i-th and remove j-th horizon from a list
                         merge_horizon_into_another(clouds[j], clouds[i])
                         _ = clouds.pop(j)

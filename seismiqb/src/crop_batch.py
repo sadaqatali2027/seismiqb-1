@@ -93,6 +93,7 @@ class SeismicCropBatch(Batch):
     def _stitch_clouds(self, all_clouds, *args, dst=None, **kwargs):
         """ Stitch a set of point-clouds to a point cloud form dst if possible. Post for `get_point_cloud`-action.
         """
+        _, _ = args, kwargs
         # remember, all_clouds contains lists of horizons
         for horizons_set in all_clouds:
             for horizon_candidate in horizons_set:
@@ -314,12 +315,14 @@ class SeismicCropBatch(Batch):
         """ Stitch a set of point-clouds to a point cloud form dst if possible.
         Post for `get_point_cloud`-action.
         """
+        _, _ = args, kwargs
         # remember, all_clouds contains lists of horizons
         for horizons_set in all_clouds:
             for horizon_candidate in horizons_set:
                 flag = False
                 for horizon_target in dst:
-                    if check_if_joinable(horizon_candidate, horizon_target, height_margin=height_margin, border_margin=border_margin):
+                    if check_if_joinable(horizon_candidate, horizon_target, height_margin=height_margin,
+                                         border_margin=border_margin):
                         flag = True
                         merge_horizon_into_another(horizon_candidate, horizon_target)
                         break
@@ -521,7 +524,7 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             batch with fetched labels.
         """
-        _ = dst
+        _, _, _ = dst, height_margin, border_margin
 
         # threshold the mask, reshape and rotate the mask if needed
         mask = (getattr(self, src_masks)[self.get_pos(None, src_masks, ix)] > threshold).astype(np.float32)
