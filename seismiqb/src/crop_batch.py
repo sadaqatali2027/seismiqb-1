@@ -1,4 +1,5 @@
 """ Seismic Crop Batch."""
+#pylint: disable=too-many-lines
 import string
 import random
 from copy import copy
@@ -26,7 +27,7 @@ SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 @transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
 class SeismicCropBatch(Batch):
     """ Batch with ability to generate 3d-crops of various shapes."""
-    components = ('slices',)
+    components = ('points', 'shapes',)
 
     def _init_component(self, *args, **kwargs):
         """ Create and preallocate a new attribute with the name ``dst`` if it
@@ -39,6 +40,7 @@ class SeismicCropBatch(Batch):
             dst = (dst,)
         for comp in dst:
             if not hasattr(self, comp):
+                self.add_components(comp, None)
                 setattr(self, comp, np.array([None] * len(self.index)))
         return self.indices
 
@@ -167,7 +169,8 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape, dilations=(1, 1, 1), loc=(0, 0, 0), side_view=False, dst='slices', passdown=None):
+    def crop(self, points, shape=None, dilations=(1, 1, 1), loc=(0, 0, 0), side_view=False,
+             make_slices=True, dst='slices', passdown=None, dst_points='points', dst_shapes='shapes'):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
 
@@ -193,6 +196,8 @@ class SeismicCropBatch(Batch):
             Component of batch to put positions of crops in.
         passdown : str of list of str
             Components of batch to keep in the new one.
+        dst_points, dst_shapes : str
+            Components to put point locations and crop shapes in.
 
         Notes
         -----
@@ -205,18 +210,43 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             Batch with positions of crops in specified component.
         """
-        new_index = [self.salt(ix) for ix in points[:, 0]]
-        new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
-                    for ix in new_index}
-        new_batch = type(self)(FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False))
+        # pylint: disable=protected-access
+        if not hasattr(self, 'pre_index'):
+            pre_index = copy(self.index)
+            new_index = [self.salt(ix) for ix in points[:, 0]]
+            new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
+                        for ix in new_index}
+            new_batch = type(self)(FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False))
+            new_batch.pre_index = pre_index
 
-        passdown = passdown or []
-        passdown = [passdown] if isinstance(passdown, str) else passdown
-        passdown.extend(['geometries', 'labels'])
+            passdown = passdown or []
+            passdown = [passdown] if isinstance(passdown, str) else passdown
+            passdown.extend(['geometries', 'labels'])
 
-        for component in passdown:
-            if hasattr(self, component):
-                setattr(new_batch, component, getattr(self, component))
+            for component in passdown:
+                if hasattr(self, component):
+                    setattr(new_batch, component, getattr(self, component))
+
+        else:
+            if len(points) != len(self):
+                raise ValueError('Subsequent usage of `crop` must have the same number of points!')
+            new_batch = self
+
+        shapes = self._make_shapes(points, shape, side_view)
+        setattr(new_batch, dst_points, points)
+        setattr(new_batch, dst_shapes, shapes)
+        if make_slices:
+            slices = [self._make_slice(point, shape, dilations, loc)
+                      for point, shape in zip(points, shapes)]
+            self.add_components(dst, None)
+            setattr(new_batch, dst, slices)
+        return new_batch
+
+    def _make_shapes(self, points, shape, side_view):
+        """ Make an array of shapes to cut. """
+        # If already array of desired shapes
+        if isinstance(shape, np.ndarray) and shape.ndim == 2 and len(shape) == len(points):
+            return shape
 
         if side_view:
             side_view = side_view if isinstance(side_view, float) else 0.5
@@ -232,13 +262,8 @@ class SeismicCropBatch(Batch):
                 else:
                     shapes.append(shape[[1, 0, 2]])
         shapes = np.array(shapes)
+        return shapes
 
-        slices = []
-        for point, shape_ in zip(points, shapes):
-            slice_ = self._make_slice(point, shape_, dilations, loc)
-            slices.append(slice_)
-        setattr(new_batch, dst, slices)
-        return new_batch
 
     def _make_slice(self, point, shape, dilations, loc=(0, 0, 0)):
         """ Creates list of `np.arange`'s for desired location. """
@@ -269,6 +294,17 @@ class SeismicCropBatch(Batch):
         """ Extended crop shape. Useful for model with Dice-coefficient as loss-function. """
         return (*self.crop_shape, 1)
 
+
+    @action
+    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
+    def load_segy_trace(self, ix, segyfile, dst, src='points'):
+        """ Load data from .sgy-cube in given positions. """
+        point = self.get(ix, src)
+        trace = segyfile.trace[point[1]]
+
+        pos = self.get_pos(None, dst, ix)
+        getattr(self, dst)[pos] = trace
+        return segyfile
 
     @action
     def load_cubes(self, dst, fmt='h5py', src='slices', view=None):
@@ -316,14 +352,15 @@ class SeismicCropBatch(Batch):
         for comp in dst:
             if not hasattr(self, comp):
                 setattr(self, comp, np.array([None] * len(self.index)))
-
+        # import pdb; pdb.set_trace()
         segyfiles = {}
         for ix in self.indices:
             path_data = self.index.get_fullpath(ix)
             if segyfiles.get(self.unsalt(ix)) is None:
-                segyfile = segyio.open(path_data, 'r', strict=False)
+                segyfile = segyio.open(path_data, 'r', strict=False, ignore_geometry=False)
                 segyfile.mmap()
                 segyfiles[self.unsalt(ix)] = segyfile
+
         return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
                 for ix in self.indices]
 
@@ -416,20 +453,22 @@ class SeismicCropBatch(Batch):
 
     @LruCache(96)
     def __load_slide(self, cube, index):
-        """ (Potentially) cached function for slide loading.
+        """ Cached function for slide loading.
 
         Notes
         -----
-        One must use thread-safe cache implementation.
+        Each usage of `autoreload` resets the cache.
         """
         return cube[index, :, :]
 
     @classproperty
     def cache_stats(self):
+        """ Show number of hits/misses of cache. """
         return self._SeismicCropBatch__load_slide.stats
 
     @classmethod
     def reset_cache(cls):
+        """ Clear stored values from the cache. """
         return cls._SeismicCropBatch__load_slide.reset()
 
 
@@ -501,6 +540,16 @@ class SeismicCropBatch(Batch):
     @inbatch_parallel(init='indices', post='_post_mask_rebatch', target='threads',
                       src='masks', threshold=0.8, passdown=None)
     def mask_rebatch(self, ix, src='masks', threshold=0.8, passdown=None):
+        """ Remove elements with masks lesser than a threshold.
+
+        Parameters
+        ----------
+        threshold : float
+            Minimum percentage of covered area (spatial-wise) for a mask to be kept in the batch.
+        passdown : sequence of str
+            Components to filter.
+        """
+        _ = threshold, passdown
         pos = self.get_pos(None, src, ix)
         mask = getattr(self, src)[pos]
 
@@ -508,13 +557,15 @@ class SeismicCropBatch(Batch):
         return np.sum(reduced) / np.prod(reduced.shape)
 
     def _post_mask_rebatch(self, areas, *args, src=None, passdown=None, threshold=None, **kwargs):
+        #pylint: disable=protected-access
+        _ = args, kwargs
         new_index = [self.indices[i] for i, area in enumerate(areas) if area > threshold]
         new_dict = {idx: self.index._paths[idx] for idx in new_index}
         self.index = FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False)
 
         passdown = passdown or []
         passdown.extend([src, 'slices'])
-        passwodn = list(set(passdown))
+        passdown = list(set(passdown))
 
         for compo in passdown:
             new_data = [getattr(self, compo)[i] for i, area in enumerate(areas) if area > threshold]

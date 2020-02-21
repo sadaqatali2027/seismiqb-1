@@ -1,7 +1,7 @@
 """ Utility functions. """
-from tqdm import tqdm
 from collections import OrderedDict
 from threading import RLock
+from tqdm import tqdm
 import numpy as np
 import segyio
 
@@ -13,6 +13,7 @@ from ._const import FILL_VALUE
 
 class classproperty:
     """ Adds property to the class, not to its instances. """
+    #pylint: disable=invalid-name
     def __init__(self, prop):
         self.prop = prop
     def __get__(self, obj, owner):
@@ -27,7 +28,7 @@ class Singleton:
         if not Singleton.instance:
             Singleton.instance = self
 
-class LruCache(object):
+class LruCache:
     """ Thread-safe least recent used cache.
 
     Parameters
@@ -87,12 +88,14 @@ class LruCache(object):
         return wrapper
 
     def reset(self):
+        """ Clear cache and stats. """
         self.cache = OrderedDict()
         self.is_full = False
         self.stats = {'hit': 0, 'miss': 0}
 
     @staticmethod
     def make_key(args, kwargs):
+        """ Make a key. """
         key = args
         if kwargs:
             sorted_items = sorted(kwargs.items())
