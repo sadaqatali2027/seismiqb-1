@@ -1,6 +1,12 @@
 """ Utility functions. """
-from collections import OrderedDict
+import os
+from collections import OrderedDict, MutableMapping
 from threading import RLock
+from functools import wraps
+from glob import glob
+from hashlib import blake2b
+
+import dill
 from tqdm import tqdm
 import numpy as np
 import segyio
@@ -20,6 +26,75 @@ class classproperty:
         return self.prop(owner)
 
 
+class PickleDict(MutableMapping):
+    def __init__(self, dirname, maxsize):
+        self.dirname = dirname
+        self.maxsize = maxsize
+
+
+    @staticmethod
+    def load(path):
+        with open(path, 'rb') as dill_file:
+            restored = dill.load(dill_file)
+        return restored
+
+    @staticmethod
+    def dump(path, value):
+        with open(path, 'wb') as file:
+            dill.dump(value, file)
+
+
+    def __setitem__(self, key, value):
+        if len(self) > self.maxsize:
+            self.popitem(last=False)
+
+        key = blake2b(str(key).encode('ascii')).hexdigest()
+        path = os.path.join(self.dirname, str(key)[:10])
+
+        if os.path.exists(path):
+            with open(path, 'a'):
+                os.utime(path, None)
+        else:
+            self.dump(path, value)
+
+    def __getitem__(self, key):
+        key = blake2b(str(key).encode('ascii')).hexdigest()
+        path = os.path.join(self.dirname, str(key)[:10])
+
+        try:
+            return self.load(path)
+        except FileNotFoundError:
+            raise KeyError(key) from None
+
+    def __delitem__(self, key):
+        pass
+
+    def popitem(self, last=False):
+        lst = []
+        for path in os.listdir(self.dirname):
+            filepath = os.path.join(self.dirname, path)
+            if os.path.isfile(filepath):
+                lst.append((filepath, os.path.getmtime(filepath)))
+        lst.sort(key=lambda item: item[1])
+
+        if last is False:
+            os.remove(lst[0][0])
+        else:
+            os.remove(lst[-1][0])
+
+
+    def __len__(self):
+        return len(os.listdir(self.dirname))
+
+    def __iter__(self):
+        return iter(os.listdir(self.dirname))
+
+    def __repr__(self):
+        return 'PickleDict on {}'.format(self.dirname)
+
+
+
+
 
 class Singleton:
     """ There must be only one!"""
@@ -28,7 +103,7 @@ class Singleton:
         if not Singleton.instance:
             Singleton.instance = self
 
-class LruCache:
+class lru_cache:
     """ Thread-safe least recent used cache.
 
     Parameters
@@ -40,7 +115,7 @@ class LruCache:
     --------
     Store loaded slides::
 
-    @LruCache(maxsize=128)
+    @lru_cache(maxsize=128)
     def load_slide(cube_name, slide_no):
         pass
 
@@ -48,17 +123,64 @@ class LruCache:
     -----
     All arguments to the method must be hashable.
     """
-    def __init__(self, maxsize=None):
+    #pylint: disable=invalid-name
+    def __init__(self, maxsize=None, storage=OrderedDict(), classwide=True, anchor=None):
         self.maxsize = maxsize
+        self.storage = storage
+        self.is_full = False
+        self.classwide = classwide
+
+        if anchor is True:
+            src_dir = os.path.dirname(os.path.realpath(__file__))
+            code_lines = b''
+            for path in glob(src_dir + '/*'):
+                if os.path.isfile(path):
+                    with open(path, 'rb') as code_file:
+                        code_lines += code_file.read()
+            self.anchor = blake2b(code_lines).hexdigest()
+        else:
+            self.anchor = False
+
         self.default = Singleton()
         self.lock = RLock()
+        self.reset()
 
-        self.cache = OrderedDict()
+
+    def reset(self):
+        """ Clear cache and stats. """
+        if self.storage is None:
+            self.cache = None
+        elif isinstance(self.storage, str):
+            self.cache = PickleDict(self.storage, maxsize=self.maxsize)
+        else:
+            self.cache = self.storage
+
         self.is_full = False
         self.stats = {'hit': 0, 'miss': 0}
 
-    def __call__(self, func):
+    def make_key(self, args, kwargs):
+        """ Make a key. """
+        key = list(args)
+        if kwargs:
+            for k, v in kwargs.items():
+                key.append((k, v))
 
+        if self.classwide:
+            key[0] = key[0].__class__
+            if self.anchor is not None:
+                key[0] = self.anchor
+        else:
+            key[0] = hash(key[0])
+            if self.anchor is not None:
+                key.append(self.anchor)
+        return tuple(key)
+
+
+    def __call__(self, func):
+        if self.cache is None:
+            return func
+
+        @wraps(func)
         def wrapper(*args, **kwargs):
             key = self.make_key(args, kwargs)
             with self.lock:
@@ -87,21 +209,6 @@ class LruCache:
         wrapper.stats = self.stats
         return wrapper
 
-    def reset(self):
-        """ Clear cache and stats. """
-        self.cache = OrderedDict()
-        self.is_full = False
-        self.stats = {'hit': 0, 'miss': 0}
-
-    @staticmethod
-    def make_key(args, kwargs):
-        """ Make a key. """
-        key = args
-        if kwargs:
-            sorted_items = sorted(kwargs.items())
-            for item in sorted_items:
-                key += item
-        return key
 
 
 

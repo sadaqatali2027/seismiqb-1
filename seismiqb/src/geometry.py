@@ -3,6 +3,7 @@ import os
 import logging
 
 import h5py
+import h5pickle
 import numpy as np
 import segyio
 from tqdm import tqdm
@@ -27,14 +28,15 @@ class SeismicGeometry():
     If cube is in `.sgy` format, then `il_xl_trace` dictionary is inferred.
     If cube is in `.hdf5` format, then `h5py_file` contains file handler.
     """
+    #pylint: disable=too-many-instance-attributes
     def __init__(self, path):
         self.path = path
+        self.name = os.path.basename(self.path)
         self.h5py_file = None
 
         self.il_xl_trace = {}
         self.delay, self.sample_rate = None, None
         self.depth = None
-        self.height_correction = None
         self.cube_shape = None
 
         self.ilines, self.xlines = set(), set()
@@ -67,13 +69,14 @@ class SeismicGeometry():
         self.cube_shape = np.asarray([self.ilines_len, self.xlines_len, self.depth])
 
         # Create transform to correct height with time-delay and sample rate
-        def transform(array):
-            return np.stack([array[:, 0],
-                             array[:, 1],
-                             (array[:, 2] - self.delay) / self.sample_rate,
-                             array[:, 3]],
-                            axis=-1)
-        self.height_correction = transform
+        #pylint: disable=attribute-defined-outside-init
+        self.ilines_transform = lambda array: array - self.ilines_offset
+        self.xlines_transform = lambda array: array - self.xlines_offset
+        self.height_transform = lambda array: (array - self.delay) / self.sample_rate
+
+        self.ilines_reverse = lambda array: array + self.ilines_offset
+        self.xlines_reverse = lambda array: array + self.xlines_offset
+        self.height_reverse = lambda array: array * self.sample_rate + self.delay
 
         # Callable to transform cube values to [0, 1] (and vice versa)
         if self.value_min is not None:
@@ -136,7 +139,7 @@ class SeismicGeometry():
         """ Put info from `.hdf5` groups to attributes.
         No passing through data whatsoever.
         """
-        self.h5py_file = h5py.File(self.path, "r")
+        self.h5py_file = h5pickle.File(self.path, "r")
         attributes = ['depth', 'delay', 'sample_rate', 'value_min', 'value_max',
                       'ilines', 'xlines', 'zero_traces']
 

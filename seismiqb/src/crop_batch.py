@@ -11,7 +11,7 @@ from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
-from .utils import LruCache, classproperty, create_mask, create_mask_f, aggregate
+from .utils import lru_cache, classproperty, aggregate
 from .horizon import mask_to_horizon
 from .labels_utils import make_labels_dict
 from .plot_utils import plot_batch_components
@@ -298,7 +298,6 @@ class SeismicCropBatch(Batch):
     @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
     def load_segy_trace(self, ix, segyfile, dst, src='points'):
         """ Load data from .sgy-cube in given positions. """
-        geom = self.get(ix, 'geometries')
         point = self.get(ix, src)
         trace = segyfile.trace[point[1]]
 
@@ -451,7 +450,7 @@ class SeismicCropBatch(Batch):
             crop[:, :, i] = slide[ilines, :][:, xlines]
         return crop
 
-    @LruCache(96)
+    @lru_cache(96)
     def __load_slide(self, cube, index):
         """ Cached function for slide loading.
 
@@ -474,8 +473,7 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
-    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', n_horizons=-1):
-
+    def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', horizons=-1):
         """ Create masks from labels-dictionary in given positions.
 
         Parameters
@@ -495,9 +493,9 @@ class SeismicCropBatch(Batch):
             Width of horizons in the `horizon` mode.
         src_labels : str
             Component of batch with labels dict.
-        n_horizons : int or array-like of ints
+        horizons : str, int or sequence of ints
             Maximum number of horizons per crop.
-            If -1, all possible horizons will be added.
+            If -1 or 'all', all possible horizons will be added.
             If array-like then elements are interpreted as indices of the desired horizons
             and must be ints in range [0, len(horizons) - 1].
             Note if you want to pass an index of a single horizon it must a list with one
@@ -512,24 +510,28 @@ class SeismicCropBatch(Batch):
         -----
         Can be run only after labels-dict is loaded into labels-component.
         """
-        #pylint: disable=protected-access
-        geom = self.get(ix, 'geometries')
-        il_xl_h = self.get(ix, src_labels)
+        _ = mode
+        labels = self.get(ix, src_labels)
+
+        if horizons in [-1, 'all']:
+            horizon_idx = np.arange(0, len(labels))
+        elif isinstance(horizons, int):
+            horizon_idx = np.random.choice(len(labels), size=horizons, replace=False)
+            horizon_idx.sort()
+        elif isinstance(horizons, (tuple, list, np.ndarray)):
+            horizon_idx = horizons
+        horizons = [labels[idx] for idx in horizon_idx]
 
         slice_ = self.get(ix, src)
-        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-        if not hasattr(il_xl_h._dict_type.value_type, '__len__'):
-            if isinstance(n_horizons, int):
-                horizons_idx = [-1]
-            else:
-                horizons_idx = n_horizons
-                n_horizons = -1
-            mask = create_mask(ilines_, xlines_, hs_, il_xl_h,
-                               geom.ilines_offset, geom.xlines_offset, geom.depth,
-                               mode, width, horizons_idx, n_horizons)
-        else:
-            mask = create_mask_f(ilines_, xlines_, hs_, il_xl_h,
-                                 geom.ilines_offset, geom.xlines_offset, geom.depth)
+        shape_ = self.get(ix, 'shapes')
+        mask = np.zeros((shape_))
+        mask_bbox = np.array([[slice_[0][0], slice_[0][-1]+1],
+                              [slice_[1][0], slice_[1][-1]+1],
+                              [slice_[2][0], slice_[2][-1]+1]],
+                             dtype=np.int32)
+
+        for horizon in horizons:
+            mask = horizon.add_to_mask(mask, mask_bbox, width=width)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask

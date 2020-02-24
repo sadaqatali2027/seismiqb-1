@@ -3,6 +3,11 @@
     * Saving to txt file
     * Comparing horizons and evaluating metrics
 """
+import os
+from copy import copy
+from functools import wraps
+from abc import ABC, abstractmethod
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -12,8 +17,457 @@ from numba.typed import Dict
 from skimage.measure import label, regionprops
 from scipy.signal import hilbert, medfilt
 
+from ..batchflow import HistoSampler
+
 from ._const import FILL_VALUE, FILL_VALUE_MAP
-from .utils import compute_running_mean
+from .geometry import SeismicGeometry
+from .utils import compute_running_mean, lru_cache
+from .plot_utils import plot_image
+
+
+
+
+class BaseLabel(ABC):
+    @abstractmethod
+    def fromfile(self, path):
+        pass
+
+    @abstractmethod
+    def fromarray(self, array):
+        pass
+
+    @abstractmethod
+    def add_to_mask(self, mask, mask_bbox, **kwargs):
+        pass
+
+
+
+def synchronizable(base='matrix', ):
+    """ Make it. """
+    def _synchronizable(func):
+        @wraps(func)
+        def wrapped(self, *args, before=True, after=True, **kwargs):
+            if before and not self.synchronized:
+                self.synchronize(base)
+                self.synchronized = True
+                if self.debug:
+                    self.debug_update()
+
+            result = func(self, *args, **kwargs)
+
+            if after and not self.synchronized:
+                self.synchronize(base)
+                self.synchronized = True
+                if self.debug:
+                    self.debug_update()
+            return result
+        return wrapped
+    return _synchronizable
+
+
+
+class Horizon(BaseLabel):
+    """ Finally, we've made a separate class for horizon storing..
+    """
+    #pylint: disable=too-many-public-methods
+    # CHARISMA: default seismic format of storing surfaces inside the volume
+    CHARISMA_SPEC = ['INLINE', '_', 'iline', 'XLINE', '_', 'xline', 'cdp_x', 'cdp_y', 'height']
+
+    # REDUCED_CHARISMA: CHARISMA without redundant columns and spaces
+    REDUCED_CHARISMA_SPEC = ['iline', 'xline', 'height']
+
+    # Columns that are used from the file
+    COLUMNS = ['iline', 'xline', 'height']
+
+    # Value to place into blank spaces
+    FILL_VALUE = -999999
+
+
+    def __init__(self, storage, geometry=None, debug=False, debug_attrs=None, **kwargs):
+        # Meta information
+        self.path = None
+        self.name = None
+        self.format = None
+
+        # Main storage and coordinates of local system inside the cubic one
+        self.bbox = None
+        self.i_min, self.i_max = None, None
+        self.x_min, self.x_max = None, None
+        self.i_length, self.x_length = None, None
+        self.matrix = None
+
+        # Additional way of storing the underlying data
+        self.array = None
+
+        # Heights information
+        self.h_min, self.h_max = None, None
+        self.h_mean, self.h_std = None, None
+
+        # Attributes from geometry
+        if geometry:
+            if isinstance(geometry, str):
+                geometry = SeismicGeometry(geometry)
+                geometry.load()
+            self.geometry = geometry
+            self.cube_name = geometry.name
+            self.cube_shape = geometry.cube_shape
+
+        self.sampler = None
+        # Store copies of attributes
+        self.debug = debug
+        self.debug_attrs = debug_attrs or ['matrix', 'array']
+
+        # Check format of storage, then use it to populate attributes
+        if isinstance(storage, str):
+            # path to csv-like file
+            self.format = 'file'
+
+        elif isinstance(storage, dict):
+            # mapping from (iline, xline) to (height)
+            self.format = 'dict'
+
+        elif isinstance(storage, np.ndarray):
+            if storage.ndim == 2 and storage.shape[1] == 3:
+                # array with row in (iline, xline, height) format
+                self.format = 'array'
+
+            elif storage.ndim == 2 and (storage.shape == self.cube_shape[:-1]).all():
+                # matrix of (iline, xline) shape with every value being height
+                self.format = 'fullmatrix'
+
+            elif storage.ndim == 2:
+                # matrix of (iline, xline) shape with every value being height
+                self.format = 'matrix'
+
+            elif storage.ndim >= 3:
+                # model prediction: 3+ dimensional mask with horizon surface
+                self.format = 'mask'
+
+        getattr(self, 'from{}'.format(self.format))(storage, **kwargs)
+        self.synchronized = True
+
+
+    # Debug methods
+    def debug_update(self):
+        for attr in self.debug_attrs:
+            setattr(self, 'copy_{}'.format(attr), copy(getattr(self, attr)))
+
+    def debug_check(self):
+        for attr in self.debug_attrs:
+            assert (getattr(self, attr) == getattr(self, 'copy_{}'.format(attr))).all(), \
+            "Attribute `{}` is not the same as it's saved copy!".format(attr)
+
+
+    # Coordinate transforms
+    def lines_to_cubic(self, array):
+        array[:, 0] = self.geometry.ilines_transform(array[:, 0])
+        array[:, 1] = self.geometry.xlines_transform(array[:, 1])
+        array[:, 2] = self.geometry.height_transform(array[:, 2])
+        return array
+
+    def cubic_to_lines(self, array):
+        array[:, 0] = self.geometry.ilines_reverse(array[:, 0])
+        array[:, 1] = self.geometry.xlines_reverse(array[:, 1])
+        array[:, 2] = self.geometry.height_reverse(array[:, 2])
+        return array
+
+
+    # Initialization from different containers
+    def fromarray(self, array, transform=False, **kwargs):
+        _ = kwargs
+
+        # Transform to cubic coordinates, if needed
+        if transform:
+            array = self.lines_to_cubic(array)
+        self.array = np.rint(array).astype(np.int32)
+
+        # Collect stats on separate axes
+        self.i_min, self.x_min, self.h_min = np.min(self.array, axis=0).astype(np.int32)
+        self.i_max, self.x_max, self.h_max = np.max(self.array, axis=0).astype(np.int32)
+
+        self.h_mean = np.mean(self.array[:, -1])
+        self.h_std = np.std(self.array[:, -1])
+
+        self.i_length = (self.i_max - self.i_min) + 1
+        self.x_length = (self.x_max - self.x_min) + 1
+        self.bbox = np.array([[self.i_min, self.i_max],
+                              [self.x_min, self.x_max]],
+                             dtype=np.int32)
+
+        # Convert array of (N, 3) shape to depth map (matrix)
+        copy_array = np.copy(self.array)
+        copy_array[:, 0] -= self.i_min
+        copy_array[:, 1] -= self.x_min
+        matrix = np.full((self.i_length, self.x_length), self.FILL_VALUE, np.int32)
+
+        matrix[copy_array[:, 0], copy_array[:, 1]] = copy_array[:, 2]
+        self.matrix = matrix
+
+        if self.debug:
+            self.debug_update()
+
+
+    def fromfile(self, path, transform=True, **kwargs):
+        """ Can be easily extended to read more types of formats. """
+        _ = kwargs
+
+        self.path = path
+        self.name = os.path.basename(path)
+        array = self.file_to_array(path)
+        self.fromarray(array, transform)
+
+    @lru_cache(1024, storage=os.environ.get('SEISMIQB_HORIZON_CACHEDIR'), anchor=True)
+    def file_to_array(self, path):
+        #pylint: disable=anomalous-backslash-in-string
+        with open(path) as file:
+            line_len = len(file.readline().split(' '))
+        if line_len == 3:
+            names = Horizon.REDUCED_CHARISMA_SPEC
+        elif line_len >= 9:
+            names = Horizon.CHARISMA_SPEC
+        else:
+            raise ValueError('Horizon labels must be in CHARISMA or REDUCED_CHARISMA format.')
+
+        df = pd.read_csv(path, sep='\s+', names=names, usecols=Horizon.COLUMNS)
+        df.sort_values(Horizon.COLUMNS, inplace=True)
+        return df.values
+
+
+    def frommatrix(self, matrix, i_min, x_min, transform=False, **kwargs):
+        _ = kwargs
+
+        array = self.matrix_to_array(matrix)
+        array[:, 0] += i_min
+        array[:, 1] += x_min
+        self.fromarray(array, transform=transform)
+
+
+    def fromfullmatrix(self, matrix, transform=False, **kwargs):
+        _ = kwargs
+
+        array = self.matrix_to_array(matrix)
+        self.fromarray(array, transform=transform)
+
+    @staticmethod
+    def matrix_to_array(matrix):
+        idx = np.asarray(matrix != Horizon.FILL_VALUE).nonzero()
+        array = np.hstack([idx[0].reshape(-1, 1),
+                           idx[1].reshape(-1, 1),
+                           matrix[idx[0], idx[1]].reshape(-1, 1)])
+        return array[np.lexsort((array[:, 2], array[:, 1], array[:, 0]))]
+
+
+    def frommask(self, array, order=None, **kwargs):
+        _ = kwargs, array, order
+
+
+    def fromdict(self, dictionary, transform=True, **kwargs):
+        _ = kwargs, dictionary, transform
+
+        array = self.dict_to_array(dictionary)
+        self.fromarray(array, transform=transform)
+
+    @staticmethod
+    def dict_to_array(dictionary):
+        array = np.hstack([np.array(list(dictionary.keys())),
+                           np.array(list(dictionary.values())).reshape(-1, 1)])
+        return array
+
+
+    # Functions to use to change the horizon
+    def synchronize(self, base='matrix'):
+        """ Synchronize horizon with `base` storage. """
+        if not self.synchronized:
+            if base == 'matrix':
+                self.frommatrix(self.matrix, self.i_min, self.x_min)
+            elif base == 'array':
+                self.fromarray(self.array)
+            self.synchronized = True
+
+
+    @synchronizable('matrix')
+    def apply_to_matrix(self, function, **kwargs):
+        result = function(self.matrix, **kwargs)
+        if isinstance(result, tuple) and len(result) == 3:
+            matrix, i_min, x_min = result
+        else:
+            matrix, i_min, x_min = result, self.i_min, self.x_min
+        self.matrix, self.i_min, self.x_min = matrix, i_min, x_min
+
+        self.synchronized = False
+
+
+    @synchronizable('array')
+    def apply_to_array(self, function, **kwargs):
+        self.array = function(self.array, **kwargs)
+        self.synchronized = False
+
+
+    def filter_array(self, filtering_matrix=None, **kwargs):
+        filtering_matrix = filtering_matrix or self.geometry.zero_traces
+
+        def filtering_function(array, **kwds):
+            _ = kwds
+            @njit
+            def _filtering_function(array, filtering_matrix):
+                #pylint: disable=consider-using-enumerate
+                mask = np.ones(len(array), dtype=np.int32)
+
+                for i in range(len(array)):
+                    il, xl = array[i, 0], array[i, 1]
+                    if filtering_matrix[il, xl] == 1:
+                        mask[i] = 0
+                return array[mask == 1, :]
+            return _filtering_function(array, filtering_matrix)
+
+        self.apply_to_array(filtering_function, before=False, after=True, **kwargs)
+
+
+    def filter_matrix(self, filtering_matrix=None, **kwargs):
+        # Remove points where filtering_matrix == 1
+        # Filtering matrix must be in cubic system
+        filtering_matrix = filtering_matrix or self.geometry.zero_traces
+        idx_i, idx_x = np.asarray(filtering_matrix[self.i_min:self.i_max + 1,
+                                                   self.x_min:self.x_max + 1] == 1).nonzero()
+        def filtering_function(matrix, **kwds):
+            _ = kwds
+            matrix[idx_i, idx_x] = self.FILL_VALUE
+            return matrix
+
+        self.apply_to_matrix(filtering_function, before=False, after=True, **kwargs)
+
+
+    # Horizon usage: point/mask generation
+    def create_sampler(self, bins=None, **kwargs):
+        # Bins: Size of ticks along each respective axis
+        _ = kwargs
+        default_bins = self.cube_shape // np.array([5, 20, 20])
+        bins = bins or default_bins
+
+        self.sampler = HistoSampler(np.histogramdd(self.array/self.cube_shape, bins=bins))
+
+
+    def add_to_mask(self, mask, mask_bbox, width):
+        """ Add horizon to a background. """
+        low = width // 2
+        high = max(width - low, 0)
+
+        # Getting coordinates of overlap in cubic system
+        (mask_i_min, mask_i_max), (mask_x_min, mask_x_max), (mask_h_min, mask_h_max) = mask_bbox
+
+        i_min, i_max = max(self.i_min, mask_i_min), min(self.i_max, mask_i_max)
+        x_min, x_max = max(self.x_min, mask_x_min), min(self.x_max, mask_x_max)
+        overlap = self.matrix[i_min - self.i_min:i_max - self.i_min,
+                              x_min - self.x_min:x_max - self.x_min]
+
+        # Coordinates of points to use in overlap local system
+        idx_i, idx_x = np.asarray((overlap != self.FILL_VALUE) &
+                                  (overlap >= mask_h_min + low) &
+                                  (overlap <= mask_h_max - high)).nonzero()
+        heights = overlap[idx_i, idx_x]
+
+        # Convert coordinates to mask local system
+        idx_i += i_min - mask_i_min
+        idx_x += x_min - mask_x_min
+        heights -= (mask_h_min + low)
+
+        for _ in range(width):
+            mask[idx_i, idx_x, heights] = 1
+            heights += 1
+        return mask
+
+
+    # Horizon evaluation
+    @lru_cache(2)
+    def metric(self, **kwargs):
+        pass
+
+    def compare_to(self, other):
+        if not isinstance(other, Horizon):
+            raise TypeError('One can compare horizon only to another horizon. ')
+
+        results_dict = {
+            'length_self': len(self),
+            'length_other': len(other),
+            'mean_self': self.h_mean,
+            'mean_other': other.h_mean,
+        }
+        return results_dict
+
+    def common_background(self, other):
+        common_i_min, common_i_max = min(self.i_min, other.i_min), max(self.i_max, other.i_max)
+        common_x_min, common_x_max = min(self.x_min, other.x_min), max(self.x_max, other.x_max)
+
+        background = np.zeros((common_i_max - common_i_min + 1, common_x_max - common_x_min + 1), dtype=np.int32)
+        merge_dict = {
+            'background': background,
+            'counts': np.copy(background),
+            'i_min': common_i_min, 'i_max': common_i_max,
+            'x_min': common_x_min, 'x_max': common_x_max,
+        }
+        return merge_dict
+
+    def put_on_background(self, merge_dict):
+        i_start, x_start = self.i_min - merge_dict['i_min'], self.x_min - merge_dict['x_min']
+        i_end, x_end = i_start + self.i_length, x_start + self.x_length
+
+        background = merge_dict['background']
+        background[i_start:i_end, x_start:x_end] = self.matrix
+
+        counts = merge_dict['counts']
+        counts[i_start:i_end, x_start:x_end] += (self.matrix != self.FILL_VALUE).astype(np.int32)
+        return merge_dict
+
+
+
+    def __getitem__(self, key):
+        key = key[0] - self.i_min, key[1] - self.x_min
+        return self.matrix[key]
+
+    def __len__(self):
+        return len(np.asarray(self.matrix != self.FILL_VALUE).nonzero()[0])
+
+
+    def dump_horizon(self, path, add_height=True):
+        self.synchronize()
+        values = self.cubic_to_lines(copy(self.array))
+
+        df = pd.DataFrame(values, columns=self.COLUMNS)
+        df.sort_values(['iline', 'xline'], inplace=True)
+
+        path = path if not add_height else '{}_#{}'.format(path, self.h_mean)
+        df.to_csv(path, sep=' ', columns=self.COLUMNS,
+                  index=False, header=False)
+
+
+    # Methods of (visual) representation of a horizon
+    def __repr__(self):
+        return f"""<horizon {self.name} for {self.cube_name} at {hex(id(self))}>"""
+
+    def __str__(self):
+        return f"""Horizon {self.name} for {self.cube_name} loaded from {self.format}
+Ilines from {self.i_min} to {self.i_max}
+Xlines from {self.x_min} to {self.x_max}
+Heights from {self.h_min} to {self.h_max}, mean is {self.h_mean:5.5}, std is {self.h_std:4.4}
+Currently synchronized: {self.synchronized}; In debug mode: {self.debug}; At {hex(id(self))}
+"""
+
+
+    def show(self, **kwargs):
+        copy_matrix = copy(self.matrix).astype(np.float32)
+        copy_matrix[copy_matrix == self.FILL_VALUE] = np.nan
+        plot_image(copy_matrix, 'Depth map of {} on {}'.format(self.name, self.cube_name),
+                   cmap='viridis_r', **kwargs)
+
+    def show_on_full(self, **kwargs):
+        background = np.full(self.cube_shape[:-1], self.FILL_VALUE, dtype=np.float32)
+        background[self.i_min:self.i_max+1, self.x_min:self.x_max+1] = self.matrix
+        background[background == self.FILL_VALUE] = np.nan
+        plot_image(background, 'Depth map of {} on {}'.format(self.name, self.cube_name),
+                   cmap='viridis_r', **kwargs)
+
+
+
 
 
 
