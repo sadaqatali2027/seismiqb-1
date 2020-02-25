@@ -27,6 +27,9 @@ class classproperty:
 
 
 class PickleDict(MutableMapping):
+    """ Persistent dictionary.
+    Keys are file names, and values are stored/loaded via pickle.
+    """
     def __init__(self, dirname, maxsize):
         self.dirname = dirname
         self.maxsize = maxsize
@@ -34,12 +37,14 @@ class PickleDict(MutableMapping):
 
     @staticmethod
     def load(path):
+        """ Load data from path. """
         with open(path, 'rb') as dill_file:
             restored = dill.load(dill_file)
         return restored
 
     @staticmethod
     def dump(path, value):
+        """ Save data to path. """
         with open(path, 'wb') as file:
             dill.dump(value, file)
 
@@ -70,6 +75,7 @@ class PickleDict(MutableMapping):
         pass
 
     def popitem(self, last=False):
+        """ Delete either the oldest or the newest file in the directory. """
         lst = []
         for path in os.listdir(self.dirname):
             filepath = os.path.join(self.dirname, path)
@@ -104,12 +110,20 @@ class Singleton:
             Singleton.instance = self
 
 class lru_cache:
-    """ Thread-safe least recent used cache.
+    """ Thread-safe least recent used cache. Must be applied to class methods.
 
     Parameters
     ----------
     maxsize : int
         Maximum amount of stored values.
+    storage : None, OrderedDict or PickleDict
+        Storage to use.
+        If None, then no caching is applied.
+    classwide : bool
+        If True, then first argument of a method (self) is changed to class name for the purposes on hashing.
+    anchor : bool
+        If True, then code of the whole directory this file is located is used to create a persistent hash
+        for the purposes of storing.
 
     Examples
     --------
@@ -121,7 +135,7 @@ class lru_cache:
 
     Notes
     -----
-    All arguments to the method must be hashable.
+    All arguments to the decorated method must be hashable.
     """
     #pylint: disable=invalid-name
     def __init__(self, maxsize=None, storage=OrderedDict(), classwide=True, anchor=None):

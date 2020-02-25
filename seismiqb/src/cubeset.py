@@ -16,9 +16,9 @@ from ._const import FILL_VALUE_MAP
 from .utils import round_to_array, lru_cache
 from .plot_utils import show_sampler, plot_slide, plot_image, plot_image_roll
 
-from .horizon import horizon_to_depth_map, depth_map_to_labels, get_horizon_amplitudes, get_line_horizon_amplitudes
+from .horizon import get_horizon_amplitudes, get_line_horizon_amplitudes
 from .horizon import compute_local_corrs, compute_support_corrs, compute_hilbert
-from .horizon import mask_to_horizon, compare_horizons, dump_horizon
+from .horizon import mask_to_horizon, compare_horizons
 from .horizon import Horizon
 
 
@@ -110,7 +110,7 @@ class SeismicCubeset(Dataset):
             horizon_list = [Horizon(path, self.geometries[ix], **kwargs) for path in paths[ix]]
             horizon_list.sort(key=lambda horizon: horizon.h_mean)
             if filter_zeros:
-                _ = [getattr(horizon, 'filter_array')() for horizon in horizon_list]
+                _ = [getattr(horizon, 'filter_points')() for horizon in horizon_list]
             getattr(self, dst)[ix] = horizon_list
         return self
 
@@ -125,20 +125,6 @@ class SeismicCubeset(Dataset):
         dir_name : str
             Relative (to cube location) path to directory with saved horizons.
         """
-        for ix in self.indices:
-            labels = getattr(self, src_labels).get(ix)
-            geom = self.geometries[ix]
-
-            save_dir = os.path.join(os.path.dirname(geom.path), dir_name)
-            try:
-                os.mkdir(save_dir)
-            except FileExistsError:
-                pass
-
-            for idx, path in enumerate(geom.horizon_list):
-                name = os.path.basename(path)
-                name = os.path.join(save_dir, os.path.basename(path))
-                dump_horizon(labels, geom, name, idx=idx, offset=0)
 
 
     def create_sampler(self, mode='hist', p=None, transforms=None, dst='sampler', **kwargs):
@@ -326,7 +312,7 @@ class SeismicCubeset(Dataset):
 
 
     @lru_cache(1024, storage=os.environ.get('SEISMIQB_CUBESET_CACHEDIR'), anchor=True)
-    def load(self, horizon_dir=None, p=None, bins=None, filter_zeros=True):
+    def load(self, horizon_dir=None, p=None, bins=None, filter_zeros=True, **kwargs):
         """ Load everything: geometries, point clouds, labels, samplers.
 
         Parameters
@@ -338,6 +324,7 @@ class SeismicCubeset(Dataset):
         filter_zeros : bool
             Whether to remove labels on zero-traces.
         """
+        _ = kwargs
         horizon_dir = horizon_dir or '/BEST_HORIZONS/*'
 
         paths_txt = {}
@@ -538,65 +525,6 @@ class SeismicCubeset(Dataset):
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images',)
         plot_slide(self, *components, idx=idx, n_line=n_line, plot_mode=plot_mode, mode=mode, **kwargs)
 
-
-    def apply_to_horizon(self, idx=0, horizon_idx=0, labels_src=None, transform=None):
-        """ Apply specific transform to individual horizon inside dictionary with labels.
-        Under the hood, horizon is converted into depth map, which is essentially a matrix in
-        (xline, inline) coordinates with values corresponding to height of the horizon at the given point,
-        then transform is applied, and then depth map is converted back into horizon.
-        Note that this method changes values of horizon inplace.
-
-        Parameters
-        ----------
-        idx : str, int
-            If str, then name of cube to use.
-            If int, then number of cube in the index to use.
-        horizon_idx : int
-            Index of used horizon from `labels` dictionary.
-        labels_src : dict, optional
-            If None, then horizon is taken from `labels` attribute.
-            If dict, then must be a horizon.
-        transform : callable
-            Function to apply to depth map.
-        """
-        cube_name = idx if isinstance(idx, str) else self.indices[idx]
-        labels = labels_src or self.labels[cube_name]
-        geom = self.geometries[cube_name]
-
-        depth_map = horizon_to_depth_map(labels, geom, horizon_idx, 0)
-        if callable(transform):
-            depth_map = transform(depth_map)
-        depth_map_to_labels(depth_map, geom, labels, horizon_idx)
-
-
-    def show_horizon_depth_map(self, idx=0, horizon_idx=0, labels_src=None, _return=False, **kwargs):
-        """ Show depth map of a horizon.
-
-        Parameters
-        ----------
-        idx : str, int
-            If str, then name of cube to use.
-            If int, then number of cube in the index to use.
-        horizon_idx : int
-            Index of used horizon from `labels` dictionary.
-        labels_src : dict, optional
-            If None, then horizon is taken from `labels` attribute.
-            If dict, then must be a horizon.
-        """
-        cube_name = idx if isinstance(idx, str) else self.indices[idx]
-        labels = labels_src or self.labels[cube_name]
-        geom = self.geometries[cube_name]
-        hor_name = os.path.basename(geom.horizon_list[horizon_idx])
-
-        depth_map = horizon_to_depth_map(labels, geom, horizon_idx)
-        depth_map[depth_map == FILL_VALUE_MAP] = 0
-
-        plot_image(depth_map, 'Heights {} on cube {}'.format(hor_name, cube_name), cmap='seismic', **kwargs)
-        print('Average value of height is {}'.format(np.mean(depth_map[depth_map != FILL_VALUE_MAP])))
-
-        if _return:
-            return {'depth_map': depth_map}
-        return None
 
 
     def show_horizon_amplitudes(self, idx=0, horizon_idx=0, labels_src=None, scale=False, _return=False):
@@ -903,48 +831,4 @@ class SeismicCubeset(Dataset):
 
         if _return:
             return {'metric': metric, 'slide': slide, 'data': data, 'depth_map': depth_map, 'zero_traces': zero_traces}
-        return None
-
-
-    def compare_horizons(self, hor_1, hor_2, hor_1_idx=0, hor_2_idx=0, idx=0, axis=-1, cmap='Set1', _return=False):
-        """ Compare two horizons on l1 metric and on derivative differences.
-
-        Parameters
-        ----------
-        idx : int
-            Number of cube to use.
-        hor_1, hor_2 : dict
-            Dictionaries with labeled horizons.
-        hor_1_idx, hor_2_idx : int
-            Index of used horizon from each respective dictionary.
-        axis : int
-            Axis to take derivative along.
-        cmap : str
-            Colormap of showing the results.
-        """
-        #pylint: disable=comparison-with-callable
-        cube_name = idx if isinstance(idx, str) else self.indices[idx]
-        geom = self.geometries[cube_name]
-
-        # Create all depth maps
-        depth_map_1 = horizon_to_depth_map(hor_1, geom, hor_1_idx, 0)
-        depth_map_2 = horizon_to_depth_map(hor_2, geom, hor_2_idx, 0)
-        indicator = (np.minimum(depth_map_1, depth_map_2) == FILL_VALUE_MAP).astype(int)
-        depth_map_1[np.where(indicator == 1)] = 0
-        depth_map_2[np.where(indicator == 1)] = 0
-
-        # l1: mean absolute difference between depth maps
-        metric_1 = np.abs(depth_map_1 - depth_map_2)
-        metric_1[np.where(indicator == 1)] = 0
-        plot_image(metric_1, 'l1 metric on cube {}'.format(cube_name), cmap=cmap)
-        print('Average value of l1 is {}\n\n'.format(np.mean(metric_1[np.where(indicator == 0)])))
-
-        # ~: mean absolute difference between gradients of depth maps
-        metric_2 = np.abs(np.diff(depth_map_1, axis=axis, prepend=0) - np.diff(depth_map_2, axis=axis, prepend=0))
-        metric_2[np.where(indicator == 1)] = 0
-        plot_image(metric_2, '~ metric on cube {}'.format(cube_name), cmap=cmap)
-        print('Average value of ~ is {}'.format(np.mean(metric_2[np.where(indicator == 0)])))
-
-        if _return:
-            return metric_1, metric_2
         return None
