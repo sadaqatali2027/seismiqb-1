@@ -117,7 +117,8 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, di
         value_min_2, value_max_2 = np.nan, np.nan
 
         # check lower adjacency
-        for key in ([(iline, min_xline + i) for i in range(-border_margin, 1)]):
+        for i in range(-border_margin, 1):
+            key = (iline, min_xline + i)
             if key in horizon_larger:
                 ctr_bordering += 1
                 value_min_2 = horizon_larger[key][0]
@@ -126,7 +127,8 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, di
             ctr_same += 1
 
         # check upper adjacency
-        for key in ([(iline, max_xline + i) for i in range(0, border_margin + 1)]):
+        for i in range(0, border_margin + 1):
+            key = (iline, max_xline + i)
             if key in horizon_larger:
                 ctr_bordering += 1
                 value_max_2 = horizon_larger[key][0]
