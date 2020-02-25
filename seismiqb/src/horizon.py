@@ -66,16 +66,19 @@ def check_if_joinable(horizon_1, horizon_2, border_margin=1, height_margin=1, di
     # check whether the horizons have overlap in covered area
     horizon_lesser, horizon_larger = ((horizon_1, horizon_2) if len(horizon_1) <= len(horizon_2)
                                       else (horizon_2, horizon_1))
-    ctr_common = 0
+
+    # gather stats on deviations between horizons above the area of overlap
+    differences = []
     for key in horizon_lesser:
         if horizon_larger.get(key) is not None:
-            ctr_common += 1
-            if not np.isclose(horizon_larger.get(key)[0], horizon_lesser.get(key)[0]):
-                # horizons differ at least at one common point, they cannot be joined
-                return False
+            differences.append(horizon_larger.get(key)[0] - horizon_lesser.get(key)[0])
 
-    if ctr_common > 0:
-        return True
+    if len(differences) > 0:
+        # check the share of common area where the horizons diverge
+        differences = np.abs(differences)
+        if np.sum(differences <= height_margin) / len(differences) >= diverge_threshold:
+            return True
+        return False
 
     # horizons don't have area overlap
     # we still have to check whether they are adjacent

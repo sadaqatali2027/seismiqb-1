@@ -89,27 +89,6 @@ class SeismicCropBatch(Batch):
             return path[:-SIZE_SALT]
         return path
 
-
-    def _stitch_clouds(self, all_clouds, *args, dst=None, **kwargs):
-        """ Stitch a set of point-clouds to a point cloud form dst if possible. Post for `get_point_cloud`-action.
-        """
-        _, _ = args, kwargs
-        # remember, all_clouds contains lists of horizons
-        for horizons_set in all_clouds:
-            for horizon_candidate in horizons_set:
-                flag = False
-                for horizon_target in dst:
-                    if check_if_joinable(horizon_candidate, horizon_target):
-                        flag = True
-                        merge_horizon_into_another(horizon_candidate, horizon_target)
-                        break
-
-                # if a horizon cannot be stitched to a horizon from dst, we enrich dst with it
-                if not flag:
-                    dst.append(horizon_candidate)
-        return self
-
-
     def __getattr__(self, name):
         if hasattr(self.dataset, name):
             return getattr(self.dataset, name)
