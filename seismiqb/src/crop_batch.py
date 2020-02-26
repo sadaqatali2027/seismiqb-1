@@ -290,12 +290,11 @@ class SeismicCropBatch(Batch):
         return self
 
 
-    def _stitch_clouds(self, all_clouds, *args, dst=None, **kwargs):
+    def _stitch_clouds(self, all_clouds, *args, dst=None, height_margin=2, border_margin=1, **kwargs):
         """ Stitch a set of point-clouds to a point cloud form dst if possible.
         Post for `get_point_cloud`-action.
         """
-        _ = args
-        height_margin, border_margin = kwargs['height_margin'], kwargs['border_margin']
+        _, _ = args, kwargs
         # remember, all_clouds contains lists of horizons
         for horizons_set in all_clouds:
             for horizon_candidate in horizons_set:
