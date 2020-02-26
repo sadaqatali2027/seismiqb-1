@@ -301,16 +301,13 @@ class SeismicCropBatch(Batch):
         # remember, all_clouds contains lists of horizons
         for horizons_set in all_clouds:
             for horizon_candidate in horizons_set:
-                flag = False
                 for horizon_target in dst:
                     if check_if_joinable(horizon_candidate, horizon_target, height_margin=height_margin,
                                          border_margin=border_margin):
-                        flag = True
                         merge_horizon_into_another(horizon_candidate, horizon_target)
                         break
-
-                # if a horizon cannot be stitched to a horizon from dst, we enrich dst with it
-                if not flag:
+                else:
+                    # if a horizon cannot be stitched to a horizon from dst, we enrich dst with it
                     dst.append(horizon_candidate)
         return self
 
