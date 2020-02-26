@@ -295,6 +295,9 @@ class SeismicCropBatch(Batch):
         Post for `get_point_cloud`-action.
         """
         _, _ = args, kwargs
+        if dst is None:
+            raise ValueError("dst should be initialized with empty list.")
+
         # remember, all_clouds contains lists of horizons
         for horizons_set in all_clouds:
             for horizon_candidate in horizons_set:
