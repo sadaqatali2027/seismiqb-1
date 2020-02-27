@@ -148,7 +148,6 @@ def create_mask_f(ilines_, xlines_, hs_, il_xl_h, ilines_offset, xlines_offset, 
     return mask
 
 
-
 @njit
 def count_nonfill(array):
     """ Jit-accelerated function to count non-fill elements. """
@@ -157,7 +156,6 @@ def count_nonfill(array):
         if i != FILL_VALUE:
             count += 1
     return count
-
 
 
 @njit
