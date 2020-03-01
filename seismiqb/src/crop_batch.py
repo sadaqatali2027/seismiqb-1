@@ -790,6 +790,9 @@ class SeismicCropBatch(Batch):
             return crop.transpose([1, 0, 2])
         return crop
 
+    def _transpose_(self, crop, order):
+        """ Change order of axis. """
+        return np.transpose(crop, order)
 
     def _rotate_axes_(self, crop):
         """ The last shall be first and the first last.
@@ -798,7 +801,7 @@ class SeismicCropBatch(Batch):
         -----
         Actions `crop`, `load_cubes`, `create_mask` make data in [iline, xline, height]
         format. Since most of the models percieve ilines as channels, it might be convinient
-        to change format to [xline, heigh, ilines] via this action.
+        to change format to [xlines, height, ilines] via this action.
         """
         crop_ = np.swapaxes(crop, 0, 1)
         crop_ = np.swapaxes(crop_, 1, 2)

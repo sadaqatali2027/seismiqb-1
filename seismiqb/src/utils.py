@@ -7,6 +7,7 @@ from glob import glob
 from hashlib import blake2b
 
 import dill
+import blosc
 from tqdm import tqdm
 import numpy as np
 import segyio
@@ -17,59 +18,93 @@ from ._const import FILL_VALUE
 
 
 
+def stable_hash(key):
+    """ Hash that stays the same between different runs of Python interpreter. """
+    if not isinstance(key, (str, bytes)):
+        key = ''.join(sorted(str(key)))
+    if not isinstance(key, bytes):
+        key = key.encode('ascii')
+    return str(blake2b(key).hexdigest())
+
+
+
 class classproperty:
     """ Adds property to the class, not to its instances. """
     #pylint: disable=invalid-name
     def __init__(self, prop):
         self.prop = prop
+
     def __get__(self, obj, owner):
         return self.prop(owner)
 
 
+
+class IndexedDict(OrderedDict):
+    """ Allows to use both indices and keys to subscript. """
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            key = list(self.keys())[key]
+        return super().__getitem__(key)
+
+
+
 class PickleDict(MutableMapping):
     """ Persistent dictionary.
-    Keys are file names, and values are stored/loaded via pickle.
+    Keys are file names, and values are stored/loaded via pickle module of choice.
     """
-    def __init__(self, dirname, maxsize):
+    def __init__(self, dirname, maxsize, pickle_module='dill'):
         self.dirname = dirname
         self.maxsize = maxsize
+        self.pickle_module = pickle_module
 
 
     @staticmethod
     def load(path):
         """ Load data from path. """
-        with open(path, 'rb') as dill_file:
-            restored = dill.load(dill_file)
+        pickle_module = os.path.splitext(path)[1][1:]
+
+        if pickle_module == 'dill':
+            with open(path, 'rb') as dill_file:
+                restored = dill.load(dill_file)
+        elif pickle_module == 'blosc':
+            with open(path, 'rb') as blosc_file:
+                restored = dill.loads(blosc.decompress(blosc_file.read()))
         return restored
 
     @staticmethod
     def dump(path, value):
         """ Save data to path. """
-        with open(path, 'wb') as file:
-            dill.dump(value, file)
+        pickle_module = os.path.splitext(path)[1][1:]
 
+        if pickle_module == 'dill':
+            with open(path, 'wb') as file:
+                dill.dump(value, file)
+        elif pickle_module == 'blosc':
+            with open(path, 'w+b') as file:
+                file.write(blosc.compress(dill.dumps(value)))
+
+
+    def __getitem__(self, key):
+        key = stable_hash(key)
+        path = os.path.join(self.dirname, str(key)[:10]) + '.{}'.format(self.pickle_module)
+
+        try:
+            return self.load(path)
+        except FileNotFoundError:
+            raise KeyError(key) from None
 
     def __setitem__(self, key, value):
         if len(self) > self.maxsize:
             self.popitem(last=False)
 
-        key = blake2b(str(key).encode('ascii')).hexdigest()
-        path = os.path.join(self.dirname, str(key)[:10])
+        key = stable_hash(key)
+        path = os.path.join(self.dirname, str(key)[:10]) + '.{}'.format(self.pickle_module)
 
         if os.path.exists(path):
             with open(path, 'a'):
                 os.utime(path, None)
         else:
             self.dump(path, value)
-
-    def __getitem__(self, key):
-        key = blake2b(str(key).encode('ascii')).hexdigest()
-        path = os.path.join(self.dirname, str(key)[:10])
-
-        try:
-            return self.load(path)
-        except FileNotFoundError:
-            raise KeyError(key) from None
 
     def __delitem__(self, key):
         pass
@@ -100,8 +135,6 @@ class PickleDict(MutableMapping):
 
 
 
-
-
 class Singleton:
     """ There must be only one!"""
     instance = None
@@ -124,6 +157,10 @@ class lru_cache:
     anchor : bool
         If True, then code of the whole directory this file is located is used to create a persistent hash
         for the purposes of storing.
+    attributes: None, str or sequence of str
+        Attributes to get from object and use as additions to key.
+    pickle_module: str
+        Module to use to save/load files on disk. Used only if `storage` is :class:`.PickleDict`.
 
     Examples
     --------
@@ -138,12 +175,22 @@ class lru_cache:
     All arguments to the decorated method must be hashable.
     """
     #pylint: disable=invalid-name
-    def __init__(self, maxsize=None, storage=OrderedDict(), classwide=True, anchor=None):
+    def __init__(self, maxsize=None, storage=OrderedDict(), classwide=True, anchor=None, attributes=None,
+                 pickle_module='dill'):
         self.maxsize = maxsize
         self.storage = storage
-        self.is_full = False
         self.classwide = classwide
+        self.pickle_module = pickle_module
 
+        # Make attributes always a list
+        if isinstance(attributes, str):
+            self.attributes = [attributes]
+        elif isinstance(attributes, (tuple, list)):
+            self.attributes = attributes
+        else:
+            self.attributes = False
+
+        # Create one stable hash from every file in current (src) directory
         if anchor is True:
             src_dir = os.path.dirname(os.path.realpath(__file__))
             code_lines = b''
@@ -151,10 +198,11 @@ class lru_cache:
                 if os.path.isfile(path):
                     with open(path, 'rb') as code_file:
                         code_lines += code_file.read()
-            self.anchor = blake2b(code_lines).hexdigest()
+            self.anchor = stable_hash(code_lines)
         else:
             self.anchor = False
 
+        self.is_full = False
         self.default = Singleton()
         self.lock = RLock()
         self.reset()
@@ -165,7 +213,7 @@ class lru_cache:
         if self.storage is None:
             self.cache = None
         elif isinstance(self.storage, str):
-            self.cache = PickleDict(self.storage, maxsize=self.maxsize)
+            self.cache = PickleDict(self.storage, maxsize=self.maxsize, pickle_module=self.pickle_module)
         else:
             self.cache = self.storage
 
@@ -173,11 +221,18 @@ class lru_cache:
         self.stats = {'hit': 0, 'miss': 0}
 
     def make_key(self, args, kwargs):
-        """ Make a key. """
+        """ Create a key from a combination of instance reference, class reference, method args,
+        instance attributes or even current code state.
+        """
         key = list(args)
         if kwargs:
             for k, v in kwargs.items():
                 key.append((k, v))
+
+        if self.attributes:
+            for attr in self.attributes:
+                attr_hash = stable_hash(getattr(key[0], attr))
+                key.append(attr_hash)
 
         if self.classwide:
             key[0] = key[0].__class__
@@ -283,63 +338,6 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
     with segyio.open(path_save, 'r', strict=True) as _:
         pass
 
-
-
-@njit
-def create_mask(ilines_, xlines_, hs_,
-                il_xl_h, ilines_offset, xlines_offset, geom_depth,
-                mode, width, horizons_idx, n_horizons=-1):
-    """ Jit-accelerated function for fast mask creation for seismic horizons.
-    This function is usually called inside SeismicCropBatch's method `create_masks`.
-    """
-    #pylint: disable=line-too-long, too-many-nested-blocks, too-many-branches
-    mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-    all_horizons = True
-    for i, iline_ in enumerate(ilines_):
-        for j, xline_ in enumerate(xlines_):
-            il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
-            if il_xl_h.get((il_, xl_)) is None:
-                continue
-            m_temp = np.zeros(geom_depth)
-            if mode == 'horizon':
-                heights = il_xl_h[(il_, xl_)]
-                if all_horizons:
-                    filtered_idx = np.array([idx for idx, height_ in enumerate(heights)
-                                             if height_ != FILL_VALUE])
-                    filtered_idx = np.array([idx for idx in filtered_idx
-                                             if heights[idx] > hs_[0] and heights[idx] < hs_[-1]])
-                    if len(filtered_idx) == 0:
-                        continue
-                    if n_horizons != -1 and len(filtered_idx) >= n_horizons:
-                        filtered_idx = np.random.choice(filtered_idx, replace=False, size=n_horizons)
-                        all_horizons = False
-                    if horizons_idx[0] != -1:
-                        filtered_idx = np.array([idx for idx, height_ in enumerate(heights)
-                                                 if height_ != FILL_VALUE and idx in horizons_idx])
-                for idx in filtered_idx:
-                    _height = heights[idx]
-                    if _height != FILL_VALUE:
-                        if width == 0:
-                            m_temp[_height] = 1
-                        else:
-                            m_temp[max(0, _height - width):min(_height + width, geom_depth)] = 1
-            elif mode == 'stratum':
-                current_col = 1
-                start = 0
-                sorted_heights = sorted(il_xl_h[(il_, xl_)])
-                for height_ in sorted_heights:
-                    if height_ == FILL_VALUE:
-                        height_ = start
-                    if start > hs_[-1]:
-                        break
-                    m_temp[start:height_ + 1] = current_col
-                    start = height_ + 1
-                    current_col += 1
-                    m_temp[sorted_heights[-1] + 1:min(hs_[-1] + 1, geom_depth)] = current_col
-            else:
-                raise ValueError('Mode should be either `horizon` or `stratum`')
-            mask[i, j, :] = m_temp[hs_]
-    return mask
 
 
 @njit
