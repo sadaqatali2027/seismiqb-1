@@ -11,9 +11,9 @@ from scipy.signal import butter, lfilter, hilbert
 
 from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
+
+from .horizon import Horizon
 from .utils import lru_cache, classproperty, aggregate
-from .horizon import mask_to_horizon
-from .labels_utils import make_labels_dict
 from .plot_utils import plot_batch_components
 
 
@@ -90,50 +90,6 @@ class SeismicCropBatch(Batch):
         if AFFIX in path:
             return path[:-SIZE_SALT]
         return path
-
-    def _assemble_labels(self, all_clouds, *args, dst=None, **kwargs):
-        """ Assemble labels-dict from different crops in batch.
-        """
-        _ = args
-        labels = dict()
-        labels_ = dict()
-
-        # init labels-dict
-        for ix in self.indices:
-            labels_[self.unsalt(ix)] = set()
-
-        for ix, cloud in zip(self.indices, all_clouds):
-            labels_[self.unsalt(ix)] |= set(cloud.keys())
-
-        for cube, ilines_xlines in labels_.items():
-            labels[cube] = dict()
-            for il_xl in ilines_xlines:
-                labels[cube][il_xl] = set()
-
-        # fill labels with sets of horizons
-        for ix, cloud in zip(self.indices, all_clouds):
-            for il_xl, heights in cloud.items():
-                labels[self.unsalt(ix)][il_xl] |= set(heights)
-
-        # transforms sets of horizons to labels
-        for cube in labels:
-            for il_xl in labels[cube]:
-                labels[cube][il_xl] = np.sort(list(labels[cube][il_xl]))
-
-        # convert labels to numba.Dict if needed
-        if kwargs.get('to_numba'):
-            for cube, cloud_dict in labels.items():
-                cloud = []
-                for il_xl, horizons in cloud_dict.items():
-                    (il, xl) = il_xl
-                    for h in horizons.reshape(-1):
-                        cloud.append([il, xl, h])
-
-                cloud = np.array(cloud)
-                labels[cube] = make_labels_dict(cloud)
-
-        setattr(self, dst, labels)
-        return self
 
 
     def __getattr__(self, name):
@@ -577,55 +533,6 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    @inbatch_parallel(init='indices', post='_assemble_labels', target='threads')
-    def get_point_cloud(self, ix, src_masks='masks', src_slices='slices', dst='predicted_labels',
-                        threshold=0.5, averaging='mean', coordinates='cubic', to_numba=False):
-        """ Convert labels from horizons-mask into point-cloud format.
-
-        Parameters
-        ----------
-        src_masks : str
-            component of batch that stores masks.
-        src_slices : str
-            component of batch that stores slices of crops.
-        dst : str
-            component of batch to store the resulting labels.
-        threshold : float
-            parameter of mask-thresholding.
-        averaging : str
-            method of pandas.groupby used for finding the center of a horizon.
-        coordinates : str
-            coordinates-mode to use for keys of point-cloud. Can be either 'cubic'
-            or 'lines'. In case of `lines`-option, `geometries` must be loaded as
-            a component of batch.
-        to_numba : bool
-            whether to convert the resulting point-cloud to numba-dict. The conversion
-            takes additional time.
-
-        Returns
-        -------
-        SeismicCropBatch
-            batch with fetched labels.
-        """
-        _ = dst, to_numba
-
-        # threshold the mask
-        mask = getattr(self, src_masks)[self.get_pos(None, src_masks, ix)]
-
-        # prepare args
-        i_shift, x_shift, h_shift = [self.get(ix, src_slices)[k][0] for k in range(3)]
-        geom = self.get(ix, 'geometries')
-        if coordinates == 'lines':
-            transforms = (lambda i_: geom.ilines[i_ + i_shift], lambda x_: geom.xlines[x_ + x_shift],
-                          lambda h_: h_ + h_shift)
-        else:
-            transforms = (lambda i_: i_ + i_shift, lambda x_: x_ + x_shift,
-                          lambda h_: h_ + h_shift)
-
-        return mask_to_horizon(mask, threshold, averaging, transforms, separate=False)
-
-
-    @action
     @inbatch_parallel(init='_init_component', target='threads')
     def filter_out(self, ix, src=None, dst=None, mode=None, expr=None, low=None, high=None, length=None):
         """ Cut mask for horizont extension task.
@@ -737,6 +644,97 @@ class SeismicCropBatch(Batch):
             pos = self.get_pos(None, component, ix)
             result.append(getattr(self, component)[pos])
         return np.concatenate(result, axis=axis)
+
+
+
+    @action
+    @inbatch_parallel(init='indices', target='threads', post='_masks_to_horizons_post')
+    def masks_to_horizons(self, ix, src='masks', src_slices='slices', dst='predicted_labels', prefix='predict',
+                          threshold=0.5, averaging='mean', minsize=0, order=(2, 0, 1),
+                          mean_threshold=2.0, q_threshold=2.0, q=0.9, adjacency=1):
+        """ Convert labels from horizons-mask into point-cloud format. Fetches point-clouds from
+        a batch of masks, then merges resulting clouds to those stored in `dst`, whenever possible.
+
+        Parameters
+        ----------
+        src_masks : str
+            component of batch that stores masks.
+        src_slices : str
+            component of batch that stores slices of crops.
+        dst : str/object
+            component of batch to store the resulting labels, o/w a storing object.
+        threshold : float
+            parameter of mask-thresholding.
+        averaging : str
+            method of pandas.groupby used for finding the center of a horizon.
+        coordinates : str
+            coordinates-mode to use for keys of point-cloud. Can be either 'cubic'
+            or 'lines'. In case of `lines`-option, `geometries` must be loaded as
+            a component of batch.
+        order : tuple of int
+            axes-param for `transpose`-operation, applied to a mask before fetching point clouds.
+            Default value of (2, 0, 1) is applicable to standart pipeline with one `rotate_axes`
+            applied to images-tensor.
+        mean_threshold : int
+            if adjacent horizons do not diverge for more than this distance, they can be merged together.
+        adjacency : int
+            max distance between a pair of horizon-borders when the horizons can be adjacent.
+        Returns
+        -------
+        SeismicCropBatch
+            batch with fetched labels.
+        """
+        _ = dst, mean_threshold, q_threshold, q, adjacency
+
+        # threshold the mask, reshape and rotate the mask if needed
+        pos = self.get_pos(None, src, ix)
+        mask = getattr(self, src)[pos]
+        mask = np.transpose(mask, axes=order)
+
+        #
+        geom = self.get(ix, 'geometries')
+        grid_info = {
+            'geom': geom,
+            'range': [[self.get(ix, src_slices)[k][0], None] for k in range(3)]
+        }
+
+        # get horizons and merge them with matching aggregated ones
+        horizons = Horizon.frommask(mask, grid_info, threshold=threshold,
+                                    averaging=averaging, minsize=minsize, prefix=prefix)
+        return horizons
+
+
+
+    def _masks_to_horizons_post(self, horizons_lists, *args, dst=None,
+                                mean_threshold=2.0, q_threshold=2.0, q=0.9, adjacency=1, **kwargs):
+        """ Stitch a set of point-clouds to a point cloud form dst if possible.
+        Post for `get_point_cloud`-action.
+        """
+        _, _ = args, kwargs
+        if dst is None:
+            raise ValueError("dst should be initialized with empty list.")
+
+        # remember, horizons_lists contains lists of horizons
+        for horizons in horizons_lists:
+            for horizon_candidate in horizons:
+                for horizon_target in dst:
+                    merge_code, _ = Horizon.verify_merge(horizon_target, horizon_candidate,
+                                                         mean_threshold=mean_threshold, q_threshold=q_threshold, q=q,
+                                                         adjacency=adjacency)
+
+                    if merge_code in [2, 3]:
+                        force_merge = (merge_code == 3)
+                        merged, _, _ = Horizon.adjacent_merge(horizon_target, horizon_candidate, inplace=True,
+                                                              force_merge=force_merge, adjacency=adjacency,
+                                                              mean_threshold=mean_threshold,
+                                                              q_threshold=q_threshold, q=q)
+                        if merged:
+                            break
+                else:
+                    # if a horizon cannot be stitched to a horizon from dst, we enrich dst with it
+                    dst.append(horizon_candidate)
+        return self
+
 
 
     @action

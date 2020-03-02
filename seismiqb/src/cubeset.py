@@ -11,7 +11,7 @@ from ..batchflow import NumpySampler, ConstantSampler
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
-from .horizon import Horizon
+from .horizon import Horizon, HorizonMetrics
 from .utils import IndexedDict, lru_cache, round_to_array
 from .plot_utils import show_sampler, plot_slide
 
@@ -425,19 +425,76 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def compare_to_labels(self, horizon, idx=0, offset=1, plot=True):
+    def merge_horizons(self, src, mean_threshold=2.0, q_threshold=2.0, q=0.9, adjacency=3, ):
+        """ Iterate over a list of horizons and merge what can be merged. Can be called after
+        running a pipeline with `get_point_cloud`-action. Changes the list of horizons inplace.
+
+        Parameters
+        ----------
+        src : str or list
+            Source-horizons. Can be either a name of attribute or list itself.
+        height_margin : int
+            if adjacent horizons do not diverge for more than this distance, they can be merged together.
+        border_margin : int
+            max distance between a pair of horizon-borders when the horizons can be adjacent.
+        """
+        # fetch list of horizons
+        horizons = getattr(self, src) if isinstance(src, str) else src
+
+        # iterate over list of horizons to merge what can be merged
+        i = 0
+        flag = True
+        while flag:
+            # the procedure continues while at least a pair of horizons is mergeable
+            flag = False
+            while True:
+                if i >= len(horizons):
+                    break
+
+                j = i + 1
+                while True:
+                    # attempt to merge each horizon to i-th horizon with fixed i
+                    if j >= len(horizons):
+                        break
+
+                    merge_code, _ = Horizon.verify_merge(horizons[i], horizons[j],
+                                                         mean_threshold=mean_threshold, q_threshold=q_threshold, q=q,
+                                                         adjacency=adjacency)
+                    if merge_code in [2, 3]:
+                        force_merge = (merge_code == 3)
+                        merged, _, _ = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
+                                                              force_merge=force_merge, adjacency=adjacency,
+                                                              mean_threshold=mean_threshold,
+                                                              q_threshold=q_threshold, q=q)
+                        if merged:
+                            _ = horizons.pop(j)
+                            flag = True
+                        else:
+                            j += 1
+                    else:
+                        j += 1
+                i += 1
+
+
+
+    def compare_to_labels(self, horizon, src_labels='labels', offset=0, absolute=True,
+                          printer=print, hist=True, plot=True):
         """ Compare given horizon to labels in dataset.
 
         Parameters
         ----------
-        horizon : dict
-            Mapping from (iline, xline) to heights.
+        horizon : :class:`.Horizon`
+            Horizon to evaluate.
         offset : number
-            Value to shift horizon up. Can be used to take into account different counting bases.
-        plot : bool
-            Whether to plot histogram of errors.
+            Value to shift horizon down. Can be used to take into account different counting bases.
         """
-        # Needs rewriting
+        for idx in self.indices:
+            if horizon.geometry.name == self.geometries[idx].name:
+                horizons_to_compare = getattr(self, src_labels)[idx]
+                break
+        HorizonMetrics([horizon, horizons_to_compare]).evaluate('compare', agg=None,
+                                                                absolute=absolute, offset=offset,
+                                                                printer=printer, hist=hist, plot=plot)
 
 
     def show_slide(self, idx=0, n_line=0, plot_mode='overlap', mode='iline', **kwargs):
