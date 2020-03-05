@@ -515,7 +515,7 @@ class Horizon(BaseLabel):
         self.sampler = HistoSampler(np.histogramdd(self.points/self.cube_shape, bins=bins))
 
 
-    def add_to_mask(self, mask, mask_bbox, width):
+    def add_to_mask(self, mask, mask_bbox, width, alpha=1):
         """ Add horizon to a background.
         Note that background is changed in-place.
 
@@ -551,7 +551,7 @@ class Horizon(BaseLabel):
         heights -= (mask_h_min + low)
 
         for _ in range(width):
-            mask[idx_i, idx_x, heights] = 1
+            mask[idx_i, idx_x, heights] += alpha
             heights += 1
         return mask
 
@@ -799,11 +799,29 @@ class Horizon(BaseLabel):
 
     # Merge functions
     def verify_merge(self, other, mean_threshold=3.0, q_threshold=2.5, q=0.9, adjacency=0):
-        """ pass
-        0 - overlapping, too far away from each other (heights-wise) --- not mergeable
-        1 - not overlapping, too far away from each other (spatially) even with adjacency --- not mergeable
-        2 - not overlapping, but are close enough spatially (with adjacency) --- requires adjacent_merge
-        3 - overlapping, close enough to meet thresholds (heights-wise) --- merge without additional checks
+        """ Collect stats of overlapping of two horizons.
+
+        Returns a number that encodes position of two horizons, as well as dictionary with collected statistics.
+        If code is 0, then horizons are too far away from each other (heights-wise), and therefore are not mergeable.
+        If code is 1, then horizons are too far away from each other (spatially) even with adjacency, and therefore
+        are not mergeable.
+        If code is 2, then horizons are close enough spatially (with adjacency), but are not overlapping, and therefore
+        an additional check (`adjacent_merge`) is needed.
+        If code is 3, then horizons are definitely overlapping and are close enough to meet all the thresholds, and
+        therefore are mergeable without any additional checks.
+
+        Parameters
+        ----------
+        self, other : :class:`.Horizon` instances
+            Horizons to compare.
+        mean_threshold : number
+            Height threshold for mean distances.
+        q_threshold : number
+            Height threshold for quantile distances.
+        q : number
+            Quantile to compute.
+        adjacency : int
+            Margin to consider horizons close (spatially).
         """
         overlap_info = {}
 
@@ -868,7 +886,28 @@ class Horizon(BaseLabel):
 
     def adjacent_merge(self, other, mean_threshold=3.0, q_threshold=2.5, q=0.9, adjacency=3,
                        check_only=False, force_merge=False, inplace=False):
-        """ pass """
+        """ Collect stats on possible adjacent merge (that is merge with some margin), and, if needed, merge horizons.
+        Note that this function can either merge horizons in-place of the first one (`self`), or create a new instance.
+
+        Parameters
+        ----------
+        self, other : :class:`.Horizon` instances
+            Horizons to compare.
+        mean_threshold : number
+            Height threshold for mean distances.
+        q_threshold : number
+            Height threshold for quantile distances.
+        q : number
+            Quantile to compute.
+        adjacency : int
+            Margin to consider horizons close (spatially).
+        check_only : bool
+            Whether to try to merge horizons or just collect the stats.
+        force_merge : bool
+            Whether to chcek stats before merging. Can be useful if used after :class:`.Horizon.verify_merge` method.
+        inplace : bool
+            Whether to create new instance or update `self`.
+        """
         adjacency_info = {}
 
         # Create shared background for both horizons
@@ -931,7 +970,6 @@ class Horizon(BaseLabel):
                                    'q': q_on_shared_overlap,
                                    'max': max_on_shared_overlap,
                                    'diffs': diffs_on_shared_overlap})
-
 
         # Actually merge two horizons
         merged = None
