@@ -4,6 +4,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
+import plotly.graph_objects as go
 
 from ..batchflow import Pipeline, D
 
@@ -235,7 +236,7 @@ def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode=
 
 
 
-def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, savefig=False, show_plot=True, **kwargs):
+def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, savefig=False, show_plot=True, backend='matplotlib', **kwargs):
     """ Plot image with a given title with predifined axis labels.
 
     Parameters
@@ -254,26 +255,68 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, sav
         If False, then image is not saved.
     show_plot: bool
         Whether to show image in output stream.
+    backend : str
+        can be either 'matplotlib' - 'plt' yields the same results or
+        'plotly' - 'go' yields the same results.
     """
+    def filter_kwargs(kwargs, keys):
+        kwargs_ = {}
+        for key in keys:
+            if key in kwargs:
+                kwargs_.update({key: kwargs[key]})
+        return kwargs_
+
     img = np.squeeze(img)
-    default_kwargs = dict(cmap='Paired') if rgb is False else {}
-    plt.figure(figsize=kwargs.pop('figsize', (12, 7)))
+    if backend in ('matplotlib', 'plt'):
+        # filter kwargs: leave only those applicable for plt.imshow; set defaults
+        kwargs_ = filter_kwargs(kwargs, ('vmin', 'vmax', 'cmap', 'aspect', 'interpolation', 'alpha'))
+        default_kwargs = dict(cmap='Paired') if rgb is False else {}
 
-    img_ = plt.imshow(img, **{**default_kwargs, **kwargs})
+        # plot the image
+        plt.figure(figsize=kwargs.pop('figsize', (12, 7)))
+        img_ = plt.imshow(img, **{**default_kwargs, **kwargs_})
 
-    if title:
-        plt.title(title, y=1.1, fontdict={'fontsize': 20})
-    if xlabel:
-        plt.xlabel(xlabel, fontdict={'fontsize': 20})
-    if ylabel:
-        plt.ylabel(ylabel, fontdict={'fontsize': 20})
-    if rgb is False:
-        plt.colorbar(img_, fraction=0.022, pad=0.07)
-    plt.tick_params(labeltop=True, labelright=True)
+        # add titles and labels
+        if title:
+            plt.title(title, y=1.1, fontdict={'fontsize': 20})
+        if xlabel:
+            plt.xlabel(xlabel, fontdict={'fontsize': 20})
+        if ylabel:
+            plt.ylabel(ylabel, fontdict={'fontsize': 20})
+        if rgb is False:
+            plt.colorbar(img_, fraction=0.022, pad=0.07)
+        plt.tick_params(labeltop=True, labelright=True)
 
-    if savefig:
-        plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
-    plt.show() if show_plot else plt.close()
+        if savefig:
+            plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
+        plt.show() if show_plot else plt.close()
+
+    elif backend in ('plotly', 'go'):
+        # filter kwargs and set defaults
+        kwargs_ = filter_kwargs(kwargs, ('max_size', 'autocolorscale', 'coloraxis',
+                                         'colorbar', 'colorscale', 'opacity', 'reversescale',
+                                         'opacity', 'zmin', 'zmax', 'showscale'))
+        default_kwargs = dict(hoverongaps=False, colorscale='viridis', reversescale=True)
+
+        # calculate canvas sizes
+        width, height = img.shape[1], img.shape[0]
+        max_size = kwargs.pop('max_size', 600)
+        coeff = max_size / max(width, height)
+        width = coeff * width
+        height = coeff * height
+
+        xaxis = {'title_text': xlabel, 'titlefont': {'size': 30}}
+        yaxis = {'title_text': ylabel, 'titlefont': {'size': 30}, 'autorange': 'reversed'}
+        coloraxis_colorbar = {'title': 'depth'}
+
+        # plot the image and set titles
+        fig = go.Figure(data=go.Heatmap(z=img, **{**default_kwargs, **kwargs_}))
+        fig.update_layout(title=title, xaxis=xaxis, yaxis=yaxis,
+                          width=width, height=height,
+                          coloraxis_colorbar=coloraxis_colorbar)
+        fig.show()
+    else:
+        raise ValueError('{} backend is not supported!'.format(backend))
 
 
 def plot_image_roll(img, title=None, xlabel='xlines', ylabel='ilines', cols=2, rgb=False,
