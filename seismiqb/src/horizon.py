@@ -551,7 +551,7 @@ class Horizon(BaseLabel):
         heights -= (mask_h_min + low)
 
         for _ in range(width):
-            mask[idx_i, idx_x, heights] += alpha
+            mask[idx_i, idx_x, heights] = alpha
             heights += 1
         return mask
 

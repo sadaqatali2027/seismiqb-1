@@ -281,7 +281,7 @@ class SeismicCubeset(Dataset):
         show_sampler(sampler, cube_name, geom, n=n, eps=eps, show_unique=show_unique, **kwargs)
 
 
-    @lru_cache(3, storage=os.environ.get('SEISMIQB_CACHEDIR'), anchor=True, attributes='indices', pickle_module='blosc')
+    @lru_cache(3, storage=os.environ.get('SEISMIQB_CACHEDIR'), anchor=True, attributes='indices')
     def load(self, horizon_dir=None, filter_zeros=True, dst_labels='labels', p=None, bins=None, **kwargs):
         """ Load everything: geometries, point clouds, labels, samplers.
 

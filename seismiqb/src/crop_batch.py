@@ -27,7 +27,7 @@ SIZE_SALT = len(AFFIX) + SIZE_POSTFIX
 @transform_actions(prefix='_', suffix='_', wrapper='apply_transform')
 class SeismicCropBatch(Batch):
     """ Batch with ability to generate 3d-crops of various shapes."""
-    components = ('slices', 'points', 'shapes',)
+    components = None
 
     def _init_component(self, *args, **kwargs):
         """ Create and preallocate a new attribute with the name ``dst`` if it
@@ -40,7 +40,7 @@ class SeismicCropBatch(Batch):
             dst = (dst,)
         for comp in dst:
             if not hasattr(self, comp):
-                setattr(self, comp, np.array([None] * len(self.index)))
+                self.add_components(comp, np.array([None] * len(self.index)))
         return self.indices
 
 
@@ -110,17 +110,6 @@ class SeismicCropBatch(Batch):
         item = self.get_pos(None, component, item)
         return super().get(item, component)
 
-    @action
-    def load_component(self, src, dst):
-        """ Store `src` data in `dst` component. """
-        if isinstance(src, dict):
-            src = [src]
-        if isinstance(dst, str):
-            dst = [dst]
-
-        for data, name in zip(src, dst):
-            setattr(self, name, data)
-        return self
 
 
     @action
@@ -166,21 +155,19 @@ class SeismicCropBatch(Batch):
             Batch with positions of crops in specified component.
         """
         # pylint: disable=protected-access
-        if not hasattr(self, 'pre_index'):
-            pre_index = copy(self.index)
+        if not hasattr(self, 'transformed'):
             new_index = [self.salt(ix) for ix in points[:, 0]]
             new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
                         for ix in new_index}
             new_batch = type(self)(FilesIndex.from_index(index=new_index, paths=new_dict, dirs=False))
-            new_batch.pre_index = pre_index
+            new_batch.transformed = True
 
             passdown = passdown or []
             passdown = [passdown] if isinstance(passdown, str) else passdown
-            passdown.extend(['geometries', 'labels'])
 
             for component in passdown:
                 if hasattr(self, component):
-                    setattr(new_batch, component, getattr(self, component))
+                    new_batch.add_components(component, getattr(self, component))
 
         else:
             if len(points) != len(self):
@@ -188,13 +175,12 @@ class SeismicCropBatch(Batch):
             new_batch = self
 
         shapes = self._make_shapes(points, shape, side_view)
-        setattr(new_batch, dst_points, points)
-        setattr(new_batch, dst_shapes, shapes)
+        new_batch.add_components((dst_points, dst_shapes), (points, shapes))
+
         if make_slices:
             slices = [self._make_slice(point, shape, dilations, loc)
                       for point, shape in zip(points, shapes)]
-
-            setattr(new_batch, dst, slices)
+            new_batch.add_components(dst, slices)
         return new_batch
 
     def _make_shapes(self, points, shape, side_view):
@@ -306,8 +292,8 @@ class SeismicCropBatch(Batch):
             dst = (dst,)
         for comp in dst:
             if not hasattr(self, comp):
-                setattr(self, comp, np.array([None] * len(self.index)))
-        # import pdb; pdb.set_trace()
+                self.add_components(comp, np.array([None] * len(self.index)))
+
         segyfiles = {}
         for ix in self.indices:
             path_data = self.index.get_fullpath(ix)
@@ -527,8 +513,7 @@ class SeismicCropBatch(Batch):
 
         for compo in passdown:
             new_data = [getattr(self, compo)[i] for i, area in enumerate(areas) if area > threshold]
-            setattr(self, compo, np.array(new_data))
-        setattr(self, '__areas', np.array(areas))
+            self.add_components(compo, np.array(new_data))
         return self
 
 
@@ -615,7 +600,7 @@ class SeismicCropBatch(Batch):
 
         dst = dst or src
         if not hasattr(self, dst):
-            setattr(self, dst, np.array([None] * len(self)))
+            self.add_components(dst, np.array([None] * len(self)))
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = new_data
@@ -771,6 +756,7 @@ class SeismicCropBatch(Batch):
         src = src if len(src.shape) == 4 else np.squeeze(src, axis=-1)
         assembled = aggregate(src, grid_info['grid_array'], grid_info['crop_shape'],
                               grid_info['predict_shape'], order)
+
         setattr(self, dst, assembled)
         return self
 

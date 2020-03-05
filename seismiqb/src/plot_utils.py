@@ -204,8 +204,6 @@ def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode=
         crop_shape[1] = 1
 
     pipeline = (Pipeline()
-                .load_component(src=[D('geometries'), D('labels')],
-                                dst=['geometries', 'labels'])
                 .crop(points=point,
                       shape=crop_shape)
                 .load_cubes(dst='images')
