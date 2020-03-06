@@ -236,7 +236,8 @@ def plot_slide(dataset, *components, idx=0, n_line=0, plot_mode='overlap', mode=
 
 
 
-def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, savefig=False, show_plot=True, backend='matplotlib', **kwargs):
+def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, savefig=False,
+               show_plot=True, backend='matplotlib', **kwargs):
     """ Plot image with a given title with predifined axis labels.
 
     Parameters
@@ -256,8 +257,7 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, sav
     show_plot: bool
         Whether to show image in output stream.
     backend : str
-        can be either 'matplotlib' - 'plt' yields the same results or
-        'plotly' - 'go' yields the same results.
+        can be either 'matplotlib' ('plt') or 'plotly' ('go').
     """
     def filter_kwargs(kwargs, keys):
         kwargs_ = {}
