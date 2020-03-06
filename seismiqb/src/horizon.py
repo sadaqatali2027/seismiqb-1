@@ -1063,7 +1063,7 @@ class Horizon(BaseLabel):
             matrix = copy(matrix).astype(np.float32)
 
         matrix[matrix == fill_value] = np.nan
-        plot_image(matrix, 'Depth map of {} on {}'.format('on full'*on_full, self.name, self.cube_name),
+        plot_image(matrix, 'Depth map {} of {} on {}'.format('on full'*on_full, self.name, self.cube_name),
                    cmap='viridis_r', **kwargs)
 
 

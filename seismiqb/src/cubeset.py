@@ -416,7 +416,7 @@ class SeismicCubeset(Dataset):
         """
         mask = getattr(self, src) if isinstance(src, str) else src
         horizons = Horizon.from_mask(mask, self.grid_info, threshold=threshold,
-                                    averaging=averaging, minsize=minsize, prefix=prefix)
+                                     averaging=averaging, minsize=minsize, prefix=prefix)
         setattr(self, dst, horizons)
         return self
 

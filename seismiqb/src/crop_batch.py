@@ -501,7 +501,7 @@ class SeismicCropBatch(Batch):
         return np.sum(reduced) / np.prod(reduced.shape)
 
     def _post_mask_rebatch(self, areas, *args, src=None, passdown=None, threshold=None, **kwargs):
-        #pylint: disable=protected-access
+        #pylint: disable=protected-access, access-member-before-definition, attribute-defined-outside-init
         _ = args, kwargs
         new_index = [self.indices[i] for i, area in enumerate(areas) if area > threshold]
         new_dict = {idx: self.index._paths[idx] for idx in new_index}
@@ -685,7 +685,7 @@ class SeismicCropBatch(Batch):
 
         # get horizons and merge them with matching aggregated ones
         horizons = Horizon.from_mask(mask, grid_info, threshold=threshold,
-                                    averaging=averaging, minsize=minsize, prefix=prefix)
+                                     averaging=averaging, minsize=minsize, prefix=prefix)
         return horizons
 
 
