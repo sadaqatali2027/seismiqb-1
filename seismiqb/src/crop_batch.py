@@ -684,7 +684,7 @@ class SeismicCropBatch(Batch):
         }
 
         # get horizons and merge them with matching aggregated ones
-        horizons = Horizon.frommask(mask, grid_info, threshold=threshold,
+        horizons = Horizon.from_mask(mask, grid_info, threshold=threshold,
                                     averaging=averaging, minsize=minsize, prefix=prefix)
         return horizons
 

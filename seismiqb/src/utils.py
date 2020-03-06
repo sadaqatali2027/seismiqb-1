@@ -10,11 +10,10 @@ import dill
 import blosc
 from tqdm import tqdm
 import numpy as np
+import pandas as pd
 import segyio
 
 from numba import njit
-
-from ._const import FILL_VALUE
 
 
 
@@ -339,39 +338,41 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
         pass
 
 
+def convert_point_cloud(path, path_save, names=None, order=None, transform=None):
+    """ Change set of columns in file with point cloud labels.
+    Usually is used to remove redundant columns.
 
-@njit
-def create_mask_f(ilines_, xlines_, hs_, il_xl_h, ilines_offset, xlines_offset, geom_depth):
-    """ Jit-accelerated function for fast mask creation for seismic facies.
-    This function is usually called inside SeismicCropBatch's method `create_masks`.
+    Parameters
+    ----------
+    path : str
+        Path to file to convert.
+    path_save : str
+        Path for the new file to be saved to.
+    names : str or sequence of str
+        Names of columns in the original file. Default is Petrel's export format, which is
+        ('_', '_', 'iline', '_', '_', 'xline', 'cdp_x', 'cdp_y', 'height'), where `_` symbol stands for
+        redundant keywords like `INLINE`.
+    order : str or sequence of str
+        Names and order of columns to keep. Default is ('iline', 'xline', 'height').
     """
-    mask = np.zeros((len(ilines_), len(xlines_), len(hs_)))
+    #pylint: disable=anomalous-backslash-in-string
+    names = names or ['_', '_', 'iline', '_', '_', 'xline',
+                      'cdp_x', 'cdp_y', 'height']
+    order = order or ['iline', 'xline', 'height']
 
-    for i, iline_ in enumerate(ilines_):
-        for j, xline_ in enumerate(xlines_):
-            il_, xl_ = iline_ + ilines_offset, xline_ + xlines_offset
-            if il_xl_h.get((il_, xl_)) is None:
-                continue
+    names = [names] if isinstance(names, str) else names
+    order = [order] if isinstance(order, str) else order
 
-            m_temp = np.zeros(geom_depth)
-            value = il_xl_h.get((il_, xl_))
-            s_points, e_points, classes = value
+    df = pd.read_csv(path, sep='\s+', names=names, usecols=set(order))
+    df.dropna(inplace=True)
 
-            for s_p, e_p, c in zip(s_points, e_points, classes):
-                m_temp[max(0, s_p):min(e_p+1, geom_depth)] = c+1
-            mask[i, j, :] = m_temp[hs_]
-    return mask
+    if 'iline' in order and 'xline' in order:
+        df.sort_values(['iline', 'xline'], inplace=True)
 
-
-
-@njit
-def count_nonfill(array):
-    """ Jit-accelerated function to count non-fill elements. """
-    count = 0
-    for i in array:
-        if i != FILL_VALUE:
-            count += 1
-    return count
+    data = df.loc[:, order]
+    if transform:
+        data = data.apply(transform)
+    data.to_csv(path_save, sep=' ', index=False, header=False)
 
 
 

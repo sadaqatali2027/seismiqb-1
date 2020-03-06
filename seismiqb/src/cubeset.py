@@ -415,7 +415,7 @@ class SeismicCubeset(Dataset):
             Name of horizon to use.
         """
         mask = getattr(self, src) if isinstance(src, str) else src
-        horizons = Horizon.frommask(mask, self.grid_info, threshold=threshold,
+        horizons = Horizon.from_mask(mask, self.grid_info, threshold=threshold,
                                     averaging=averaging, minsize=minsize, prefix=prefix)
         setattr(self, dst, horizons)
         return self

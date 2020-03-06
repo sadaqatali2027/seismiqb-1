@@ -1,12 +1,9 @@
-""" Functions to work with horizons:
-    * Converting between formats (dictionary, depth-map, mask)
-    * Saving to txt file
-    * Comparing horizons and evaluating metrics
-"""
+""" Horizon class and metrics. """
 #pylint: disable=too-many-lines, import-error
 import os
 from copy import copy
 from functools import wraps
+from textwrap import dedent
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -29,15 +26,14 @@ from .plot_utils import plot_image
 
 
 
-
 class BaseLabel(ABC):
     """ Base class for labels. """
     @abstractmethod
-    def fromfile(self, path):
+    def from_file(self, path):
         """ Labels must be loadable from file on disk. """
 
     @abstractmethod
-    def frompoints(self, array):
+    def from_points(self, array):
         """ Labels must be loadable from array of needed format. """
 
     @abstractmethod
@@ -151,13 +147,13 @@ class Horizon(BaseLabel):
 
             elif storage.ndim == 2 and (storage.shape == self.cube_shape[:-1]).all():
                 # matrix of (iline, xline) shape with every value being height
-                self.format = 'fullmatrix'
+                self.format = 'full_matrix'
 
             elif storage.ndim == 2:
                 # matrix of (iline, xline) shape with every value being height
                 self.format = 'matrix'
 
-        getattr(self, 'from{}'.format(self.format))(storage, **kwargs)
+        getattr(self, 'from_{}'.format(self.format))(storage, **kwargs)
         self.synchronized = True
 
 
@@ -191,7 +187,7 @@ class Horizon(BaseLabel):
 
 
     # Initialization from different containers
-    def frompoints(self, points, transform=False, **kwargs):
+    def from_points(self, points, transform=False, **kwargs):
         """ Base initialization: from point cloud array of (N, 3) shape.
 
         Parameters
@@ -234,14 +230,14 @@ class Horizon(BaseLabel):
             self.debug_update()
 
 
-    def fromfile(self, path, transform=True, **kwargs):
+    def from_file(self, path, transform=True, **kwargs):
         """ Init from path to either CHARISMA or REDUCED_CHARISMA csv-like file. """
         _ = kwargs
 
         self.path = path
         self.name = os.path.basename(path)
         points = self.file_to_points(path)
-        self.frompoints(points, transform)
+        self.from_points(points, transform)
 
     def file_to_points(self, path):
         """ Get point cloud array from file values. """
@@ -260,22 +256,22 @@ class Horizon(BaseLabel):
         return df.values
 
 
-    def frommatrix(self, matrix, i_min, x_min, transform=False, **kwargs):
+    def from_matrix(self, matrix, i_min, x_min, transform=False, **kwargs):
         """ Init from matrix and location of minimum i, x points. """
         _ = kwargs
 
         points = self.matrix_to_points(matrix)
         points[:, 0] += i_min
         points[:, 1] += x_min
-        self.frompoints(points, transform=transform)
+        self.from_points(points, transform=transform)
 
 
-    def fromfullmatrix(self, matrix, transform=False, **kwargs):
+    def from_full_matrix(self, matrix, transform=False, **kwargs):
         """ Init from matrix that covers the whole cube. """
         _ = kwargs
 
         points = self.matrix_to_points(matrix)
-        self.frompoints(points, transform=transform)
+        self.from_points(points, transform=transform)
 
     @staticmethod
     def matrix_to_points(matrix):
@@ -287,12 +283,12 @@ class Horizon(BaseLabel):
         return points[np.lexsort((points[:, 2], points[:, 1], points[:, 0]))]
 
 
-    def fromdict(self, dictionary, transform=True, **kwargs):
+    def from_dict(self, dictionary, transform=True, **kwargs):
         """ Init from mapping from (iline, xline) to depths. """
         _ = kwargs, dictionary, transform
 
         points = self.dict_to_points(dictionary)
-        self.frompoints(points, transform=transform)
+        self.from_points(points, transform=transform)
 
     @staticmethod
     def dict_to_points(dictionary):
@@ -303,7 +299,7 @@ class Horizon(BaseLabel):
 
 
     @staticmethod
-    def frommask(mask, grid_info, threshold=0.5, averaging='mean', minsize=0, prefix='prediction', **kwargs):
+    def from_mask(mask, grid_info, threshold=0.5, averaging='mean', minsize=0, prefix='prediction', **kwargs):
         """ Convert mask to a list of horizons.
         Returned list is sorted on length of horizons.
 
@@ -331,10 +327,10 @@ class Horizon(BaseLabel):
         mask[mask < threshold] = 0
         mask = mask.astype(np.int32)
 
-        #
+        # Note that this does not evaluate anything: all of attributes are properties and are cached
         regions = regionprops(label(mask))
 
-        #
+        # Create an instance of Horizon for each separate region
         horizons = []
         for i, region in enumerate(regions):
 
@@ -367,9 +363,9 @@ class Horizon(BaseLabel):
         """ Synchronize the whole horizon instance with base storage. """
         if not self.synchronized:
             if base == 'matrix':
-                self.frommatrix(self.matrix, self.i_min, self.x_min)
+                self.from_matrix(self.matrix, self.i_min, self.x_min)
             elif base == 'points':
-                self.frompoints(self.points)
+                self.from_points(self.points)
             self.synchronized = True
 
 
@@ -733,7 +729,7 @@ class Horizon(BaseLabel):
         return filled_matrix
 
     @property
-    def fullmatrix(self):
+    def full_matrix(self):
         """ Matrix in cubic coordinate system. """
         return self.put_on_full()
 
@@ -781,18 +777,21 @@ class Horizon(BaseLabel):
     # Evaluate horizon on its own / against other(s)
     def evaluate(self, supports=20, plot=True):
         """ Compute crucial metrics of a horizon. """
-        print(f'Number of labeled points: {len(self)}')
-        print(f'Number of points inside borders: {np.sum(self.filled_matrix)}')
-        print(f'Perimeter (length of borders): {self.perimeter}')
-        print(f'Percentage of labeled non-bad traces: {self.coverage}')
-        print(f'Percentage of labeled traces inside borders: {self.solidity}')
-        print(f'Number of holes inside borders: {self.number_of_holes}')
+        msg = f"""
+        Number of labeled points: {len(self)}
+        Number of points inside borders: {np.sum(self.filled_matrix)}
+        Perimeter (length of borders): {self.perimeter}
+        Percentage of labeled non-bad traces: {self.coverage}
+        Percentage of labeled traces inside borders: {self.solidity}
+        Number of holes inside borders: {self.number_of_holes}
+        """
+        print(dedent(msg))
 
         HorizonMetrics(self).evaluate('support_corrs', supports=supports, agg='mean', plot=plot)
 
 
     def compare_to(self, other, offset=0, absolute=True, printer=print, hist=True, plot=True):
-        """ Shortcut for :meth:`.HorizonMetrics.evaluate` to compare against horizons. """
+        """ Shortcut for :meth:`.HorizonMetrics.evaluate` to compare against the best match of list of horizons. """
         HorizonMetrics([self, other]).evaluate('compare', agg=None, absolute=absolute, offset=offset,
                                                printer=printer, hist=hist, plot=plot)
 
@@ -985,7 +984,7 @@ class Horizon(BaseLabel):
 
             if inplace:
                 # Change `self` inplace
-                self.frommatrix(background, i_min=shared_i_min, x_min=shared_x_min)
+                self.from_matrix(background, i_min=shared_i_min, x_min=shared_x_min)
             else:
                 # Return a new instance of horizon
                 merged = Horizon(background, self.geometry, self.name,
@@ -1033,12 +1032,14 @@ class Horizon(BaseLabel):
         return f"""<horizon {self.name} for {self.cube_name} at {hex(id(self))}>"""
 
     def __str__(self):
-        return f"""Horizon {self.name} for {self.cube_name} loaded from {self.format}
-Ilines from {self.i_min} to {self.i_max}
-Xlines from {self.x_min} to {self.x_max}
-Heights from {self.h_min} to {self.h_max}, mean is {self.h_mean:5.5}, std is {self.h_std:4.4}
-Currently synchronized: {self.synchronized}; In debug mode: {self.debug}; At {hex(id(self))}
-"""
+        msg = f"""
+        Horizon {self.name} for {self.cube_name} loaded from {self.format}
+        Ilines from {self.i_min} to {self.i_max}
+        Xlines from {self.x_min} to {self.x_max}
+        Heights from {self.h_min} to {self.h_max}, mean is {self.h_mean:5.5}, std is {self.h_std:4.4}
+        Currently synchronized: {self.synchronized}; In debug mode: {self.debug}; At {hex(id(self))}
+        """
+        return dedent(msg)
 
 
     def put_on_full(self, matrix=None, fill_value=None):
@@ -1051,25 +1052,18 @@ Currently synchronized: {self.synchronized}; In debug mode: {self.debug}; At {he
         return background
 
 
-    def show(self, src='matrix', fill_value=None, **kwargs):
+    def show(self, src='matrix', fill_value=None, on_full=True, **kwargs):
         """ Nice visualization of a horizon-related matrix. """
         matrix = getattr(self, src) if isinstance(src, str) else src
         fill_value = fill_value if fill_value is not None else self.FILL_VALUE
 
-        copy_matrix = copy(matrix).astype(np.float32)
-        copy_matrix[copy_matrix == fill_value] = np.nan
-        plot_image(copy_matrix, 'Depth map of {} on {}'.format(self.name, self.cube_name),
-                   cmap='viridis_r', **kwargs)
+        if on_full:
+            matrix = self.put_on_full(matrix=matrix, fill_value=fill_value)
+        else:
+            matrix = copy(matrix).astype(np.float32)
 
-
-    def show_on_full(self, src='matrix', fill_value=None, **kwargs):
-        """ Nice visualization of a horizon-related matrix in cubic coordinate system. """
-        matrix = getattr(self, src) if isinstance(src, str) else src
-        fill_value = fill_value if fill_value is not None else self.FILL_VALUE
-
-        fullmatrix = self.put_on_full(matrix=matrix, fill_value=fill_value)
-        fullmatrix[fullmatrix == fill_value] = np.nan
-        plot_image(fullmatrix, 'Depth map of {} on {}'.format(self.name, self.cube_name),
+        matrix[matrix == fill_value] = np.nan
+        plot_image(matrix, 'Depth map of {} on {}'.format('on full'*on_full, self.name, self.cube_name),
                    cmap='viridis_r', **kwargs)
 
 
@@ -1365,12 +1359,18 @@ class HorizonMetrics(Metrics):
 
 
     def compare(self, offset=0, absolute=True, hist=True, printer=print, **kwargs):
-        """ !!!
+        """ Compare horizons on against the best match from the list of horizons.
 
         Parameters
         ----------
         offset : number
             Value to shift horizon down. Can be used to take into account different counting bases.
+        absolute : bool
+            Whether to use absolute values for differences.
+        hist : bool
+            Whether to plot histogram of differences.
+        printer : callable
+            Function to print results, for example `print` or any other callable that can log data.
         """
         _ = kwargs
         if len(self.horizons) != 2:
@@ -1403,35 +1403,35 @@ class HorizonMetrics(Metrics):
 
         if printer is not None:
             msg = f"""
-Comparing horizons:       {self.horizon.name}
-                          {other.name}
-{'—'*45}
+            Comparing horizons:       {self.horizon.name}
+                                    {other.name}
+            {'—'*45}
 
-Rate in 5ms:                         {window_rate:8.4}
-Mean/std of errors:       {np.nanmean(metric):8.4} / {np.nanstd(metric):8.4}
-Max abs error/count:      {max_abs_error:8.4} / {max_abs_error_count:8}
-{'—'*45}
+            Rate in 5ms:                         {window_rate:8.4}
+            Mean/std of errors:       {np.nanmean(metric):8.4} / {np.nanstd(metric):8.4}
+            Max abs error/count:      {max_abs_error:8.4} / {max_abs_error_count:8}
+            {'—'*45}
 
-Lengths of horizons:                 {len(self.horizon):8}
-                                     {len(other):8}
-{'—'*45}
-Average heights of horizons:         {(offset + self.horizon.h_mean):8.4}
-                                     {other.h_mean:8.4}
-{'—'*45}
-Coverage of horizons:                {self.horizon.coverage:8.4}
-                                     {other.coverage:8.4}
-{'—'*45}
-Solidity of horizons:                {self.horizon.solidity:8.4}
-                                     {other.solidity:8.4}
-{'—'*45}
-Number of holes in horizons:         {self.horizon.number_of_holes:8}
-                                     {other.number_of_holes:8}
-{'—'*45}
-Additional traces labeled:           {at_1:8}
-(present in one, absent in other)    {at_2:8}
-{'—'*45}
-"""
-            printer(msg)
+            Lengths of horizons:                 {len(self.horizon):8}
+                                                {len(other):8}
+            {'—'*45}
+            Average heights of horizons:         {(offset + self.horizon.h_mean):8.4}
+                                                {other.h_mean:8.4}
+            {'—'*45}
+            Coverage of horizons:                {self.horizon.coverage:8.4}
+                                                {other.coverage:8.4}
+            {'—'*45}
+            Solidity of horizons:                {self.horizon.solidity:8.4}
+                                                {other.solidity:8.4}
+            {'—'*45}
+            Number of holes in horizons:         {self.horizon.number_of_holes:8}
+                                                {other.number_of_holes:8}
+            {'—'*45}
+            Additional traces labeled:           {at_1:8}
+            (present in one, absent in other)    {at_2:8}
+            {'—'*45}
+            """
+            printer(dedent(msg))
 
         if hist and not np.isnan(max_abs_error):
             _ = plt.hist(metric.ravel(), bins=100)

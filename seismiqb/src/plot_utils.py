@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
-from ..batchflow import Pipeline, D
+from ..batchflow import Pipeline
 
 
 
