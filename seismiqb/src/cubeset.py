@@ -222,18 +222,14 @@ class SeismicCubeset(Dataset):
 
         # Keep only every `each`-th point
         if each is not None:
-            def get_shape(name):
-                return self.geometries[name].cube_shape[axis]
-
-            def get_ticks(name):
-                shape = self.geometries[name].cube_shape[axis]
-                return np.arange(each_start, shape, each)
-
             def filter_out(array):
-                shapes = np.array(list(map(get_shape, array[:, 0])))
-                ticks = np.array(list(map(get_ticks, array[:, 0])))
-                arr = np.rint(array[:, axis+1].astype(float)*shapes).astype(int)
-                array[:, axis+1] = round_to_array(arr, ticks) / shapes
+                for cube_name in np.unique(array[:, 0]):
+                    shape = self.geometries[cube_name].cube_shape[axis]
+                    ticks = np.arange(each_start, shape, each)
+                    name_idx = np.asarray(array[:, 0] == cube_name).nonzero()
+
+                    arr = np.rint(array[array[:, 0] == cube_name][:, axis+1].astype(float)*shape).astype(int)
+                    array[name_idx, np.full_like(name_idx, axis+1)] = round_to_array(arr, ticks).astype(float) / shape
                 return array
 
             sampler = sampler.apply(filter_out)
