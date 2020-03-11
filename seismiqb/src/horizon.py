@@ -1035,26 +1035,35 @@ Currently synchronized: {self.synchronized}; In debug mode: {self.debug}; At {he
                    cmap='viridis_r', **kwargs)
 
 
-    def show_amplitudes_rgb(self, width=3, **kwargs):
+    def show_amplitudes_rgb(self, width=3, channel_weights=(1, 0.5, 0.25), to_uint8=True, **kwargs):
         """ Show trace values on the horizon and surfaces directly under it.
 
         Parameters
         ----------
         width : int
             Space between surfaces to cut.
+        channel_weights : tuple
+            Weights applied to rgb-channels.
+        to_uint8 : bool
+            Determines whether the image should be cast to uint8.
+        backend : str
+            Can be either 'matplotlib' ('plt') or 'plotly' ('go')
         """
+        # get values along the horizon and cast them to [0, 1]
         amplitudes = self.get_cube_values(window=1 + width*2, offset=width)
-
         amplitudes = amplitudes[:, :, (0, width, -1)]
         amplitudes -= amplitudes.min(axis=(0, 1)).reshape(1, 1, -1)
         amplitudes *= 1 / amplitudes.max(axis=(0, 1)).reshape(1, 1, -1)
         amplitudes[self.fullmatrix == self.FILL_VALUE, :] = 0
         amplitudes = amplitudes[:, :, ::-1]
-        amplitudes *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
+        amplitudes *= np.asarray(channel_weights).reshape(1, 1, -1)
+
+        # cast values to uint8 if needed
+        if to_int8:
+            amplitudes = (amplitudes * 255).astype(np.uint8)
+
         plot_image(amplitudes, 'RGB amplitudes of {} on cube {}'.format(self.name, self.cube_name),
                    rgb=True, **kwargs)
-
-
 
 
 class HorizonMetrics(Metrics):
@@ -1144,7 +1153,7 @@ class HorizonMetrics(Metrics):
             # TODO: make plot functions use only needed parameters
             ignore_value = plot_dict.pop('ignore_value', None)
             spatial = plot_dict.pop('spatial', True)
-            _ = backend, plot_kwargs, plot_dict.pop('zmin', -1), plot_dict.pop('zmax', 1)
+            _ = plot_kwargs, plot_dict.pop('zmin', -1), plot_dict.pop('zmax', 1)
 
             # np.nan allows to ignore values
             if ignore_value is not None:
@@ -1156,7 +1165,7 @@ class HorizonMetrics(Metrics):
             # Actual plot
             if plot:
                 if spatial:
-                    plot_image(copy_metric, savefig=savepath, show_plot=show_plot, **plot_dict)
+                    plot_image(copy_metric, savefig=savepath, show_plot=show_plot, backend=backend, **plot_dict)
                 else:
                     pass
             if scalar:
