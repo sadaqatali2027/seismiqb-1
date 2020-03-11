@@ -1059,7 +1059,7 @@ Currently synchronized: {self.synchronized}; In debug mode: {self.debug}; At {he
         amplitudes *= np.asarray(channel_weights).reshape(1, 1, -1)
 
         # cast values to uint8 if needed
-        if to_int8:
+        if to_uint8:
             amplitudes = (amplitudes * 255).astype(np.uint8)
 
         plot_image(amplitudes, 'RGB amplitudes of {} on cube {}'.format(self.name, self.cube_name),
