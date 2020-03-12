@@ -3,10 +3,10 @@ import os
 import logging
 
 import h5py
-import h5pickle
 import numpy as np
 import segyio
 from tqdm import tqdm
+import h5pickle
 
 from .utils import update_minmax
 

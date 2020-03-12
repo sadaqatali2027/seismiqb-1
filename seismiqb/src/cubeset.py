@@ -224,18 +224,14 @@ class SeismicCubeset(Dataset):
 
         # Keep only every `each`-th point
         if each is not None:
-            def get_shape(name):
-                return self.geometries[name].cube_shape[axis]
-
-            def get_ticks(name):
-                shape = self.geometries[name].cube_shape[axis]
-                return np.arange(each_start, shape, each)
-
             def filter_out(array):
-                shapes = np.array(list(map(get_shape, array[:, 0])))
-                ticks = np.array(list(map(get_ticks, array[:, 0])))
-                arr = np.rint(array[:, axis+1].astype(float)*shapes).astype(int)
-                array[:, axis+1] = round_to_array(arr, ticks) / shapes
+                for cube_name in np.unique(array[:, 0]):
+                    shape = self.geometries[cube_name].cube_shape[axis]
+                    ticks = np.arange(each_start, shape, each)
+                    name_idx = np.asarray(array[:, 0] == cube_name).nonzero()
+
+                    arr = np.rint(array[array[:, 0] == cube_name][:, axis+1].astype(float)*shape).astype(int)
+                    array[name_idx, np.full_like(name_idx, axis+1)] = round_to_array(arr, ticks).astype(float) / shape
                 return array
 
             sampler = sampler.apply(filter_out)
@@ -283,7 +279,7 @@ class SeismicCubeset(Dataset):
         show_sampler(sampler, cube_name, geom, n=n, eps=eps, show_unique=show_unique, **kwargs)
 
 
-    @lru_cache(3, storage=os.environ.get('SEISMIQB_CACHEDIR'), anchor=True, attributes='indices', pickle_module='blosc')
+    @lru_cache(3, storage=os.environ.get('SEISMIQB_CACHEDIR'), anchor=True, attributes='indices')
     def load(self, horizon_dir=None, filter_zeros=True, dst_labels='labels', p=None, bins=None, **kwargs):
         """ Load everything: geometries, point clouds, labels, samplers.
 
@@ -421,8 +417,8 @@ class SeismicCubeset(Dataset):
             Name of horizon to use.
         """
         mask = getattr(self, src) if isinstance(src, str) else src
-        horizons = Horizon.frommask(mask, self.grid_info, threshold=threshold,
-                                    averaging=averaging, minsize=minsize, prefix=prefix)
+        horizons = Horizon.from_mask(mask, self.grid_info, threshold=threshold,
+                                     averaging=averaging, minsize=minsize, prefix=prefix)
         setattr(self, dst, horizons)
         return self
 
