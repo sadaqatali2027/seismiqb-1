@@ -11,7 +11,8 @@ from ..batchflow import NumpySampler, ConstantSampler
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
-from .horizon import Horizon, HorizonMetrics
+from .horizon import Horizon, UnstructuredHorizon
+from .metrics import HorizonMetrics
 from .utils import IndexedDict, lru_cache, round_to_array
 from .plot_utils import show_sampler, plot_slide
 
@@ -37,10 +38,12 @@ class SeismicCubeset(Dataset):
         """ Initialize additional attributes. """
         super().__init__(index, batch_class=batch_class, preloaded=preloaded, *args, **kwargs)
 
-        self.geometries = IndexedDict({ix: SeismicGeometry(self.index.get_fullpath(ix)) for ix in self.indices})
+        self.geometries = IndexedDict({ix: SeismicGeometry(self.index.get_fullpath(ix), process=False)
+                                       for ix in self.indices})
         self.labels = IndexedDict({ix: dict() for ix in self.indices})
         self.samplers = IndexedDict({ix: None for ix in self.indices})
-        self.sampler = None
+        self._sampler = None
+        self._p, self._bins = None, None
 
         self.grid_gen, self.grid_info, self.grid_iters = None, None, None
 
@@ -59,7 +62,8 @@ class SeismicCubeset(Dataset):
             Same instance with loaded geometries.
         """
         for ix in self.indices:
-            self.geometries[ix].load()
+            #TODO: pass kwargs from `load`
+            self.geometries[ix].process(collect_stats=True, spatial=False,)
             if logs:
                 self.geometries[ix].log()
         return self
@@ -71,8 +75,8 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def create_labels(self, paths=None, filter_zeros=True, dst='labels', **kwargs):
-        """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
+    def create_labels(self, paths=None, filter_zeros=True, dst='labels', labels_class=None, **kwargs):
+        """ Create labels (horizons, facies, etc) from given paths.
 
         Parameters
         ----------
@@ -89,13 +93,32 @@ class SeismicCubeset(Dataset):
         if not hasattr(self, dst):
             setattr(self, dst, IndexedDict({ix: dict() for ix in self.indices}))
 
+
         for ix in self.indices:
-            horizon_list = [Horizon(path, self.geometries[ix], **kwargs) for path in paths[ix]]
+            if labels_class is None:
+                if self.geometries[ix].structured:
+                    labels_class = Horizon
+                else:
+                    labels_class = UnstructuredHorizon
+
+            horizon_list = [labels_class(path, self.geometries[ix], **kwargs) for path in paths[ix]]
             horizon_list.sort(key=lambda horizon: horizon.h_mean)
             if filter_zeros:
                 _ = [getattr(horizon, 'filter_points')() for horizon in horizon_list]
             getattr(self, dst)[ix] = horizon_list
         return self
+
+    @property
+    def sampler(self):
+        """ !!. """
+        if self._sampler is None:
+            self.create_sampler(p=self._p, bins=self._bins)
+        return self._sampler
+
+    @sampler.setter
+    def sampler(self, sampler):
+        """ !!. """
+        self._sampler = sampler
 
 
     def create_sampler(self, mode='hist', p=None, transforms=None, dst='sampler', **kwargs):
@@ -301,7 +324,7 @@ class SeismicCubeset(Dataset):
 
         self.load_geometries()
         self.create_labels(paths=paths_txt, filter_zeros=filter_zeros, dst=dst_labels)
-        self.create_sampler(p=p, bins=bins)
+        self._p, self._bins = p, bins # stored for later sampler creation
         return self
 
 

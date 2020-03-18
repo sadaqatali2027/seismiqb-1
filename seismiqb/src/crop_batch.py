@@ -5,7 +5,6 @@ import random
 from copy import copy
 
 import numpy as np
-import segyio
 import cv2
 from scipy.signal import butter, lfilter, hilbert
 
@@ -13,7 +12,7 @@ from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 
 from .horizon import Horizon
-from .utils import lru_cache, classproperty, aggregate
+from .utils import aggregate
 from .plot_utils import plot_batch_components
 
 
@@ -248,7 +247,8 @@ class SeismicCropBatch(Batch):
         return segyfile
 
     @action
-    def load_cubes(self, dst, fmt='h5py', src='slices', view=None):
+    @inbatch_parallel(init='_init_component', target='threads')
+    def load_cubes(self, ix, dst, fmt=None, src='slices', axis=None, mode=None):
         """ Load data from cube in given positions.
 
         Parameters
@@ -259,158 +259,19 @@ class SeismicCropBatch(Batch):
             Component of batch with positions of crops to load.
         dst : str
             Component of batch to put loaded crops in.
-
-        Returns
-        -------
-        SeismicCropBatch
-            Batch with loaded crops in desired component.
         """
+        geom = self.get(ix, 'geometries')
+        slice_ = self.get(ix, src)
+        fmt = fmt or ('h5py' if hasattr(geom, 'h5py_file') else 'sgy')
+
         if fmt.lower() in ['sgy', 'segy']:
-            _ = view
-            return self._load_cubes_sgy(src=src, dst=dst)
+            crop = geom.load_sgy(slice_, mode=mode)
         if fmt.lower() in ['h5py', 'h5']:
-            return self._load_cubes_h5py(src=src, dst=dst, view=view)
-
-        return self
-
-
-    def _sgy_init(self, *args, **kwargs):
-        """ Create `dst` component and preemptively open all the .sgy files.
-        Should always be used in pair with `_sgy_post`!
-
-        Note
-        ----
-        This init function is helpful for actions that work directly with .sgy
-        files through `segyio` API: all the file handlers are created only once per batch,
-        rather than once for every item in the batch.
-        """
-        _ = args
-        dst = kwargs.get("dst")
-        if dst is None:
-            raise KeyError("dst argument must be specified")
-        if isinstance(dst, str):
-            dst = (dst,)
-        for comp in dst:
-            if not hasattr(self, comp):
-                self.add_components(comp, np.array([None] * len(self.index)))
-
-        segyfiles = {}
-        for ix in self.indices:
-            path_data = self.index.get_fullpath(ix)
-            if segyfiles.get(self.unsalt(ix)) is None:
-                segyfile = segyio.open(path_data, 'r', strict=False, ignore_geometry=False)
-                segyfile.mmap()
-                segyfiles[self.unsalt(ix)] = segyfile
-
-        return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
-                for ix in self.indices]
-
-    def _sgy_post(self, segyfiles, *args, **kwargs):
-        """ Close opened .sgy files."""
-        _, _ = args, kwargs
-        for segyfile in segyfiles:
-            segyfile.close()
-        return self
-
-    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
-    def _load_cubes_sgy(self, ix, segyfile, dst, src='slices'):
-        """ Load data from .sgy-cube in given positions. """
-        geom = self.get(ix, 'geometries')
-        slice_ = self.get(ix, src)
-        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-
-        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-        for i, iline_ in enumerate(ilines_):
-            for j, xline_ in enumerate(xlines_):
-                il_, xl_ = geom.ilines[iline_], geom.xlines[xline_]
-                try:
-                    tr_ = geom.il_xl_trace[(il_, xl_)]
-                    crop[i, j, :] = segyfile.trace[tr_][hs_]
-                except KeyError:
-                    pass
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = crop
-        return segyfile
-
-
-    @inbatch_parallel(init='_init_component', target='threads')
-    def _load_cubes_h5py(self, ix, dst, src='slices', view=None):
-        """ Load data from .hdf5-cube in given positions. """
-        geom = self.get(ix, 'geometries')
-        slice_ = self.get(ix, src)
-
-        if view is None:
-            slice_lens = np.array([len(item) for item in slice_])
-            axis = np.argmin(slice_lens)
-        else:
-            mapping = {0: 0, 1: 1, 2: 2,
-                       'i': 0, 'x': 1, 'h': 2,
-                       'iline': 0, 'xline': 1, 'height': 2, 'depth': 2}
-            axis = mapping[view]
-
-        if axis == 0:
-            crop = self.__load_h5py_i(geom, *slice_)
-        elif axis == 1 and 'cube_x' in geom.h5py_file:
-            crop = self.__load_h5py_x(geom, *slice_)
-        elif axis == 2 and 'cube_h' in geom.h5py_file:
-            crop = self.__load_h5py_h(geom, *slice_)
-        else: # backward compatibility
-            crop = self.__load_h5py_i(geom, *slice_)
+            crop = geom.load_h5py(slice_, axis=axis)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = crop
         return self
-
-    def __load_h5py_i(self, geom, ilines, xlines, heights):
-        h5py_cube = geom.h5py_file['cube']
-        dtype = h5py_cube.dtype
-
-        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
-        for i, iline in enumerate(ilines):
-            slide = self.__load_slide(h5py_cube, iline)
-            crop[i, :, :] = slide[xlines, :][:, heights]
-        return crop
-
-    def __load_h5py_x(self, geom, ilines, xlines, heights):
-        h5py_cube = geom.h5py_file['cube_x']
-        dtype = h5py_cube.dtype
-
-        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
-        for i, xline in enumerate(xlines):
-            slide = self.__load_slide(h5py_cube, xline)
-            crop[:, i, :] = slide[heights, :][:, ilines].transpose([1, 0])
-        return crop
-
-    def __load_h5py_h(self, geom, ilines, xlines, heights):
-        h5py_cube = geom.h5py_file['cube_h']
-        dtype = h5py_cube.dtype
-
-        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
-        for i, height in enumerate(heights):
-            slide = self.__load_slide(h5py_cube, height)
-            crop[:, :, i] = slide[ilines, :][:, xlines]
-        return crop
-
-    @lru_cache(96)
-    def __load_slide(self, cube, index):
-        """ Cached function for slide loading.
-
-        Notes
-        -----
-        Each usage of `autoreload` resets the cache.
-        """
-        return cube[index, :, :]
-
-    @classproperty
-    def cache_stats(self):
-        """ Show number of hits/misses of cache. """
-        return self._SeismicCropBatch__load_slide.stats
-
-    @classmethod
-    def reset_cache(cls):
-        """ Clear stored values from the cache. """
-        return cls._SeismicCropBatch__load_slide.reset()
 
 
     @action
@@ -473,7 +334,7 @@ class SeismicCropBatch(Batch):
                              dtype=np.int32)
 
         for horizon in horizons:
-            mask = horizon.add_to_mask(mask, mask_bbox, width=width)
+            mask = horizon.add_to_mask(mask, mask_bbox=mask_bbox, locations=slice_, width=width)
 
         pos = self.get_pos(None, dst, ix)
         getattr(self, dst)[pos] = mask

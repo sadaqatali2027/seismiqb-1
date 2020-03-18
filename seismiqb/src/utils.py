@@ -1,5 +1,6 @@
 """ Utility functions. """
 import os
+from copy import copy
 from collections import OrderedDict, MutableMapping
 from threading import RLock
 from functools import wraps
@@ -214,7 +215,8 @@ class lru_cache:
         elif isinstance(self.storage, str):
             self.cache = PickleDict(self.storage, maxsize=self.maxsize, pickle_module=self.pickle_module)
         else:
-            self.cache = self.storage
+            #TODO: add good explanation of this
+            self.cache = copy(self.storage)
 
         self.is_full = False
         self.stats = {'hit': 0, 'miss': 0}
@@ -235,11 +237,10 @@ class lru_cache:
 
         if self.classwide:
             key[0] = key[0].__class__
-            if self.anchor is not None:
+            if self.anchor:
                 key[0] = self.anchor
         else:
-            key[0] = hash(key[0])
-            if self.anchor is not None:
+            if self.anchor:
                 key.append(self.anchor)
         return tuple(key)
 
@@ -272,14 +273,14 @@ class lru_cache:
             return result
 
         wrapper.__name__ = func.__name__
-        wrapper.cache = self.cache
+        wrapper.cache = lambda: self.cache
         wrapper.reset = self.reset
-        wrapper.stats = self.stats
+        wrapper.stats = lambda: self.stats
         return wrapper
 
 
 
-
+#TODO: rethink
 def make_subcube(path, geometry, path_save, i_range, x_range):
     """ Make subcube from .sgy cube by removing some of its first and
     last ilines and xlines.
@@ -337,7 +338,7 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
     with segyio.open(path_save, 'r', strict=True) as _:
         pass
 
-
+#TODO: rename, add some defaults
 def convert_point_cloud(path, path_save, names=None, order=None, transform=None):
     """ Change set of columns in file with point cloud labels.
     Usually is used to remove redundant columns.
@@ -400,7 +401,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, order):
 
 
 
-@njit(parallel=True)
+@njit
 def round_to_array(values, ticks):
     """ Jit-accelerated function to round values from one array to the
     nearest value from the other in a vectorized fashion. Faster than numpy version.
@@ -432,7 +433,32 @@ def round_to_array(values, ticks):
     return values
 
 
+@njit
+def find_min_max(array):
+    """ Get both min and max values in just one pass through array."""
+    n = array.size
+    odd = n % 2
+    if not odd:
+        n -= 1
+    max_val = min_val = array[0]
 
+    i = 1
+    while i < n:
+        x = array[i]
+        y = array[i + 1]
+        if x > y:
+            x, y = y, x
+        min_val = min(x, min_val)
+        max_val = max(y, max_val)
+        i += 2
+    if not odd:
+        x = array[n]
+        min_val = min(x, min_val)
+        max_val = max(y, max_val)
+    return min_val, max_val
+
+
+#TODO: remove
 @njit
 def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines_offset):
     """ Get both min and max values in just one pass through array.
