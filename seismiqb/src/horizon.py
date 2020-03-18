@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from numba import njit, prange
 
-
 import cv2
 from scipy.ndimage.morphology import binary_fill_holes, binary_erosion
 from skimage.measure import label, regionprops

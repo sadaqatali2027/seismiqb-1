@@ -10,8 +10,8 @@ from tqdm import tqdm, tqdm_notebook
 import numpy as np
 import pandas as pd
 import h5py
-import h5pickle
 import segyio
+import h5pickle
 
 from .utils import update_minmax, lru_cache, find_min_max
 from .plot_utils import plot_images_overlap
@@ -63,7 +63,7 @@ def add_descriptors(cls):
 @add_descriptors
 class SeismicGeometry:
     """ !!. """
-    #pylint: disable=attribute-defined-outside-init
+    #pylint: disable=attribute-defined-outside-init, too-many-instance-attributes, too-many-public-methods
     SEGY_ALIASES = ['sgy', 'segy', 'seg']
     HDF5_ALIASES = ['hdf5', 'h5py']
 
@@ -187,6 +187,7 @@ class SeismicGeometry:
 
     def collect_stats_sgy(self, spatial=True, bins='uniform', num_keep=15000, **kwargs):
         """ !!. """
+        #pylint: disable=not-an-iterable
         _ = kwargs
 
         num_traces = len(self.segyfile.header)
@@ -469,7 +470,7 @@ class SeismicGeometry:
         location = self.make_slide_locations(loc=loc, axis=axis)
         return np.squeeze(self.load_h5py(location))
 
-    # Common methods/properties for SEG-Y/hdf5
+    # Common methods/properties for SEG-Y/H5PY
     def scaler(self, array, mode='minmax'):
         """ !!. """
         if mode == 'minmax':
