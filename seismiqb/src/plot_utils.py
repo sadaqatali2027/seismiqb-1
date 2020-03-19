@@ -283,7 +283,7 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, sav
             plt.xlabel(xlabel, fontdict={'fontsize': 20})
         if ylabel:
             plt.ylabel(ylabel, fontdict={'fontsize': 20})
-        if rgb is False:
+        if not rgb:
             plt.colorbar(img_, fraction=0.022, pad=0.07)
         plt.tick_params(labeltop=True, labelright=True)
 
@@ -293,10 +293,14 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, sav
 
     elif backend in ('plotly', 'go'):
         # filter kwargs and set defaults
-        kwargs_ = filter_kwargs(kwargs, ('max_size', 'autocolorscale', 'coloraxis',
-                                         'colorbar', 'colorscale', 'opacity', 'reversescale',
-                                         'opacity', 'zmin', 'zmax', 'showscale'))
-        default_kwargs = dict(hoverongaps=False, colorscale='viridis', reversescale=True)
+        if rgb:
+            kwargs_ = filter_kwargs(kwargs, ('opacity', 'zmin', 'zmax'))
+            default_kwargs = dict()
+        else:
+            kwargs_ = filter_kwargs(kwargs, ('max_size', 'autocolorscale', 'coloraxis',
+                                             'colorbar', 'colorscale', 'opacity', 'reversescale',
+                                             'opacity', 'zmin', 'zmax', 'showscale'))
+            default_kwargs = dict(hoverongaps=False, colorscale='viridis', reversescale=True)
 
         # calculate canvas sizes
         width, height = img.shape[1], img.shape[0]
@@ -310,7 +314,8 @@ def plot_image(img, title=None, xlabel='xlines', ylabel='ilines', rgb=False, sav
         coloraxis_colorbar = {'title': 'depth'}
 
         # plot the image and set titles
-        fig = go.Figure(data=go.Heatmap(z=img, **{**default_kwargs, **kwargs_}))
+        plot_data = getattr(go, 'Image' if rgb else 'Heatmap')(z=img, **{**default_kwargs, **kwargs_})
+        fig = go.Figure(data=plot_data)
         fig.update_layout(title=title, xaxis=xaxis, yaxis=yaxis,
                           width=width, height=height,
                           coloraxis_colorbar=coloraxis_colorbar)
