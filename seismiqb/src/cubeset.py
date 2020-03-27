@@ -15,9 +15,6 @@ from .horizon import Horizon, HorizonMetrics
 from .utils import IndexedDict, lru_cache, round_to_array
 from .plot_utils import show_sampler, plot_slide
 
-from ..batchflow import Dataset, Sampler, Pipeline
-from ..batchflow import B, V, D
-
 
 class SeismicCubeset(Dataset):
     """ Stores indexing structure for dataset of seismic cubes along with additional structures.
@@ -517,40 +514,6 @@ class SeismicCubeset(Dataset):
         """
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images',)
         plot_slide(self, *components, idx=idx, n_line=n_line, plot_mode=plot_mode, mode=mode, **kwargs)
-
-    def subset_labels(self, idx=0, horizon_idx=0, src='labels', coords=None,
-                      dst='prior_mask', mask=None):
-        """Save prior mask to a cubeset attribute `prior_mask`.
-        Parameters
-        ----------
-        coords : tuple or list
-            upper left and lower right coordinates of the subset.
-        mask : array
-            optional if coords is not provided binary mask of the subset.
-        """
-        FILL_VALUE = -999999
-        labels_full = getattr(self, src)[self.indices[idx]][horizon_idx].full_matrix
-        if not mask:
-            if coords:
-                i_min, i_max = coords[0]
-                x_min, x_max = coords[1]
-                mask = np.zeros_like(labels_full, dtype=np.bool)
-                mask[i_min: i_max, x_min: x_max] = True
-            else:
-                raise ValueError("Either coords or mask should be provided.")
-
-        subset_matrix  = np.full(labels_full.shape, FILL_VALUE, np.float32)
-        subset_matrix[mask] = labels_full[mask]
-
-        subset_horizon = Horizon(subset_matrix, self.geometries[self.indices[idx]])
-        if len(subset_horizon) == 0:
-            raise ValueError("Subset is empty")
-
-        if not hasattr(self, dst):
-            setattr(self, dst, IndexedDict({ix: list() for ix in self.indices}))
-
-        getattr(self, dst)[self.indices[0]] = [subset_horizon]
-        return self
 
     def make_expand_grid(self, cube_name, crop_shape, labels_img, labels_src='predicted_labels', stride=10, batch_size=16):
         """ Define crops coordinates for one step of an extension step.
