@@ -51,6 +51,7 @@ class SeismicCubeset(Dataset):
     def gen_batch(self, batch_size, shuffle=False, n_iters=None, n_epochs=None, drop_last=False,
                   bar=False, bar_desc=None, iter_params=None, sampler=None):
         """ !!. """
+        #pylint: disable=blacklisted-name
         if n_epochs is not None or shuffle or drop_last:
             raise ValueError('SeismicCubeset does not comply with `n_epochs`, `shuffle`\
                               and `drop_last`. Use `n_iters` instead! ')

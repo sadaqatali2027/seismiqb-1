@@ -1,5 +1,5 @@
 """ Contains metrics for various labels (horizons, facies, etc) and cubes. """
-#pylint: disable=too-many-lines
+#pylint: disable=too-many-lines, not-an-iterable
 from copy import copy
 from textwrap import dedent
 from tqdm.auto import tqdm
