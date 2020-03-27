@@ -396,7 +396,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def mask_to_horizons(self, src, threshold=0.5, averaging='mean', minsize=0,
+    def mask_to_horizons(self, src, cube_name, min_point=None, threshold=0.5, averaging='mean', minsize=0,
                          dst='predicted_horizons', prefix='predict'):
         """ Convert mask to a list of horizons.
 
@@ -417,9 +417,16 @@ class SeismicCubeset(Dataset):
             Name of horizon to use.
         """
         mask = getattr(self, src) if isinstance(src, str) else src
-        horizons = Horizon.from_mask(mask, self.grid_info, threshold=threshold,
-                                     averaging=averaging, minsize=minsize, prefix=prefix)
-        setattr(self, dst, horizons)
+
+        if getattr(self, 'grid_info'):
+            min_point = [item[0] for item in self.grid_info['range']]
+
+        horizons = Horizon.from_mask(mask, self.geometries[cube_name], min_point=min_point,
+                                     threshold=threshold, averaging=averaging, minsize=minsize, prefix=prefix)
+        if not hasattr(self, dst):
+            setattr(self, dst, IndexedDict({ix: dict() for ix in self.indices}))
+
+        getattr(self, dst)[cube_name] = horizons
         return self
 
 
@@ -511,193 +518,176 @@ class SeismicCubeset(Dataset):
         components = ('images', 'masks') if list(self.labels.values())[0] else ('images',)
         plot_slide(self, *components, idx=idx, n_line=n_line, plot_mode=plot_mode, mode=mode, **kwargs)
 
-    def subset_labels(self, points, crop_shape=(2, 64, 64), cube_index=0, show_prior_mask=False):
+    def subset_labels(self, idx=0, horizon_idx=0, src='labels', coords=None,
+                      dst='prior_mask', mask=None):
         """Save prior mask to a cubeset attribute `prior_mask`.
         Parameters
         ----------
-        points : tuple or list
-            upper left coordinates of the starting crop in the seismic cube coordinates.
-        crop_shape : array-like
-            shape of the saved prior mask.
-        cube_index : int
-            index of the cube in `ds.indices` list.
-        show_prior_mask : bool
-            whether to show prior mask
+        coords : tuple or list
+            upper left and lower right coordinates of the subset.
+        mask : array
+            optional if coords is not provided binary mask of the subset.
         """
-        ds_points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
+        FILL_VALUE = -999999
+        labels_full = getattr(self, src)[self.indices[idx]][horizon_idx].full_matrix
+        if not mask:
+            if coords:
+                i_min, i_max = coords[0]
+                x_min, x_max = coords[1]
+                mask = np.zeros_like(labels_full, dtype=np.bool)
+                mask[i_min: i_max, x_min: x_max] = True
+            else:
+                raise ValueError("Either coords or mask should be provided.")
 
-        start_predict_pipeline = (Pipeline()
-                                  .load_component(src=[D('geometries'), D('labels')],
-                                                  dst=['geometries', 'labels'])
-                                  .crop(points=ds_points, shape=crop_shape)
-                                  .load_cubes(dst='images')
-                                  .create_masks(dst='masks', width=1, horizons=1, src_labels='labels')
-                                  .rotate_axes(src=['images', 'masks'])
-                                  .add_axis(src='masks', dst='masks')
-                                  .scale(mode='normalize', src='images')) << self
+        subset_matrix  = np.full(labels_full.shape, FILL_VALUE, np.float32)
+        subset_matrix[mask] = labels_full[mask]
 
-        batch = start_predict_pipeline.next_batch(len(self.indices), n_epochs=None)
+        subset_horizon = Horizon(subset_matrix, self.geometries[self.indices[idx]])
+        if len(subset_horizon) == 0:
+            raise ValueError("Subset is empty")
 
-        if show_prior_mask:
-            batch.plot_components('masks')
+        if not hasattr(self, dst):
+            setattr(self, dst, IndexedDict({ix: list() for ix in self.indices}))
 
-        i_shift, x_shift, h_shift = [slices[0] for slices in batch.slices[0]]
-        transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + i_shift],
-                      lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + x_shift],
-                      lambda h_: h_ + h_shift]
-        self.mask_to_horizons(np.moveaxis(batch.masks[0][:, :, :, 0], -1, 0),
-                             threshold=0.5, dst='prior_mask', coordinates=None, transforms=transforms, separate=True)
-        if len(self.prior_mask[0]) == 0:
-            raise ValueError("Prior mask is empty")
-        numba_horizon = convert_to_numba_dict(self.prior_mask[0])
-        setattr(self, 'prior_mask', {self.indices[cube_index]: numba_horizon})
+        getattr(self, dst)[self.indices[0]] = [subset_horizon]
         return self
 
-    def make_slice_prediction(self, model_pipeline, points, crop_shape, max_iters=10, width=10, stride=32,
-                              cube_index=0, threshold=0.02, show_count=None, slide_direction='xline', mode='right'):
-        # pylint: disable=too-many-branches
-        # pylint: disable=too-many-statements
-        """ Extend horizon on one slice by sequential predict on overlapping crops.
+    def make_expand_grid(self, cube_name, crop_shape, labels_img, labels_src='predicted_labels', stride=10, batch_size=16):
+        """ Define crops coordinates for one step of an extension step.
         Parameters
         ----------
-        ds : Cubeset
-            Instance of the Cubeset. Must have non-empy attributes `predicted labels` and `labels` (for debugging plots)
-        points : tuple or list
-            upper left coordinates of the starting crop in the seismic cube coordinates.
+        cube_name : str
+            Reference to cube. Should be valid key for `geometries` attribute.
         crop_shape : array-like
             shape of the crop fed to the model.
-        max_iters : int
-            max_number of extension steps. If we meet end of the cube we will make less steps.
-        width : int
-            width of compared windows.
+        labels_img : binary array of shape (ilines_len, xlines_len) with `1's` corresponding to known
+            labels.
+        labels_src : str
+            attribute name of known labels.
         stride : int
             stride size.
-        cube_index : int
-            index of the cube ds.indices.
-        threshold : float
-            threshold for predicted mask
-        show_count : int
-            Number of extension steps to show
-        slide_direction : str
-            Either `xline` or `iline`. Direction of the predicted slice.
-        mode : str
-            if left increase next point's line coordinates otherwise decrease it.
-        Returns
-        -------
-        SeismicCubeset
-            Same instance with updated `predicted_labels` and `grid_info` attributes.
+        batch_size : int
+            batch size fed to the model.
         """
-        show_count = max_iters if show_count is None else show_count
-        geom = self.geometries[self.indices[cube_index]]
-        grid_array = []
-        if isinstance(points[0], (list, tuple)):
-            max_iline = points[0][1] if points[0][1] is not None else geom.ilines_len
-            max_xline = points[1][1] if points[1][1] is not None else geom.xlines_len
-            points = [points[0][0], points[1][0], points[2][0]]
-        else:
-            max_iline, max_xline = geom.ilines_len, geom.xlines_len
+        borders_img = labels_img
+        border_coords = np.where(borders_img == 1)
+        il_min, il_max = np.min(border_coords[0]), np.max(border_coords[0])
+        x_min, x_max = np.min(border_coords[1]), np.max(border_coords[1])
+        width, line_shape, height = crop_shape
+        iline_crops = []
 
-        # compute strides for xline, iline cases
-        line_stride = -stride if mode == 'left' else stride
-        if slide_direction == 'iline':
-            axes = (1, 0, 2)
-            strides_candidates = [[line_stride, 0, -stride], [line_stride, 0, stride], [line_stride, 0, 0],
-                                  [0, 0, -stride], [0, 0, stride]]
-        elif slide_direction == 'xline':
-            axes = (0, 1, 2)
-            strides_candidates = [[0, line_stride, -stride], [0, line_stride, stride], [0, line_stride, 0],
-                                  [0, 0, -stride], [0, 0, stride]]
-        else:
-            raise ValueError("Slide direction can be either iline or xline.")
+        labels = getattr(self, labels_src)[cube_name][0]
+        labels_i_min, labels_x_min = labels.i_min, labels.x_min
+        
+        zero_traces = self.geometries[cube_name].zero_traces
+        
+        deb_h, deb_l = 0, 0
+        # sample horizontal border points
+        for xline in range(x_min, x_max, width):
+            non_zero = np.where(borders_img[il_min:il_max + 1, xline] == 1)[0]
 
-        load_components_ppl = (Pipeline()
-                               .load_component(src=[D('geometries'), D('labels')],
-                                               dst=['geometries', 'labels'])
-                               .add_components('predicted_labels'))
+#             non_zero_traces = np.where(zero_traces[:, xline] == 0)[0]
+#             if len(non_zero_traces) != 0:
+#                 min_non_zero_trace = np.min(non_zero_traces)
+#                 max_non_zero_trace = np.max(non_zero_traces)
+# #                 print('min_non_zero_trace, max_non_zero_trace', min_non_zero_trace, max_non_zero_trace)
+#             else:
+#                 min_non_zero_trace = 0
+#                 max_non_zero_trace = self.geometries[cube_name].ilines_len
 
-        predict_ppl = (Pipeline()
-                       .load_component(src=[D('predicted_labels')], dst=['predicted_labels'])
-                       .load_cubes(dst='images')
-                       .create_masks(dst='masks', width=1, n_horizons=1, src_labels='labels')
-                       .create_masks(dst='cut_masks', width=1, n_horizons=1, src_labels='predicted_labels')
-                       .apply_transform(np.transpose, axes=axes, src=['images', 'masks', 'cut_masks'])
-                       .rotate_axes(src=['images', 'masks', 'cut_masks'])
-                       .analytic_transform(src='images', dst='hilbert')
-                       .scale(mode='normalize', src='images')
-                       .add_axis(src='masks', dst='masks')
-                       .import_model('extension', model_pipeline)
-                       .init_variable('result_preds', init_on_each_run=list())
-                       .concat_components(src=('images', 'cut_masks'), dst='model_inputs')
-                       .predict_model('extension', fetches='sigmoid',
-                                      images=B('model_inputs'),
-                                      save_to=V('result_preds', mode='e')))
+            if len(non_zero) == 0:
+                continue
+            _lower_il, _upper_il = np.min(non_zero) + il_min, np.max(non_zero) + il_min
 
-        for i in range(max_iters):
-            if (points[0] + crop_shape[0] > max_iline or
-                    points[1] + crop_shape[1] > max_xline or points[2] + crop_shape[2] > geom.depth):
-                print("End of the cube or area")
-                break
+            _lower_h = labels.matrix[_lower_il, xline] - height // 2
+            _upper_h = labels.matrix[_upper_il, xline] - height // 2
+            _lower_il = _lower_il + stride - line_shape
 
-            grid_array.append(points)
-            ds_points = np.array([[self.indices[cube_index], *points, None]])[:, :4]
-            crop_ppl = Pipeline().crop(points=ds_points, shape=crop_shape, passdown='predicted_labels')
+            _upper_il = _upper_il - stride
 
-            next_predict_pipeline = (load_components_ppl + crop_ppl + predict_ppl) << self
-            btch = next_predict_pipeline.next_batch(len(self.indices), n_epochs=None)
-            result = next_predict_pipeline.get_variable('result_preds')[0][..., 0]
-            if np.sum(btch.images) < 1e-2:
-                print('Empty traces')
-                break
+            
+            if _lower_il + labels_i_min >= 0:
+#             if _lower_il + labels_i_min >= min_non_zero_trace:
+                iline_crops.append([cube_name, _lower_il + labels_i_min, xline + labels_x_min, _lower_h])
+            if _upper_il + labels_i_min + line_shape <= self.geometries[cube_name].ilines_len:
+#             if _upper_il + labels_i_min + line_shape <= max_non_zero_trace:
+                deb_h += 1
+                iline_crops.append([cube_name, _upper_il + labels_i_min, xline + labels_x_min, _upper_h])
+        iline_crops = np.array(iline_crops, dtype=object)
+        iline_crops_gen = (iline_crops[i:i+batch_size]
+                               for i in range(0, len(iline_crops), batch_size))
+        self.iline_crops_gen = lambda: next(iline_crops_gen)
+        self.iline_crops_iters = - (-len(iline_crops) // batch_size)
+        offsets = np.array([np.min(iline_crops[:, 1]),
+                            np.min(iline_crops[:, 2]),
+                            np.min(iline_crops[:, 3])])
 
-            # transform cube coordinates to ilines-xlines
-            transforms = [lambda i_: self.geometries[self.indices[cube_index]].ilines[i_ + points[0]],
-                          lambda x_: self.geometries[self.indices[cube_index]].xlines[x_ + points[1]],
-                          lambda h_: h_ + points[2]]
+        ilines_range = (np.min(iline_crops[:, 1]), np.max(iline_crops[:, 1]) + line_shape)
+        xlines_range = (np.min(iline_crops[:, 2]), np.max(iline_crops[:, 2]) + width)
+        h_range = (np.min(iline_crops[:, 3]), np.max(iline_crops[:, 3]) + height)
+        grid_array = iline_crops[:, 1:].astype(int) - offsets
 
-            if slide_direction == 'iline':
-                self.mask_to_horizons(np.moveaxis(result, -1, 1), threshold=threshold, dst='predicted_mask',
-                                     coordinates=None, separate=True, transforms=transforms)
+        predict_shape = (ilines_range[1] - ilines_range[0],
+                         xlines_range[1] - xlines_range[0],
+                         h_range[1] - h_range[0])
+
+        self.iline_crops_info = {'grid_array': grid_array,
+                                 'predict_shape': predict_shape,
+                                 'range': [ilines_range, xlines_range, h_range],
+                                 'crop_shape': (crop_shape[1], crop_shape[0], crop_shape[2]),
+                                 'cube_name': cube_name}
+
+        xline_crops = []
+        # sample vertical border points
+        for iline in range(il_min, il_max, width):
+            non_zero = np.where(borders_img[iline, x_min:x_max + 1] == 1)[0]
+        
+            non_zero_traces = np.where(zero_traces[iline, :] == 0)[0]
+            if len(non_zero_traces) != 0:
+                min_non_zero_trace = np.min(non_zero_traces)
+                max_non_zero_trace = np.max(non_zero_traces)
             else:
-                self.mask_to_horizons(np.moveaxis(result, -1, 0), threshold=threshold, dst='predicted_mask',
-                                     coordinates=None, separate=True, transforms=transforms)
-            try:
-                numba_horizons = convert_to_numba_dict(self.predicted_mask[0])
-            except IndexError:
-                print('Empty predicted mask on step %s' % i)
-                break
+                min_non_zero_trace = 0
+                max_non_zero_trace = self.geometries[cube_name].xlines_len
 
-            assembled_horizon_dict = update_horizon_dict(self.predicted_labels[self.indices[cube_index]],
-                                                         numba_horizons)
-            setattr(self, 'predicted_labels', {self.indices[cube_index]: assembled_horizon_dict})
-            points, compared_slices_ = compute_next_points(points, result[:, :, 0].T,
-                                                           crop_shape, strides_candidates, width)
+            if len(non_zero) == 0:
+                continue
+            _lower_xl, _upper_xl = np.min(non_zero) + x_min, np.max(non_zero) + x_min
+            _lower_h = labels.matrix[iline, _lower_xl] - height // 2
+            _upper_h = labels.matrix[iline, _upper_xl] - height // 2
 
-            if i < show_count:
-                print('----------------')
-                print(i)
-                print('argmax ', np.argmax(np.array(compared_slices_)))
-                print('next stride ', strides_candidates[np.argmax(np.array(compared_slices_))])
-                print('selected next points ', points)
-                plot_extension_history(next_predict_pipeline, btch)
-            if len(self.predicted_labels) == 0:
-                break
+            _lower_xl = _lower_xl + stride - line_shape
+            _upper_xl = _upper_xl - stride
 
-        # assemble grid_info
-        self.grid_info = {self.indices[cube_index]:
-                          make_grid_info(grid_array, self.indices[cube_index], crop_shape)}
-        return self
+            if _lower_xl + labels_x_min >= min_non_zero_trace:
+                xline_crops.append([cube_name, iline + labels_i_min, _lower_xl + labels_x_min, _lower_h])
+            if _upper_xl + labels_x_min + line_shape <= max_non_zero_trace:
+                xline_crops.append([cube_name, iline + labels_i_min, _upper_xl + labels_x_min, _upper_h])
 
-    def update_labels(self, src='predicted_labels', update_src='prior_mask', cube_index=0):
-        """ Update dict-like component with another dict
-        Parameters
-        ----------
-        src : str
-            Component to be updated.
-        update_src : str
-            Component with a dict to add.
-        """
-        dict_update = getattr(self, update_src)[self.indices[cube_index]]
-        if hasattr(self, src):
-            dict_update = update_horizon_dict(dict_update, getattr(self, src)[self.indices[cube_index]])
-        setattr(self, src, {self.indices[cube_index]: dict_update})
+        xline_crops = np.array(xline_crops, dtype=object)
+        xline_crops_gen = (xline_crops[i:i+batch_size]
+                               for i in range(0, len(xline_crops), batch_size))
+
+
+        x_offsets = np.array([np.min(xline_crops[:, 1]),
+                              np.min(xline_crops[:, 2]),
+                              np.min(xline_crops[:, 3])])
+
+        x_ilines_range = (np.min(xline_crops[:, 1]), np.max(xline_crops[:, 1]) + width)
+        x_xlines_range = (np.min(xline_crops[:, 2]), np.max(xline_crops[:, 2]) + line_shape)
+        x_h_range = (np.min(xline_crops[:, 3]), np.max(xline_crops[:, 3]) + height)
+
+        x_predict_shape = (x_ilines_range[1] - x_ilines_range[0],
+                           x_xlines_range[1] - x_xlines_range[0],
+                           x_h_range[1] - x_h_range[0])
+
+        x_grid_array = xline_crops[:, 1:].astype(int) - x_offsets
+
+        self.xline_crops_gen = lambda: next(xline_crops_gen)
+        self.xline_crops_iters = - (-len(xline_crops) // batch_size)
+        self.xline_crops_info = {'grid_array': x_grid_array,
+                                 'predict_shape': x_predict_shape,
+                                 'range': [x_ilines_range, x_xlines_range, x_h_range],
+                                 'crop_shape': crop_shape,
+                                 'cube_name': cube_name}
         return self

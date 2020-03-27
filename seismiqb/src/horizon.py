@@ -299,7 +299,8 @@ class Horizon(BaseLabel):
 
 
     @staticmethod
-    def from_mask(mask, grid_info, threshold=0.5, averaging='mean', minsize=0, prefix='prediction', **kwargs):
+    def from_mask(mask, geometry, min_point, threshold=0.5, averaging='mean', minsize=0,
+                  prefix='prediction', **kwargs):
         """ Convert mask to a list of horizons.
         Returned list is sorted on length of horizons.
 
@@ -319,8 +320,7 @@ class Horizon(BaseLabel):
             Name of horizon to use.
         """
         _ = kwargs
-        geometry = grid_info['geom']
-        i_min, x_min, h_min = [item[0] for item in grid_info['range']]
+        i_min, x_min, h_min = min_point
 
         mask = np.copy(mask)
         mask[mask >= threshold] = 1
@@ -610,9 +610,7 @@ class Horizon(BaseLabel):
                 idx_i = idx_i[heights < chunk_size]
                 idx_x = idx_x[heights < chunk_size]
                 heights = heights[heights < chunk_size]
-
         return background
-
 
     def get_cube_values_line(self, orientation='ilines', line=1, window=23, offset=0, scale=False):
         """ Get values from the cube along the horizon on a particular line.
@@ -1122,7 +1120,7 @@ class HorizonMetrics(Metrics):
         if orientation is None: # metrics are computed on full cube (spatially)
             self._data = None # evaluated later
             self.bad_traces = np.copy(self.horizon.geometry.zero_traces)
-            self.bad_traces[self.horizon.fullmatrix == Horizon.FILL_VALUE] = 1
+            self.bad_traces[self.horizon.full_matrix == Horizon.FILL_VALUE] = 1
             self.spatial = True
 
         else: # metrics are computed on a specific slide
@@ -1386,8 +1384,8 @@ class HorizonMetrics(Metrics):
         lst.sort(key=lambda x: x[1].get('mean', 999999))
         other, overlap_info = lst[0] # the best match
 
-        self_fullmatrix = self.horizon.fullmatrix
-        other_fullmatrix = other.fullmatrix
+        self_fullmatrix = self.horizon.full_matrix
+        other_fullmatrix = other.full_matrix
         metric = np.where((self_fullmatrix != other.FILL_VALUE) & (other_fullmatrix != other.FILL_VALUE),
                           offset + self_fullmatrix - other_fullmatrix, np.nan)
         if absolute:
