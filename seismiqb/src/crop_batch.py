@@ -39,7 +39,7 @@ class SeismicCropBatch(Batch):
             dst = (dst,)
         for comp in dst:
             if not hasattr(self, comp):
-                self.add_components(comp, np.array([None] * len(self.index)))
+                self.add_components(comp, np.array([np.nan] * len(self.index)))
         return self.indices
 
 
@@ -154,6 +154,7 @@ class SeismicCropBatch(Batch):
             Batch with positions of crops in specified component.
         """
         # pylint: disable=protected-access
+
         if not hasattr(self, 'transformed'):
             new_index = [self.salt(ix) for ix in points[:, 0]]
             new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
@@ -235,47 +236,35 @@ class SeismicCropBatch(Batch):
         return (*self.crop_shape, 1)
 
 
-    @action
-    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
-    def load_segy_trace(self, ix, segyfile, dst, src='points'):
-        """ Load data from .sgy-cube in given positions. """
-        point = self.get(ix, src)
-        trace = segyfile.trace[point[1]]
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = trace
-        return segyfile
 
     @action
-    @inbatch_parallel(init='_init_component', target='threads')
+    @inbatch_parallel(init='indices', post='_assemble', target='threads')
     def load_cubes(self, ix, dst, fmt=None, src='slices', axis=None, mode=None):
         """ Load data from cube in given positions.
 
         Parameters
         ----------
-        fmt : 'h5py' or 'sgy'
+        fmt : 'h5py' or 'segy'
             Cube storing format.
         src : str
             Component of batch with positions of crops to load.
         dst : str
             Component of batch to put loaded crops in.
         """
+        #pylint: disable=unused-argument
         geom = self.get(ix, 'geometries')
         slice_ = self.get(ix, src)
-        fmt = fmt or ('h5py' if hasattr(geom, 'h5py_file') else 'sgy')
+        fmt = fmt or ('hdf5' if hasattr(geom, 'file_hdf5') else 'segy')
 
         if fmt.lower() in ['sgy', 'segy']:
-            crop = geom.load_sgy(slice_, mode=mode)
-        if fmt.lower() in ['h5py', 'h5']:
-            crop = geom.load_h5py(slice_, axis=axis)
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = crop
-        return self
+            crop = geom.load_segy(slice_, mode=mode)
+        if fmt.lower() in ['hdf5', 'h5py', 'h5']:
+            crop = geom.load_hdf5(slice_, axis=axis)
+        return crop
 
 
     @action
-    @inbatch_parallel(init='_init_component', target='threads')
+    @inbatch_parallel(init='indices', post='_assemble', target='threads')
     def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', horizons=-1):
         """ Create masks from labels-dictionary in given positions.
 
@@ -313,6 +302,7 @@ class SeismicCropBatch(Batch):
         -----
         Can be run only after labels-dict is loaded into labels-component.
         """
+        #pylint: disable=unused-argument
         _ = mode
         labels = self.get(ix, src_labels)
 
@@ -335,10 +325,7 @@ class SeismicCropBatch(Batch):
 
         for horizon in horizons:
             mask = horizon.add_to_mask(mask, mask_bbox=mask_bbox, locations=slice_, width=width)
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = mask
-        return self
+        return mask
 
 
     @action
@@ -445,9 +432,10 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    @inbatch_parallel(init='indices', target='threads')
+    @inbatch_parallel(init='indices', post='_assemble', target='threads')
     def scale(self, ix, mode, src=None, dst=None):
         """ Scale values in crop. """
+        #pylint: disable=unused-argument
         pos = self.get_pos(None, src, ix)
         comp_data = getattr(self, src)[pos]
         geom = self.get(ix, 'geometries')
@@ -459,13 +447,7 @@ class SeismicCropBatch(Batch):
         else:
             raise ValueError('Scaling mode is not recognized.')
 
-        dst = dst or src
-        if not hasattr(self, dst):
-            self.add_components(dst, np.array([None] * len(self)))
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = new_data
-        return self
+        return new_data
 
 
     @action

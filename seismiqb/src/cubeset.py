@@ -1,11 +1,10 @@
 """ Contains container for storing dataset of seismic crops. """
 #pylint: disable=too-many-lines
-import os
 from glob import glob
 
 import numpy as np
 
-from ..batchflow import Dataset, Sampler
+from ..batchflow import Dataset, Sampler, DatasetIndex
 from ..batchflow import NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
@@ -13,7 +12,7 @@ from .crop_batch import SeismicCropBatch
 
 from .horizon import Horizon, UnstructuredHorizon
 from .metrics import HorizonMetrics
-from .utils import IndexedDict, lru_cache, round_to_array
+from .utils import IndexedDict, round_to_array
 from .plot_utils import show_sampler, plot_slide
 
 
@@ -37,6 +36,7 @@ class SeismicCubeset(Dataset):
     def __init__(self, index, batch_class=SeismicCropBatch, preloaded=None, *args, **kwargs):
         """ Initialize additional attributes. """
         super().__init__(index, batch_class=batch_class, preloaded=preloaded, *args, **kwargs)
+        self.crop_index, self.crop_points = None, None
 
         self.geometries = IndexedDict({ix: SeismicGeometry(self.index.get_fullpath(ix), process=False)
                                        for ix in self.indices})
@@ -46,6 +46,25 @@ class SeismicCubeset(Dataset):
         self._p, self._bins = None, None
 
         self.grid_gen, self.grid_info, self.grid_iters = None, None, None
+
+
+    def gen_batch(self, batch_size, shuffle=False, n_iters=None, n_epochs=None, drop_last=False,
+                  bar=False, bar_desc=None, iter_params=None, sampler=None):
+        """ !!. """
+        if n_epochs is not None or shuffle or drop_last:
+            raise ValueError('SeismicCubeset does not comply with `n_epochs`, `shuffle`\
+                              and `drop_last`. Use `n_iters` instead! ')
+        if sampler:
+            sampler = sampler if callable(sampler) else sampler.sample
+            points = sampler(batch_size * n_iters)
+
+            self.crop_points = points
+            self.crop_index = DatasetIndex(points[:, 0])
+            return self.crop_index.gen_batch(batch_size, n_iters=n_iters, iter_params=iter_params,
+                                             bar=bar, bar_desc=bar_desc)
+        return super().gen_batch(batch_size, shuffle=shuffle, n_iters=n_iters, n_epochs=n_epochs,
+                                 drop_last=drop_last, bar=bar, bar_desc=bar_desc, iter_params=iter_params)
+
 
 
     def load_geometries(self, logs=True):
@@ -68,10 +87,10 @@ class SeismicCubeset(Dataset):
                 self.geometries[ix].log()
         return self
 
-    def convert_to_h5py(self, postfix='', dtype=np.float32):
+    def convert_to_hdf5(self, postfix='', dtype=np.float32):
         """ Converts every cube in dataset from `.sgy` to `.hdf5`. """
         for ix in self.indices:
-            self.geometries[ix].make_h5py(postfix=postfix, dtype=dtype)
+            self.geometries[ix].make_hdf5(postfix=postfix, dtype=dtype)
         return self
 
 
@@ -300,7 +319,6 @@ class SeismicCubeset(Dataset):
         show_sampler(sampler, cube_name, geom, n=n, eps=eps, show_unique=show_unique, **kwargs)
 
 
-    @lru_cache(3, storage=os.environ.get('SEISMIQB_CACHEDIR'), anchor=True, attributes='indices')
     def load(self, horizon_dir=None, filter_zeros=True, dst_labels='labels', p=None, bins=None, **kwargs):
         """ Load everything: geometries, point clouds, labels, samplers.
 

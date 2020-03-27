@@ -19,7 +19,7 @@ from ..batchflow import HistoSampler
 
 from .geometry import SeismicGeometry
 from .utils import round_to_array
-from .plot_utils import plot_image, plot_images_overlap
+from .plot_utils import plot_image, plot_images_overlap, show_sampler
 
 
 
@@ -586,16 +586,6 @@ class Horizon(BaseLabel):
 
         def filtering_function(points, **kwds):
             _ = kwds
-            @njit
-            def _filtering_function(points, filtering_matrix):
-                #pylint: disable=consider-using-enumerate
-                mask = np.ones(len(points), dtype=np.int32)
-
-                for i in range(len(points)):
-                    il, xl = points[i, 0], points[i, 1]
-                    if filtering_matrix[il, xl] == 1:
-                        mask[i] = 0
-                return points[mask == 1, :]
             return _filtering_function(points, filtering_matrix)
 
         self.apply_to_points(filtering_function, before=False, after=True, **kwargs)
@@ -674,7 +664,7 @@ class Horizon(BaseLabel):
 
 
     # Horizon usage: point/mask generation
-    def create_sampler(self, bins=None, **kwargs):
+    def create_sampler(self, bins=None, quality_grid=None, **kwargs):
         """ Create sampler based on horizon location.
 
         Parameters
@@ -684,8 +674,27 @@ class Horizon(BaseLabel):
         """
         _ = kwargs
         default_bins = self.cube_shape // np.array([5, 20, 20])
-        bins = bins or default_bins
-        self.sampler = HistoSampler(np.histogramdd(self.points/self.cube_shape, bins=bins))
+        bins = bins if bins is not None else default_bins
+
+        if quality_grid is not None:
+            points = _filtering_function(np.copy(self.points), 1 - quality_grid)
+        else:
+            points = self.points
+
+        self.sampler = HistoSampler(np.histogramdd(points/self.cube_shape, bins=bins))
+
+    def show_sampler(self, n=100000, eps=3, show_unique=False, **kwargs):
+        """ Generate a lot of points and look at their (iline, xline) positions.
+
+        Parameters
+        ----------
+        n : int
+            Number of points to generate.
+        eps : int
+            Window of painting.
+        """
+        show_sampler(self.sampler, None, self.geometry, n=n, eps=eps, show_unique=show_unique, **kwargs)
+
 
 
     def add_to_mask(self, mask, mask_bbox=None, locations=None, width=3, alpha=1, **kwargs):
@@ -758,8 +767,8 @@ class Horizon(BaseLabel):
         high = max(window - low, 0)
         chunk_size = min(chunk_size, self.h_max - self.h_min + window)
 
-        h5py_cube = self.geometry.h5py_file['cube_h']
-        background = np.zeros((self.geometry.ilines_len, self.geometry.xlines_len, window))
+        cube_hdf5 = self.geometry.file_hdf5['cube_h']
+        background = np.full((self.geometry.ilines_len, self.geometry.xlines_len, window), np.nan)
 
         # Make callable scaler
         if callable(scale):
@@ -774,7 +783,7 @@ class Horizon(BaseLabel):
             h_end = min(h_start + chunk_size, self.h_max + high, self.geometry.depth)
 
             # Get chunk from the cube (depth-wise)
-            data_chunk = h5py_cube[h_start:h_end, :, :]
+            data_chunk = cube_hdf5[h_start:h_end, :, :]
             data_chunk = scale(data_chunk)
 
             # Check which points of the horizon are in the current chunk (and present)
@@ -832,7 +841,7 @@ class Horizon(BaseLabel):
 
         # Parameters for different orientation
         if orientation.startswith('i'):
-            h5py_cube = self.geometry.h5py_file['cube']
+            cube_hdf5 = self.geometry.file_hdf5['cube']
             slide_transform = lambda array: array
 
             hor_line = np.squeeze(self.matrix[line, :])
@@ -841,7 +850,7 @@ class Horizon(BaseLabel):
             bad_traces = np.squeeze(self.geometry.zero_traces[line, :])
 
         elif orientation.startswith('x'):
-            h5py_cube = self.geometry.h5py_file['cube_x']
+            cube_hdf5 = self.geometry.file_hdf5['cube_x']
             slide_transform = lambda array: array.T
 
             hor_line = np.squeeze(self.matrix[:, line])
@@ -857,7 +866,7 @@ class Horizon(BaseLabel):
         idx += idx_offset
         heights -= (low - offset)
 
-        slide = h5py_cube[line, :, :]
+        slide = cube_hdf5[line, :, :]
         slide = slide_transform(slide)
         slide = scale(slide)
 
@@ -1295,3 +1304,15 @@ class Horizon(BaseLabel):
 
 class StructuredHorizon(Horizon):
     """ Convenient alias for `Horizon` class. """
+
+
+@njit
+def _filtering_function(points, filtering_matrix):
+    #pylint: disable=consider-using-enumerate
+    mask = np.ones(len(points), dtype=np.int32)
+
+    for i in range(len(points)):
+        il, xl = points[i, 0], points[i, 1]
+        if filtering_matrix[il, xl] == 1:
+            mask[i] = 0
+    return points[mask == 1, :]

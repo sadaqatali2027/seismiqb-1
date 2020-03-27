@@ -48,9 +48,132 @@ class IndexedDict(OrderedDict):
 
 
 
+class Singleton:
+    """ There must be only one!"""
+    instance = None
+    def __init__(self):
+        if not Singleton.instance:
+            Singleton.instance = self
+
+class lru_cache:
+    """ Thread-safe least recent used cache. Must be applied to class methods.
+
+    Parameters
+    ----------
+    maxsize : int
+        Maximum amount of stored values.
+    storage : None, OrderedDict or PickleDict
+        Storage to use.
+        If None, then no caching is applied.
+    classwide : bool
+        If True, then first argument of a method (self) is changed to class name for the purposes on hashing.
+    anchor : bool
+        If True, then code of the whole directory this file is located is used to create a persistent hash
+        for the purposes of storing.
+    attributes: None, str or sequence of str
+        Attributes to get from object and use as additions to key.
+    pickle_module: str
+        Module to use to save/load files on disk. Used only if `storage` is :class:`.PickleDict`.
+
+    Examples
+    --------
+    Store loaded slides::
+
+    @lru_cache(maxsize=128)
+    def load_slide(cube_name, slide_no):
+        pass
+
+    Notes
+    -----
+    All arguments to the decorated method must be hashable.
+    """
+    #pylint: disable=invalid-name, attribute-defined-outside-init
+    def __init__(self, maxsize=None, classwide=False, attributes=None):
+        self.maxsize = maxsize
+        self.classwide = classwide
+
+        # Make `attributes` always a list
+        if isinstance(attributes, str):
+            self.attributes = [attributes]
+        elif isinstance(attributes, (tuple, list)):
+            self.attributes = attributes
+        else:
+            self.attributes = False
+
+        self.default = Singleton()
+        self.lock = RLock()
+        self.reset()
+
+
+    def reset(self):
+        """ Clear cache and stats. """
+        self.cache = OrderedDict()
+        self.is_full = False
+        self.stats = {'hit': 0, 'miss': 0}
+
+    def make_key(self, args, kwargs):
+        """ Create a key from a combination of instance reference or class reference,
+        method args, and instance attributes.
+        """
+        key = list(args)
+        # key[0] is `instance` if applied to a method
+        if kwargs:
+            for k, v in sorted(kwargs.items()):
+                key.append((k, v))
+
+        if self.attributes:
+            for attr in self.attributes:
+                attr_hash = stable_hash(getattr(key[0], attr))
+                key.append(attr_hash)
+
+        if self.classwide:
+            key[0] = key[0].__class__
+        return tuple(key)
+
+
+    def __call__(self, func):
+        """ !!. """
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            key = self.make_key(args, kwargs)
+
+            #
+            with self.lock:
+                result = self.cache.get(key, self.default)
+                if result is not self.default:
+                    del self.cache[key]
+                    self.cache[key] = result
+                    self.stats['hit'] += 1
+                    return result
+
+            #
+            result = func(*args, **kwargs)
+
+            #
+            with self.lock:
+                self.stats['miss'] += 1
+                if key in self.cache:
+                    pass
+                elif self.is_full:
+                    self.cache.popitem(last=False)
+                    self.cache[key] = result
+                else:
+                    self.cache[key] = result
+                    self.is_full = (len(self.cache) >= self.maxsize)
+            return result
+
+        wrapper.__name__ = func.__name__
+        wrapper.cache = lambda: self.cache
+        wrapper.stats = lambda: self.stats
+        wrapper.reset = self.reset
+        return wrapper
+
+
+
 class PickleDict(MutableMapping):
     """ Persistent dictionary.
     Keys are file names, and values are stored/loaded via pickle module of choice.
+    !!.
     """
     def __init__(self, dirname, maxsize, pickle_module='dill'):
         self.dirname = dirname
@@ -134,15 +257,7 @@ class PickleDict(MutableMapping):
         return 'PickleDict on {}'.format(self.dirname)
 
 
-
-class Singleton:
-    """ There must be only one!"""
-    instance = None
-    def __init__(self):
-        if not Singleton.instance:
-            Singleton.instance = self
-
-class lru_cache:
+class file_cache:
     """ Thread-safe least recent used cache. Must be applied to class methods.
 
     Parameters
@@ -277,7 +392,6 @@ class lru_cache:
         wrapper.reset = self.reset
         wrapper.stats = lambda: self.stats
         return wrapper
-
 
 
 #TODO: rethink
@@ -457,30 +571,6 @@ def find_min_max(array):
         max_val = max(y, max_val)
     return min_val, max_val
 
-
-#TODO: remove
-@njit
-def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines_offset):
-    """ Get both min and max values in just one pass through array.
-    Simultaneously updates (inplace) matrix if the trace is filled with zeros.
-    """
-    maximum = array[0]
-    minimum = array[0]
-    for i in array[1:]:
-        if i > maximum:
-            maximum = i
-        elif i < minimum:
-            minimum = i
-
-    if (minimum == 0) and (maximum == 0):
-        matrix[il - ilines_offset, xl - xlines_offset] = 1
-
-    if minimum < val_min:
-        val_min = minimum
-    if maximum > val_max:
-        val_max = maximum
-
-    return val_min, val_max, matrix
 
 
 

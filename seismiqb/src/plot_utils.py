@@ -337,35 +337,34 @@ def plot_image_roll(img, title=None, xlabel='xlines', ylabel='ilines', cols=2, r
 def show_sampler(sampler, cube_name=None, geom=None, n=100000, eps=1, show_unique=False,
                  savefig=False, show_plot=True, **kwargs):
     """ Generate a lot of points and plot their (iline, xline) positions. """
-    _ = kwargs
     background = np.zeros((geom.ilines_len, geom.xlines_len))
 
     if not callable(sampler):
         sampler = sampler.sample
     array = sampler(n)
-    array = array[array[:, 0] == cube_name]
 
-    if not isinstance(array[0, 1], int):
-        array[:, 1:] = np.rint(array[:, 1:].astype(float)*geom.cube_shape).astype(int)
+    if cube_name is not None:
+        array = array[array[:, 0] == cube_name]
+        array = array[:, 1:]
+
+    if not isinstance(array[0, 0], int):
+        array = np.rint(array.astype(float)*geom.cube_shape).astype(int)
     for point in array:
-        background[point[1]-eps:point[1]+eps, point[2]-eps:point[2]+eps] += 1
+        background[point[0]-eps:point[0]+eps, point[1]-eps:point[1]+eps] += 1
 
-    _, ax = plt.subplots(2, 1, figsize=(10, 14))
-    ax[0].imshow(background)
-    ax[0].set_title('Sampled points for cube {}'.format(cube_name), fontdict={'fontsize': 20})
-    ax[0].set_xlabel('XLINES', fontdict={'fontsize': 20})
-    ax[0].set_ylabel('ILINES', fontdict={'fontsize': 20})
 
-    ax[1].hist(array[:, -1].astype(float), bins=n//1000)
-    ax[1].set_title('Height distribution of sampled points for cube {}'.format(cube_name),
-                    fontdict={'fontsize': 20})
+    plot_image(background, title='Sampled points for cube {}'.format(cube_name),
+               show_plot=show_plot, savefig=savefig, **kwargs)
+
+    plt.hist(array[:, -1].astype(float), bins=n//1000)
+    plt.title('Height distribution of sampled points for cube {}'.format(cube_name), fontdict={'fontsize': 20})
 
     if savefig:
         plt.savefig(savefig, bbox_inches='tight', pad_inches=0)
     if show_plot:
         plt.show()
         if show_unique:
-            uniques = np.sort(np.unique(array[:, 1]))
+            uniques = np.unique(array[:, 0])
             print('Unique inlines are: {}'.format(uniques))
     else:
         plt.close()
