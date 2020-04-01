@@ -417,6 +417,9 @@ class BaseSeismicMetric(Metrics):
 
         pre_grid = np.rint(quality_map)
         grid = gridify(pre_grid, frequencies, iline, xline)
+
+        if margin:
+            grid[(bad_traces - self.geometry.zero_traces) == 1] = 0
         return grid
 
 
@@ -1220,10 +1223,10 @@ def gridify(matrix, frequencies, iline=True, xline=True):
         idx_1, idx_2 = np.nonzero(matrix == value)
 
         if iline:
-            mask = (idx_1 % freq == freq//2)
+            mask = (idx_1 % freq == 0)
             grid[idx_1[mask], idx_2[mask]] = 1
         if xline:
-            mask = (idx_2 % freq == freq//2)
+            mask = (idx_2 % freq == 0)
             grid[idx_1[mask], idx_2[mask]] = 1
 
     grid[np.isnan(matrix)] = np.nan

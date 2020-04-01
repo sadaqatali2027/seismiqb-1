@@ -287,7 +287,7 @@ class Horizon(BaseLabel):
         self.matrix = None
 
         # Additional way of storing the underlying data
-        self.points = None
+        self._points = None
 
         # Heights information
         self.h_min, self.h_max = None, None
@@ -356,6 +356,7 @@ class Horizon(BaseLabel):
 
     def cubic_to_lines(self, array):
         """ Convert cubic coordinates to ilines-xlines system. """
+        array = array.astype(float)
         array[:, 0] += self.geometry.ilines_offset
         array[:, 1] += self.geometry.xlines_offset
         array[:, 2] *= self.geometry.sample_rate
@@ -363,8 +364,23 @@ class Horizon(BaseLabel):
         return array
 
 
+    @property
+    def points(self):
+        """ !!. """
+        if self._points is None and self.matrix is not None:
+            points = self.matrix_to_points(self.matrix)
+            points[:, 0] += self.i_min
+            points[:, 1] += self.x_min
+            self._points = points
+        return self._points
+
+    @points.setter
+    def points(self, value):
+        self._points = value
+
+
     # Initialization from different containers
-    def from_points(self, points, transform=False, **kwargs):
+    def from_points(self, points, transform=False, verify=True, **kwargs):
         """ Base initialization: from point cloud array of (N, 3) shape.
 
         Parameters
@@ -379,6 +395,14 @@ class Horizon(BaseLabel):
         # Transform to cubic coordinates, if needed
         if transform:
             points = self.lines_to_cubic(points)
+        if verify:
+            idx = np.where((points[:, 0] >= 0) &
+                           (points[:, 1] >= 0) &
+                           (points[:, 2] >= 0) &
+                           (points[:, 0] < self.cube_shape[0]) &
+                           (points[:, 1] < self.cube_shape[1]) &
+                           (points[:, 2] < self.cube_shape[2]))[0]
+            points = points[idx]
         self.points = np.rint(points).astype(np.int32)
 
         # Collect stats on separate axes
@@ -433,22 +457,30 @@ class Horizon(BaseLabel):
         return df.values
 
 
-    def from_matrix(self, matrix, i_min, x_min, transform=False, **kwargs):
+    def from_matrix(self, matrix, i_min, x_min, **kwargs):
         """ Init from matrix and location of minimum i, x points. """
         _ = kwargs
 
-        points = self.matrix_to_points(matrix)
-        points[:, 0] += i_min
-        points[:, 1] += x_min
-        self.from_points(points, transform=transform)
+        self.matrix = matrix
+        self.i_min, self.x_min = i_min, x_min
+        self.i_max, self.x_max = i_min + matrix.shape[0] - 1, x_min + matrix.shape[1] - 1
+
+        non_fill = matrix[matrix != self.FILL_VALUE]
+        self.h_min, self.h_max = np.min(non_fill), np.max(non_fill)
+        self.h_mean, self.h_std = np.mean(non_fill), np.std(non_fill)
+
+        self.i_length = (self.i_max - self.i_min) + 1
+        self.x_length = (self.x_max - self.x_min) + 1
+        self.bbox = np.array([[self.i_min, self.i_max],
+                              [self.x_min, self.x_max]],
+                             dtype=np.int32)
+        self._points = None
 
 
-    def from_full_matrix(self, matrix, transform=False, **kwargs):
+    def from_full_matrix(self, matrix, **kwargs):
         """ Init from matrix that covers the whole cube. """
         _ = kwargs
-
-        points = self.matrix_to_points(matrix)
-        self.from_points(points, transform=transform)
+        self.from_matrix(matrix, 0, 0, **kwargs)
 
     @staticmethod
     def matrix_to_points(matrix):
@@ -457,7 +489,7 @@ class Horizon(BaseLabel):
         points = np.hstack([idx[0].reshape(-1, 1),
                             idx[1].reshape(-1, 1),
                             matrix[idx[0], idx[1]].reshape(-1, 1)])
-        return points[np.lexsort((points[:, 2], points[:, 1], points[:, 0]))]
+        return points
 
 
     def from_dict(self, dictionary, transform=True, **kwargs):
@@ -499,10 +531,13 @@ class Horizon(BaseLabel):
         geometry = grid_info['geom']
         i_min, x_min, h_min = [item[0] for item in grid_info['range']]
 
-        mask = np.copy(mask)
-        mask[mask >= threshold] = 1
-        mask[mask < threshold] = 0
-        mask = mask.astype(np.int32)
+        if isinstance(threshold, str):
+            quantile = float(threshold.split('_')[1])
+            threshold = np.nanquantile(mask, quantile)
+
+        mask_ = np.zeros_like(mask, dtype=np.int32)
+        mask_[mask >= threshold] = 1
+        mask = mask_
 
         # Note that this does not evaluate anything: all of attributes are properties and are cached
         regions = regionprops(label(mask))
@@ -510,18 +545,18 @@ class Horizon(BaseLabel):
         # Create an instance of Horizon for each separate region
         horizons = []
         for i, region in enumerate(regions):
-
             coords = region.coords
-            coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
-            horizon = getattr(coords.groupby(['iline', 'xline']), averaging)()
 
-            # columns in mask local coordinate system
-            ilines = horizon.index.get_level_values('iline').values
-            xlines = horizon.index.get_level_values('xline').values
-            heights = horizon.values
+            if len(coords) > minsize:
+                coords = pd.DataFrame(coords, columns=['iline', 'xline', 'height'])
+                horizon = getattr(coords.groupby(['iline', 'xline']), averaging)()
 
-            # convert to cubic coordinates, make points array, init Horizon from it
-            if len(heights) > minsize:
+                # columns in mask local coordinate system
+                ilines = horizon.index.get_level_values('iline').values
+                xlines = horizon.index.get_level_values('xline').values
+                heights = horizon.values
+
+                # convert to cubic coordinates, make points array, init Horizon from it
                 ilines += i_min
                 xlines += x_min
                 heights += h_min
@@ -915,7 +950,7 @@ class Horizon(BaseLabel):
     @property
     def coverage(self):
         """ Ratio between number of present values and number of good traces in cube. """
-        return len(self) / (np.prod(self.matrix.shape) - np.sum(self.geometry.zero_traces))
+        return len(self) / (np.prod(self.cube_shape[:2]) - np.sum(self.geometry.zero_traces))
 
     @property
     def filled_matrix(self):
@@ -971,7 +1006,7 @@ class Horizon(BaseLabel):
 
 
     # Evaluate horizon on its own / against other(s)
-    def evaluate(self, supports=20, plot=True):
+    def evaluate(self, supports=20, plot=True, savepath=None, printer=print):
         """ Compute crucial metrics of a horizon. """
         msg = f"""
         Number of labeled points: {len(self)}
@@ -981,9 +1016,9 @@ class Horizon(BaseLabel):
         Percentage of labeled traces inside borders: {self.solidity}
         Number of holes inside borders: {self.number_of_holes}
         """
-        print(dedent(msg))
+        printer(dedent(msg))
         from .metrics import HorizonMetrics
-        HorizonMetrics(self).evaluate('support_corrs', supports=supports, agg='mean', plot=plot)
+        HorizonMetrics(self).evaluate('support_corrs', supports=supports, agg='mean', plot=plot, savepath=savepath)
 
 
     def compare_to(self, other, offset=0, absolute=True, printer=print, hist=True, plot=True):
@@ -994,7 +1029,7 @@ class Horizon(BaseLabel):
 
 
     # Merge functions
-    def verify_merge(self, other, mean_threshold=3.0, q_threshold=2.5, q=0.9, adjacency=0):
+    def verify_merge(self, other, mean_threshold=3.0, adjacency=0):
         """ Collect stats of overlapping of two horizons.
 
         Returns a number that encodes position of two horizons, as well as dictionary with collected statistics.
@@ -1012,10 +1047,6 @@ class Horizon(BaseLabel):
             Horizons to compare.
         mean_threshold : number
             Height threshold for mean distances.
-        q_threshold : number
-            Height threshold for quantile distances.
-        q : number
-            Quantile to compute.
         adjacency : int
             Margin to consider horizons close (spatially).
         """
@@ -1055,14 +1086,13 @@ class Horizon(BaseLabel):
             abs_diffs = np.abs(diffs_on_overlap)
 
             mean_on_overlap = np.nanmean(abs_diffs)
-            q_on_overlap = np.nanquantile(abs_diffs, q)
             max_on_overlap = np.nanmax(abs_diffs)
 
             if np.isnan(mean_on_overlap):
                 # bboxes are overlapping, but horizons don't
                 merge_code = 2
                 spatial_position = 'adjacent'
-            elif mean_on_overlap < mean_threshold and q_on_overlap < q_threshold:
+            elif mean_on_overlap < mean_threshold:
                 merge_code = 3
                 spatial_position = 'overlap'
             else:
@@ -1070,7 +1100,6 @@ class Horizon(BaseLabel):
                 spatial_position = 'separated'
 
             overlap_info.update({'mean': mean_on_overlap,
-                                 'q': q_on_overlap,
                                  'max': max_on_overlap,
                                  'diffs': diffs_on_overlap[~np.isnan(diffs_on_overlap)],
                                  'nandiffs': diffs_on_overlap,})
@@ -1079,8 +1108,54 @@ class Horizon(BaseLabel):
         return merge_code, overlap_info
 
 
+    def overlap_merge(self, other, inplace=False):
+        """ !!. """
+        # Create shared background for both horizons
+        shared_i_min, shared_i_max = min(self.i_min, other.i_min), max(self.i_max, other.i_max)
+        shared_x_min, shared_x_max = min(self.x_min, other.x_min), max(self.x_max, other.x_max)
 
-    def adjacent_merge(self, other, mean_threshold=3.0, q_threshold=2.5, q=0.9, adjacency=3,
+        background = np.zeros((shared_i_max - shared_i_min + 1, shared_x_max - shared_x_min + 1),
+                              dtype=np.int32)
+
+        # Coordinates inside shared for `self` and `other`
+        shared_self_i_min, shared_self_x_min = self.i_min - shared_i_min, self.x_min - shared_x_min
+        shared_other_i_min, shared_other_x_min = other.i_min - shared_i_min, other.x_min - shared_x_min
+
+        # Add both horizons to the background
+        background[shared_self_i_min:shared_self_i_min+self.i_length,
+                   shared_self_x_min:shared_self_x_min+self.x_length] += self.matrix
+
+        background[shared_other_i_min:shared_other_i_min+other.i_length,
+                   shared_other_x_min:shared_other_x_min+other.x_length] += other.matrix
+
+        # Correct overlapping points
+        overlap_i_min, overlap_i_max = max(self.i_min, other.i_min), min(self.i_max, other.i_max) + 1
+        overlap_x_min, overlap_x_max = max(self.x_min, other.x_min), min(self.x_max, other.x_max) + 1
+
+        overlap_i_min -= shared_i_min
+        overlap_i_max -= shared_i_min
+        overlap_x_min -= shared_x_min
+        overlap_x_max -= shared_x_min
+
+        overlap = background[overlap_i_min:overlap_i_max, overlap_x_min:overlap_x_max]
+        overlap[overlap >= 0] = np.rint(overlap[overlap >= 0] / 2)
+        overlap[overlap < 0] -= self.FILL_VALUE
+        background[overlap_i_min:overlap_i_max, overlap_x_min:overlap_x_max] = overlap
+
+        background[background == 0] = self.FILL_VALUE
+
+        # Create new instance or change `self`
+        if inplace:
+            # Change `self` inplace
+            self.from_matrix(background, i_min=shared_i_min, x_min=shared_x_min)
+            merged = True
+        else:
+            # Return a new instance of horizon
+            merged = Horizon(background, self.geometry, self.name, i_min=shared_i_min, x_min=shared_x_min)
+        return merged
+
+
+    def adjacent_merge(self, other, mean_threshold=3.0, adjacency=3,
                        check_only=False, force_merge=False, inplace=False):
         """ Collect stats on possible adjacent merge (that is merge with some margin), and, if needed, merge horizons.
         Note that this function can either merge horizons in-place of the first one (`self`), or create a new instance.
@@ -1091,10 +1166,6 @@ class Horizon(BaseLabel):
             Horizons to compare.
         mean_threshold : number
             Height threshold for mean distances.
-        q_threshold : number
-            Height threshold for quantile distances.
-        q : number
-            Quantile to compute.
         adjacency : int
             Margin to consider horizons close (spatially).
         check_only : bool
@@ -1156,14 +1227,12 @@ class Horizon(BaseLabel):
             abs_diffs = np.abs(diffs_on_shared_overlap)
 
             mean_on_shared_overlap = np.mean(abs_diffs)
-            q_on_shared_overlap = np.quantile(abs_diffs, q)
             max_on_shared_overlap = np.max(abs_diffs)
 
-            if mean_on_shared_overlap < mean_threshold and q_on_shared_overlap < q_threshold:
+            if mean_on_shared_overlap < mean_threshold:
                 mergeable = True
 
             adjacency_info.update({'mean': mean_on_shared_overlap,
-                                   'q': q_on_shared_overlap,
                                    'max': max_on_shared_overlap,
                                    'diffs': diffs_on_shared_overlap})
 
@@ -1175,7 +1244,7 @@ class Horizon(BaseLabel):
 
             # Values on overlap
             overlap_heights = np.where(other_heights != self.FILL_VALUE,
-                                       (self_heights + other_heights) / 2, self_heights)
+                                       np.rint((self_heights + other_heights) / 2), self_heights)
 
             background[so_idx_i, so_idx_x] = overlap_heights
 
@@ -1201,8 +1270,8 @@ class Horizon(BaseLabel):
         return len(np.asarray(self.matrix != self.FILL_VALUE).nonzero()[0])
 
 
-    def dump_horizon(self, path, transform=None, add_height=True):
-        """ Save horizon points on disc.
+    def dump(self, path, transform=None, add_height=True):
+        """ Save horizon points on disk.
 
         Parameters
         ----------

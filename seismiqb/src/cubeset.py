@@ -13,7 +13,7 @@ from .crop_batch import SeismicCropBatch
 from .horizon import Horizon, UnstructuredHorizon
 from .metrics import HorizonMetrics
 from .utils import IndexedDict, round_to_array
-from .plot_utils import show_sampler, plot_slide
+from .plot_utils import show_sampler, plot_slide, plot_image
 
 
 
@@ -319,6 +319,30 @@ class SeismicCubeset(Dataset):
         sampler = getattr(self, src_sampler)
         show_sampler(sampler, cube_name, geom, n=n, eps=eps, show_unique=show_unique, **kwargs)
 
+    def show_slices(self, idx=0, src_sampler='sampler', n=10000, normalize=False, shape=None,
+                    make_slices=True, side_view=False, **kwargs):
+        """ !!. """
+        sampler = getattr(self, src_sampler)
+        if callable(sampler):
+            #pylint: disable=not-callable
+            points = sampler(n)
+        else:
+            points = sampler.sample(n)
+        batch = (self.p.crop(points=points, shape=shape, make_slices=make_slices, side_view=side_view)
+                 .next_batch(self.size))
+
+        unsalted = np.array([batch.unsalt(item) for item in batch.indices])
+        background = np.zeros_like(self.geometries[idx].zero_traces)
+
+        for slice_ in np.array(batch.slices)[unsalted == self.indices[idx]]:
+            idx_i, idx_x, _ = slice_
+            background[idx_i, idx_x] += 1
+
+        if normalize:
+            background = (background > 0).astype(int)
+        plot_image(background, 'Sampled slices', **kwargs)
+        return batch
+
 
     def load(self, horizon_dir=None, filter_zeros=True, dst_labels='labels', p=None, bins=None, **kwargs):
         """ Load everything: geometries, point clouds, labels, samplers.
@@ -456,6 +480,7 @@ class SeismicCubeset(Dataset):
         prefix : str
             Name of horizon to use.
         """
+        #TODO: add `chunks` mode
         mask = getattr(self, src) if isinstance(src, str) else src
         horizons = Horizon.from_mask(mask, self.grid_info, threshold=threshold,
                                      averaging=averaging, minsize=minsize, prefix=prefix)
@@ -463,7 +488,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def merge_horizons(self, src, mean_threshold=2.0, q_threshold=2.0, q=0.9, adjacency=3, ):
+    def merge_horizons(self, src, mean_threshold=2.0, adjacency=3, ):
         """ Iterate over a list of horizons and merge what can be merged. Can be called after
         running a pipeline with `get_point_cloud`-action. Changes the list of horizons inplace.
 
@@ -496,19 +521,19 @@ class SeismicCubeset(Dataset):
                         break
 
                     merge_code, _ = Horizon.verify_merge(horizons[i], horizons[j],
-                                                         mean_threshold=mean_threshold, q_threshold=q_threshold, q=q,
+                                                         mean_threshold=mean_threshold,
                                                          adjacency=adjacency)
-                    if merge_code in [2, 3]:
-                        force_merge = (merge_code == 3)
+                    if merge_code == 3:
+                        merged = Horizon.overlap_merge(horizons[i], horizons[j], inplace=True)
+                    elif merge_code == 2:
                         merged, _, _ = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
-                                                              force_merge=force_merge, adjacency=adjacency,
-                                                              mean_threshold=mean_threshold,
-                                                              q_threshold=q_threshold, q=q)
-                        if merged:
-                            _ = horizons.pop(j)
-                            flag = True
-                        else:
-                            j += 1
+                                                              adjacency=adjacency, mean_threshold=mean_threshold)
+                    else:
+                        merged = False
+
+                    if merged:
+                        _ = horizons.pop(j)
+                        flag = True
                     else:
                         j += 1
                 i += 1

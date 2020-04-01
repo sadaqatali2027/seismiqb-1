@@ -112,7 +112,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape=None, dilations=(1, 1, 1), loc=(0, 0, 0), side_view=False,
+    def crop(self, points, shape=None, loc=(0, 0, 0), side_view=False, eps=3,
              make_slices=True, dst='slices', passdown=None, dst_points='points', dst_shapes='shapes'):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
@@ -126,8 +126,6 @@ class SeismicCropBatch(Batch):
             as its upper rightmost point and must be cut from 'Cube.sgy' file.
         shape : sequence
             Desired shape of crops.
-        dilations : sequence
-            Intervals between successive slides along each dimension.
         loc : sequence of numbers
             Location of the point relative to the cut crop. Must be a location on unit cube.
         side_view : bool or float
@@ -174,11 +172,21 @@ class SeismicCropBatch(Batch):
                 raise ValueError('Subsequent usage of `crop` must have the same number of points!')
             new_batch = self
 
-        shapes = self._make_shapes(points, shape, side_view)
-        new_batch.add_components((dst_points, dst_shapes), (points, shapes))
+        if make_slices in ['adaptive']:
+            shape = np.asarray(shape)
 
-        if make_slices:
-            slices = [self._make_slice(point, shape, dilations, loc)
+            corrected_points_shapes = [self._correct_point_to_grid(point, shape, eps) for point in points]
+            points = [item[0] for item in corrected_points_shapes]
+            shapes = [item[1] for item in corrected_points_shapes]
+            new_batch.add_components((dst_points, dst_shapes), (points, shapes))
+
+            slices = [self._make_slice(point, shape, loc) for point, shape in corrected_points_shapes]
+            new_batch.add_components(dst, slices)
+        elif make_slices:
+            shapes = self._make_shapes(points, shape, side_view)
+            new_batch.add_components((dst_points, dst_shapes), (points, shapes))
+
+            slices = [self._make_slice(point, shape, loc)
                       for point, shape in zip(points, shapes)]
             new_batch.add_components(dst, slices)
         return new_batch
@@ -206,7 +214,7 @@ class SeismicCropBatch(Batch):
         return shapes
 
 
-    def _make_slice(self, point, shape, dilations, loc=(0, 0, 0)):
+    def _make_slice(self, point, shape, loc=(0, 0, 0)):
         """ Creates list of `np.arange`'s for desired location. """
         if isinstance(point[1], float) or isinstance(point[2], float) or isinstance(point[3], float):
             ix = point[0]
@@ -217,23 +225,52 @@ class SeismicCropBatch(Batch):
 
         slice_ = []
         for i in range(3):
-            start_point = int(max(slice_point[i] - loc[i]*shape[i]*dilations[i], 0))
-            end_point = start_point + shape[i]*dilations[i]
-            slice_.append(np.arange(start_point, end_point, dilations[i]))
+            start_point = int(max(slice_point[i] - loc[i]*shape[i], 0))
+            end_point = start_point + shape[i]
+            slice_.append(np.arange(start_point, end_point))
         return slice_
 
-    @property
-    def crop_shape(self):
-        """ Shape of crops, made by action `crop`. """
-        _, shapes_count = np.unique([image.shape for image in self.images], return_counts=True, axis=0)
-        if len(shapes_count) == 1:
-            return self.images[0].shape
-        raise RuntimeError('Crops have different shapes')
+    def _correct_point_to_grid(self, point, shape, eps=3):
+        """ !!. """
+        #pylint: disable=too-many-return-statements
+        ix = point[0]
+        geometry = self.get(ix, 'geometries')
+        grid = geometry.quality_grid
+        shape_t = shape[[1, 0, 2]]
 
-    @property
-    def crop_shape_dice(self):
-        """ Extended crop shape. Useful for model with Dice-coefficient as loss-function. """
-        return (*self.crop_shape, 1)
+        pnt = (point[1:] * geometry.cube_shape)
+        pnt = np.rint(pnt.astype(float)).astype(int)
+
+        # Point is already in grid
+        if grid[pnt[0], pnt[1]] == 1:
+            sum_i = np.nansum(grid[pnt[0], max(pnt[1]-eps, 0) : pnt[1]+eps])
+            sum_x = np.nansum(grid[max(pnt[0]-eps, 0) : pnt[0]+eps, pnt[1]])
+            if sum_i >= sum_x:
+                return point, shape
+            return point, shape_t
+
+        # Horizontal search: xline changes, shape is x-oriented
+        for pnt_ in range(max(pnt[1]-eps, 0), min(pnt[1]+eps, geometry.cube_shape[1])):
+            if grid[pnt[0], pnt_] == 1:
+                sum_i = np.nansum(grid[pnt[0], max(pnt_-eps, 0):pnt_+eps])
+                sum_x = np.nansum(grid[max(pnt[0]-eps, 0):pnt[0]+eps, pnt_])
+                point[1:3] = np.array((pnt[0], pnt_)) / geometry.cube_shape[:2]
+                if sum_i >= sum_x:
+                    return point, shape
+                return point, shape_t
+
+        # Vertical search: inline changes, shape is i-oriented
+        for pnt_ in range(max(pnt[0]-eps, 0), min(pnt[0]+eps, geometry.cube_shape[0])):
+            if grid[pnt_, pnt[1]] == 1:
+                sum_i = np.nansum(grid[pnt_, max(pnt[1]-eps, 0) : pnt[1]+eps])
+                sum_x = np.nansum(grid[max(pnt_-eps, 0) : pnt_+eps, pnt[1]])
+                point[1:3] = np.array((pnt_, pnt[1])) / geometry.cube_shape[:2]
+                if sum_i >= sum_x:
+                    return point, shape
+                return point, shape_t
+
+        # Double the search radius
+        return self._correct_point_to_grid(point, shape, 2*eps)
 
 
 
@@ -439,15 +476,7 @@ class SeismicCropBatch(Batch):
         pos = self.get_pos(None, src, ix)
         comp_data = getattr(self, src)[pos]
         geom = self.get(ix, 'geometries')
-
-        if mode == 'normalize':
-            new_data = geom.scaler(comp_data)
-        elif mode == 'denormalize':
-            new_data = geom.descaler(comp_data)
-        else:
-            raise ValueError('Scaling mode is not recognized.')
-
-        return new_data
+        return geom.scaler(comp_data, mode)
 
 
     @action
@@ -479,7 +508,7 @@ class SeismicCropBatch(Batch):
     @inbatch_parallel(init='indices', target='threads', post='_masks_to_horizons_post')
     def masks_to_horizons(self, ix, src='masks', src_slices='slices', dst='predicted_labels', prefix='predict',
                           threshold=0.5, averaging='mean', minsize=0, order=(2, 0, 1),
-                          mean_threshold=2.0, q_threshold=2.0, q=0.9, adjacency=1):
+                          mean_threshold=2.0, adjacency=1):
         """ Convert labels from horizons-mask into point-cloud format. Fetches point-clouds from
         a batch of masks, then merges resulting clouds to those stored in `dst`, whenever possible.
 
@@ -512,7 +541,7 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             batch with fetched labels.
         """
-        _ = dst, mean_threshold, q_threshold, q, adjacency
+        _ = dst, mean_threshold, adjacency
 
         # threshold the mask, reshape and rotate the mask if needed
         pos = self.get_pos(None, src, ix)
@@ -534,7 +563,7 @@ class SeismicCropBatch(Batch):
 
 
     def _masks_to_horizons_post(self, horizons_lists, *args, dst=None,
-                                mean_threshold=2.0, q_threshold=2.0, q=0.9, adjacency=1, **kwargs):
+                                mean_threshold=2.0, adjacency=1, **kwargs):
         """ Stitch a set of point-clouds to a point cloud form dst if possible.
         Post for `get_point_cloud`-action.
         """
@@ -547,17 +576,19 @@ class SeismicCropBatch(Batch):
             for horizon_candidate in horizons:
                 for horizon_target in dst:
                     merge_code, _ = Horizon.verify_merge(horizon_target, horizon_candidate,
-                                                         mean_threshold=mean_threshold, q_threshold=q_threshold, q=q,
+                                                         mean_threshold=mean_threshold,
                                                          adjacency=adjacency)
 
-                    if merge_code in [2, 3]:
-                        force_merge = (merge_code == 3)
+                    if merge_code == 3:
+                        merged = Horizon.overlap_merge(horizon_target, horizon_candidate, inplace=True)
+                    elif merge_code == 2:
                         merged, _, _ = Horizon.adjacent_merge(horizon_target, horizon_candidate, inplace=True,
-                                                              force_merge=force_merge, adjacency=adjacency,
-                                                              mean_threshold=mean_threshold,
-                                                              q_threshold=q_threshold, q=q)
-                        if merged:
-                            break
+                                                            force_merge=force_merge, adjacency=adjacency,
+                                                            mean_threshold=mean_threshold)
+                    else:
+                        merged = False
+                    if merged:
+                        break
                 else:
                     # if a horizon cannot be stitched to a horizon from dst, we enrich dst with it
                     dst.append(horizon_candidate)
@@ -604,7 +635,7 @@ class SeismicCropBatch(Batch):
         return self
 
 
-    def _side_view_reshape_(self, crop, shape):
+    def _adaptive_reshape_(self, crop, shape):
         """ Changes axis of view to match desired shape.
         Must be used in combination with `side_view` argument of `crop` action.
 

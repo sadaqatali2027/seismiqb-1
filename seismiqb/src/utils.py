@@ -499,7 +499,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, order):
     """
     #pylint: disable=assignment-from-no-return
     total = len(array_grid)
-    background = np.zeros(predict_shape)
+    background = np.full(predict_shape, np.min(array_crops))
 
     for i in range(total):
         il, xl, h = array_grid[i, :]

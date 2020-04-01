@@ -112,10 +112,14 @@ class SeismicGeometry:
     def __init__(self, path, process=True, headers=None, index=None, **kwargs):
         self.path = path
         self.name = os.path.basename(self.path)
+        self.short_name = self.name.split('.')[0]
         self.long_name = ':'.join(self.path.split('/')[-2:])
         self.format = os.path.splitext(self.path)[1][1:]
 
         self.depth = None
+
+        self._quality_map = None
+        self._quality_grid = None
 
         if process:
             self.process(headers, index, **kwargs)
@@ -372,7 +376,7 @@ class SeismicGeometry:
         """ !!. """
         shape = np.array([len(item) for item in locations])
         indices = self.make_crop_indices(locations)
-        crop = self.load_traces_sgy(indices, locations[-1]).reshape(shape)
+        crop = self.load_traces_segy(indices, locations[-1]).reshape(shape)
         return crop
 
     def make_crop_indices(self, locations):
@@ -539,7 +543,9 @@ class SeismicGeometry:
         if mode == 'minmax':
             scale = (self.value_max - self.value_min)
             return (array - self.value_min) / scale
-        raise ValueError('Wrong mode')
+        if mode == 'q':
+            return np.clip(array, self.q01, self.q99) / max(abs(self.q01), abs(self.q99))
+        raise ValueError('Wrong mode', mode)
 
     def descaler(self, array, mode='minmax'):
         """ !!. """
@@ -589,6 +595,37 @@ class SeismicGeometry:
     def ngbytes(self):
         """ Size of instance in gigabytes. """
         return self.nbytes / (1024**3)
+
+
+    @property
+    def quality_map(self):
+        """ !!. """
+        if self._quality_map is None:
+            self.make_quality_map([0.1], ['support_js', 'support_hellinger'])
+        return self._quality_map
+
+    @property
+    def quality_grid(self):
+        """ !!. """
+        if self._quality_grid is None:
+            self.make_quality_grid((20, 150))
+        return self._quality_grid
+
+    def make_quality_map(self, quantiles, metric_names, **kwargs):
+        """ !!. """
+        from .metrics import GeometryMetrics #pylint: disable=import-outside-toplevel
+        quality_map = GeometryMetrics(self).evaluate('quality_map', quantiles=quantiles, agg=None,
+                                                     metric_names=metric_names, **kwargs)
+        self._quality_map = quality_map
+        return quality_map
+
+    def make_quality_grid(self, frequencies, iline=True, xline=True, margin=0, **kwargs):
+        """ !!. """
+        from .metrics import GeometryMetrics #pylint: disable=import-outside-toplevel
+        quality_grid = GeometryMetrics(self).make_grid(self.quality_map, frequencies,
+                                                       iline=iline, xline=xline, margin=margin, **kwargs)
+        self._quality_grid = quality_grid
+        return quality_grid
 
 
     @lru_cache(100)
