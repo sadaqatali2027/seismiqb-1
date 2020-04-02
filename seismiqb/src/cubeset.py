@@ -654,3 +654,32 @@ class SeismicCubeset(Dataset):
                                  'crop_shape': crop_shape,
                                  'cube_name': cube_name}
         return self
+
+    def subset_labels(self, idx=0, horizon_idx=0, src='labels', coords=None,
+                      dst='prior_mask', mask=None):
+        """Save prior mask to a cubeset attribute `prior_mask`.
+        Parameters
+        ----------
+        coords : tuple or list
+            upper left and lower right coordinates of the subset.
+        mask : array
+            optional if coords is not provided binary mask of the subset.
+        """
+        FILL_VALUE = -999999
+        src_horizon = getattr(self, src)[self.indices[idx]][horizon_idx]
+        src_matrix = src_horizon.matrix
+        i_min, x_min = src_horizon.i_min, src_horizon.x_min
+
+        sbst_i_min, sbst_i_max = coords[0]
+        sbst_x_min, sbst_x_max = coords[1]
+
+        subset_mtrx = src_matrix[sbst_i_min - i_min: sbst_i_max - i_min,
+                                 sbst_x_min - x_min: sbst_x_max - x_min]
+        subset_horizon = Horizon(subset_mtrx, geometry=self.geometries[self.indices[idx]],
+                                 i_min=sbst_i_min, x_min=sbst_x_min)
+
+        if not hasattr(self, dst):
+            setattr(self, dst, IndexedDict({ix: list() for ix in self.indices}))
+
+        getattr(self, dst)[self.indices[0]] = [subset_horizon]
+        return self
