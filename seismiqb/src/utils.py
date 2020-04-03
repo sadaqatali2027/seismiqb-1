@@ -132,7 +132,7 @@ class lru_cache:
 
 
     def __call__(self, func):
-        """ !!. """
+        """ Add the cache to the function. """
         @wraps(func)
         def wrapper(*args, **kwargs):
             key = self.make_key(args, kwargs)
@@ -173,7 +173,6 @@ class lru_cache:
 class PickleDict(MutableMapping):
     """ Persistent dictionary.
     Keys are file names, and values are stored/loaded via pickle module of choice.
-    !!.
     """
     def __init__(self, dirname, maxsize, pickle_module='dill'):
         self.dirname = dirname

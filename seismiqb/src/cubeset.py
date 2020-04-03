@@ -50,7 +50,9 @@ class SeismicCubeset(Dataset):
 
     def gen_batch(self, batch_size, shuffle=False, n_iters=None, n_epochs=None, drop_last=False,
                   bar=False, bar_desc=None, iter_params=None, sampler=None):
-        """ !!. """
+        """ Allows to pass `sampler` directly to `next_batch` method to avoid re-creating of batch
+        during pipeline run.
+        """
         #pylint: disable=blacklisted-name
         if n_epochs is not None or shuffle or drop_last:
             raise ValueError('SeismicCubeset does not comply with `n_epochs`, `shuffle`\
@@ -130,14 +132,13 @@ class SeismicCubeset(Dataset):
 
     @property
     def sampler(self):
-        """ !!. """
+        """ Lazily create sampler at the time of first access. """
         if self._sampler is None:
             self.create_sampler(p=self._p, bins=self._bins)
         return self._sampler
 
     @sampler.setter
     def sampler(self, sampler):
-        """ !!. """
         self._sampler = sampler
 
 
@@ -321,7 +322,7 @@ class SeismicCubeset(Dataset):
 
     def show_slices(self, idx=0, src_sampler='sampler', n=10000, normalize=False, shape=None,
                     make_slices=True, side_view=False, **kwargs):
-        """ !!. """
+        """ Show actually sampled slices of desired shape. """
         sampler = getattr(self, src_sampler)
         if callable(sampler):
             #pylint: disable=not-callable

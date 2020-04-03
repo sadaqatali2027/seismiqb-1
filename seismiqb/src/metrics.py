@@ -20,7 +20,9 @@ from .plot_utils import plot_image
 
 
 class BaseSeismicMetric(Metrics):
-    """ !!. """
+    """ Base class for seismic metrics.
+    Child classes have to implement access to `data`, `probs`, `spatial` and `cube_name` attributes.
+    """
     LOCAL_DEFAULTS = {
         'kernel_size': 3,
         'reduce_func': 'nanmean',
@@ -110,12 +112,14 @@ class BaseSeismicMetric(Metrics):
 
 
     def local_corrs(self, kernel_size=3, reduce_func='nanmean', **kwargs):
-        """ Compute average correlation between each column in data and nearest traces.
+        """ Compute correlation between each column in data and nearest traces.
 
         Parameters
         ----------
-        locality : {4, 8}
-            Defines number of nearest traces to average correlations from.
+        kernel_size : int
+            Size of window to reduce values in.
+        reduce_func : str or callable
+            Function to reduce values in window with, e.g. `mean` or `nanmax`.
 
         Returns
         -------
@@ -135,7 +139,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_corrs(self, supports=10, safe_strip=0, line_no=None, **kwargs):
-        """ Compute correlations with support traces.
+        """ Compute correlations between each trace and support traces.
 
         Parameters
         ----------
@@ -170,7 +174,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def local_btch(self, kernel_size=3, reduce_func='nanmean', **kwargs):
-        """ !!. """
+        """ Compute Bhattacharyya distance between each column in data and nearest traces. """
         metric, title = compute_local_btch(data=self.probs, bad_traces=self.bad_traces,
                                            kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
         plot_dict = {
@@ -184,7 +188,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_btch(self, supports=10, safe_strip=0, **kwargs):
-        """ !!. """
+        """ Compute Bhattacharyya distance between each trace and support traces """
         metric, title = compute_support_btch(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                              safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -199,7 +203,7 @@ class BaseSeismicMetric(Metrics):
 
 
     def local_kl(self, kernel_size=3, reduce_func='nanmean', **kwargs):
-        """ !!. """
+        """ Compute Kullback-Leibler divergence between each column in data and nearest traces. """
         metric, title = compute_local_kl(data=self.probs, bad_traces=self.bad_traces,
                                          kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
         plot_dict = {
@@ -213,7 +217,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_kl(self, supports=10, safe_strip=0, **kwargs):
-        """ !!. """
+        """ Compute Kullback-Leibler divergence between each trace and support traces """
         metric, title = compute_support_kl(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                            safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -228,7 +232,9 @@ class BaseSeismicMetric(Metrics):
 
 
     def local_js(self, kernel_size=3, reduce_func='nanmean', **kwargs):
-        """ !!. """
+        """ Compute Jensen-Shannon distance between each column in data and nearest traces.
+        Janson-Shannon distance is a symmetrized version of Kullback-Leibler divergence.
+        """
         metric, title = compute_local_js(data=self.probs, bad_traces=self.bad_traces,
                                          kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
         plot_dict = {
@@ -242,7 +248,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_js(self, supports=10, safe_strip=0, **kwargs):
-        """ !!. """
+        """ Compute Jensen-Shannon distance between each trace and support traces """
         metric, title = compute_support_js(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                            safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -257,7 +263,7 @@ class BaseSeismicMetric(Metrics):
 
 
     def local_hellinger(self, kernel_size=3, reduce_func='nanmean', **kwargs):
-        """ !!. """
+        """ Compute Hellinger distance between each column in data and nearest traces. """
         metric, title = compute_local_hellinger(data=self.probs, bad_traces=self.bad_traces,
                                                 kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
         plot_dict = {
@@ -271,7 +277,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_hellinger(self, supports=10, safe_strip=0, **kwargs):
-        """ !!. """
+        """ Compute Hellinger distance between each trace and support traces """
         metric, title = compute_support_hellinger(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                                   safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -286,7 +292,9 @@ class BaseSeismicMetric(Metrics):
 
 
     def local_wasserstein(self, kernel_size=3, reduce_func='nanmean', **kwargs):
-        """ !!. """
+        """ Compute Wasserstein distance between each column in data and nearest traces.
+        Wasserstein distance is also known as Earth-Mover distance.
+        """
         metric, title = compute_local_wasserstein(data=self.probs, bad_traces=self.bad_traces,
                                                   kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
         plot_dict = {
@@ -300,7 +308,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_wasserstein(self, supports=10, safe_strip=0, **kwargs):
-        """ !!. """
+        """ Compute Wasserstein distance between each trace and support traces """
         metric, title = compute_support_wasserstein(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                                     safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -359,7 +367,19 @@ class BaseSeismicMetric(Metrics):
 
     def quality_map(self, quantiles, metric_names=None, computed_metrics=None, reduce_func='nanmean',
                     smoothing_params=None, local_params=None, support_params=None, **kwargs):
-        """ !!. """
+        """ Create a quality map based on number of metrics.
+
+        Parameters
+        ----------
+        quantiles : sequence of floats
+            Quantiles for computing hardness thresholds. Must be in (0, 1) ranges.
+        metric_names : sequence of str
+            Which metrics to use to assess hardness of data.
+        reduce_func : str
+            Function to reduce multiple metrics into one spatial map.
+        smoothing_params, local_params, support_params : dicts
+            Additional parameters for smoothening, local_ metrics, support_ metrics.
+        """
         _ = kwargs
         computed_metrics = computed_metrics or []
         smoothing_params = smoothing_params or self.SMOOTHING_DEFAULTS
@@ -402,7 +422,7 @@ class BaseSeismicMetric(Metrics):
 
 
     def make_grid(self, quality_map, frequencies, iline=True, xline=True, margin=0, **kwargs):
-        """ !!. """
+        """ Create grid with various frequencies based on quality map. """
         _ = kwargs
         if margin:
             bad_traces = np.copy(self.geometry.zero_traces)
@@ -489,8 +509,9 @@ class HorizonMetrics(BaseSeismicMetric):
 
     @property
     def probs(self):
-        """ !!. """
+        """ Probabilistic interpretation of `data`. """
         if self._probs is None:
+            # Somewhat viable?
             # mins = np.min(self.data, axis=-1, keepdims=True)
             # maxs = np.max(self.data, axis=-1, keepdims=True)
             # shift_scaled = (self.data - mins) / (maxs - mins)
@@ -595,7 +616,7 @@ class HorizonMetrics(BaseSeismicMetric):
 
 
 class GeometryMetrics(BaseSeismicMetric):
-    """ !!. """
+    """ Metrics of cube quality. """
     AVAILABLE_METRICS = [
         'local_corrs', 'support_corrs',
         'local_kl', 'support_kl',
@@ -622,14 +643,14 @@ class GeometryMetrics(BaseSeismicMetric):
 
     @property
     def data(self):
-        """ !!. """
+        """ Histogram of values for every trace in the cube. """
         if self._data is None:
             self._data = self.geometry.hist_matrix
         return self._data
 
     @property
     def bad_traces(self):
-        """ !!. """
+        """ Traces to exclude from metric evaluations: bad traces are marked with `1`s. """
         if self._bad_traces is None:
             self._bad_traces = self.geometry.zero_traces
         return self._bad_traces
@@ -637,14 +658,14 @@ class GeometryMetrics(BaseSeismicMetric):
 
     @property
     def probs(self):
-        """ !!. """
+        """ Probabilistic interpretation of `data`. """
         if self._probs is None:
             self._probs = self.data / np.sum(self.data, axis=-1, keepdims=True) + self.EPS
         return self._probs
 
 
     def tracewise(self, func, l=3, pbar=True, **kwargs):
-        """ !!. """
+        """ Apply `func` to compare two cubes tracewise. """
         if len(self.geometries) != 2:
             raise ValueError()
         pbar = tqdm if pbar else lambda iterator, *args, **kwargs: iterator
@@ -679,7 +700,9 @@ class GeometryMetrics(BaseSeismicMetric):
 
 
     def tracewise_unsafe(self, func, l=3, pbar=True, **kwargs):
-        """ !!. """
+        """ Apply `func` to compare two cubes tracewise in an unsafe way:
+        structure of cubes is assumed to be identical.
+        """
         if len(self.geometries) != 2:
             raise ValueError()
         pbar = tqdm if pbar else lambda iterator, *args, **kwargs: iterator
@@ -712,19 +735,19 @@ class GeometryMetrics(BaseSeismicMetric):
 # Njitted NumPy funcions
 @njit
 def geomean(array):
-    """ !!. """
+    """ Geometric mean of an array. """
     n = np.sum(~np.isnan(array))
     return np.power(np.nanprod(array), (1 / n))
 
 @njit
 def harmean(array):
-    """ !!. """
+    """ Harmonic mean of an array. """
     n = np.sum(~np.isnan(array))
     return n / np.nansum(1 / array)
 
 @njit
 def histo_reduce(data, bins):
-    """ !!. """
+    """ Convert each entry in data to histograms according to `bins`. """
     i_range, x_range = data.shape[:2]
 
     hist_matrix = np.full((i_range, x_range, len(bins) - 1), np.nan)
@@ -735,7 +758,9 @@ def histo_reduce(data, bins):
 
 
 class NumbaNumpy:
-    """ !!. """
+    """ Holder for njitted functions.
+    Note: don't try to automate this with fancy decorators over function names.
+    """
     #pylint: disable = unnecessary-lambda, undefined-variable
     nanmin = njit()(lambda array: np.nanmin(array))
     nanmax = njit()(lambda array: np.nanmax(array))
@@ -757,7 +782,24 @@ class NumbaNumpy:
 
 # Functions to compute metric from data-array
 def compute_local_func(function, name, data, bad_traces, kernel_size=3, reduce_func='nanmean', **kwargs):
-    """ !!. """
+    """ Apply `function` in a `local` way: each entry in `data` is compared against its
+    neighbours, and then those values are reduced to one number with `reduce_func`.
+
+    Parameters
+    ----------
+    function : callable
+        Njitted function to compare two entries in data.
+    name : str
+        Name of function to display on graphs.
+    data : ndarray
+        3D array to apply function to.
+    bad_traces : ndarray
+        Traces to ignore during metric evaluation.
+    kernel_size : int
+        Size of window to reduce values in.
+    reduce_func : str or callable
+        Function to reduce values in window with, e.g. `mean` or `nanmax`.
+    """
     _ = kwargs
 
     reduce_func = getattr(NumbaNumpy, reduce_func)
@@ -776,7 +818,7 @@ def compute_local_func(function, name, data, bad_traces, kernel_size=3, reduce_f
 
 @njit
 def apply_local_func(compute_func, reduce_func, data, bad_traces, kernel_size):
-    """ !!. """
+    """ Apply function in window. """
     #pylint: disable=too-many-nested-blocks, consider-using-enumerate
     k = int(np.floor(kernel_size / 2))
     i_range, x_range = data.shape[:2]
@@ -802,7 +844,28 @@ def apply_local_func(compute_func, reduce_func, data, bad_traces, kernel_size):
 
 def compute_support_func(function_ndarray, function_str, name,
                          data, supports, bad_traces, safe_strip=0, line_no=None, **kwargs):
-    """ !!. """
+    """ Apply function to compare each trace and a number of support traces.
+
+    Parameters
+    ----------
+    supports : int, sequence, ndarray or str
+        Defines mode of generating support traces.
+        If int, then that number of random non-zero traces positions are generated.
+        If sequence or ndarray, then must be of shape (N, 2) and is used as positions of support traces.
+        If str, then must define either `iline` or `xline` mode. In each respective one, iline/xline given by
+        `line_no` argument is used to generate supports.
+    safe_strip : int
+        Used only for `int` mode of `supports` parameter and defines minimum distance
+        from borders for sampled points.
+    line_no : int
+        Used only for `str` mode of `supports` parameter to define exact iline/xline to use.
+
+    Returns
+    -------
+    array-like
+        Matrix of either (n_ilines, n_xlines, n_supports) or (n_ilines, n_xlines) shape with
+        computed metric for each point.
+    """
     _ = kwargs
     bad_traces = np.copy(bad_traces)
     bad_traces[np.std(data, axis=-1) == 0.0] = 1
@@ -846,20 +909,19 @@ def compute_support_func(function_ndarray, function_str, name,
 
 
 def compute_local_corrs(data, bad_traces, kernel_size=3, reduce_func='nanmean', **kwargs):
-    """ !!. """
+    """ Compute correlation between each column in data and nearest traces. """
     return compute_local_func(_compute_local_corrs, 'correlation',
                               data=data, bad_traces=bad_traces,
                               kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
 
 @njit
 def _compute_local_corrs(array_1, array_2):
-    """ !!. """
     result = np.sum((array_1 - np.mean(array_1)) * (array_2 - np.mean(array_2))) / (np.std(array_1) * np.std(array_2))
     return result / len(array_1)
 
 
 def compute_support_corrs(data, supports, bad_traces, safe_strip=0, line_no=None, **kwargs):
-    """ !!. """
+    #pylint: disable=missing-function-docstring
     return compute_support_func(function_ndarray=_compute_support_corrs,
                                 function_str=_compute_line_corrs,
                                 name='correlation',
@@ -867,7 +929,6 @@ def compute_support_corrs(data, supports, bad_traces, safe_strip=0, line_no=None
                                 safe_strip=safe_strip, line_no=line_no, **kwargs)
 
 def _compute_support_corrs(data, supports, bad_traces):
-    """ NumPy function to compute correlations with a number of support traces. """
     n_supports = len(supports)
     i_range, x_range, depth = data.shape
 
@@ -917,19 +978,18 @@ def _compute_line_corrs(data, bad_traces, support_il=None, support_xl=None):
 
 
 def compute_local_btch(data, bad_traces, kernel_size=3, reduce_func='nanmean', **kwargs):
-    """ !!. """
+    """ Compute Bhattacharyya distance between each column in data and nearest traces. """
     return compute_local_func(_compute_local_btch, 'Bhattacharyya-divergence',
                               data=data, bad_traces=bad_traces,
                               kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
 
 @njit
 def _compute_local_btch(array_1, array_2):
-    """ !!. """
     return np.sum(np.sqrt(array_1 * array_2))
 
 
 def compute_support_btch(data, supports, bad_traces, safe_strip=0, **kwargs):
-    """ !!. """
+    #pylint: disable=missing-function-docstring
     return compute_support_func(function_ndarray=_compute_support_btch,
                                 function_str=None,
                                 name='Bhattacharyya-divergence',
@@ -937,7 +997,6 @@ def compute_support_btch(data, supports, bad_traces, safe_strip=0, **kwargs):
                                 safe_strip=safe_strip, **kwargs)
 
 def _compute_support_btch(data, supports, bad_traces):
-    """ !!. """
     n_supports = len(supports)
     i_range, x_range, depth = data.shape
 
@@ -955,22 +1014,19 @@ def _compute_support_btch(data, supports, bad_traces):
     return divs
 
 
-
-
 def compute_local_kl(data, bad_traces, kernel_size=3, reduce_func='nanmean', **kwargs):
-    """ !!. """
+    """ Compute Kullback-Leibler divergence between each column in data and nearest traces. """
     return compute_local_func(_compute_local_kl, 'KL-divergence',
                               data=data, bad_traces=bad_traces,
                               kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
 
 @njit
 def _compute_local_kl(array_1, array_2):
-    """ !!. """
     return 1 - np.sum(array_1 * np.log2(array_1 / array_2))
 
 
 def compute_support_kl(data, supports, bad_traces, safe_strip=0, **kwargs):
-    """ !!. """
+    #pylint: disable=missing-function-docstring
     return compute_support_func(function_ndarray=_compute_support_kl,
                                 function_str=None,
                                 name='KL-divergence',
@@ -978,7 +1034,6 @@ def compute_support_kl(data, supports, bad_traces, safe_strip=0, **kwargs):
                                 safe_strip=safe_strip, **kwargs)
 
 def _compute_support_kl(data, supports, bad_traces):
-    """ !!. """
     n_supports = len(supports)
     i_range, x_range, depth = data.shape
 
@@ -998,14 +1053,13 @@ def _compute_support_kl(data, supports, bad_traces):
 
 
 def compute_local_js(data, bad_traces, kernel_size=3, reduce_func='nanmean', **kwargs):
-    """ !!. """
+    """ Compute Jensen-Shannon distance between each column in data and nearest traces. """
     return compute_local_func(_compute_local_js, 'JS-divergence',
                               data=data, bad_traces=bad_traces,
                               kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
 
 @njit
 def _compute_local_js(array_1, array_2):
-    """ !!. """
     average = (array_1 + array_2) / 2
     log_average = np.log2(average)
     div_1 = np.sum(array_1 * (np.log2(array_1) - log_average))
@@ -1014,7 +1068,7 @@ def _compute_local_js(array_1, array_2):
 
 
 def compute_support_js(data, supports, bad_traces, safe_strip=0, **kwargs):
-    """ !!. """
+    #pylint: disable=missing-function-docstring
     return compute_support_func(function_ndarray=_compute_support_js,
                                 function_str=None,
                                 name='JS-divergence',
@@ -1022,7 +1076,6 @@ def compute_support_js(data, supports, bad_traces, safe_strip=0, **kwargs):
                                 safe_strip=safe_strip, **kwargs)
 
 def _compute_support_js(data, supports, bad_traces):
-    """ !!. """
     n_supports = len(supports)
     i_range, x_range, depth = data.shape
 
@@ -1047,7 +1100,7 @@ def _compute_support_js(data, supports, bad_traces):
 
 
 def compute_local_hellinger(data, bad_traces, kernel_size=3, reduce_func='nanmean', **kwargs):
-    """ !!. """
+    """ Compute Hellinger distance between each column in data and nearest traces. """
     return compute_local_func(_compute_local_hellinger, 'hellinger distance',
                               data=data, bad_traces=bad_traces,
                               kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
@@ -1055,12 +1108,11 @@ def compute_local_hellinger(data, bad_traces, kernel_size=3, reduce_func='nanmea
 SQRT_2 = np.sqrt(2)
 @njit
 def _compute_local_hellinger(array_1, array_2):
-    """ !!. """
     return 1 - np.sqrt(np.sum(np.sqrt(array_1) - np.sqrt(array_2)) ** 2) / SQRT_2
 
 
 def compute_support_hellinger(data, supports, bad_traces, safe_strip=0, **kwargs):
-    """ !!. """
+    #pylint: disable=missing-function-docstring
     return compute_support_func(function_ndarray=_compute_support_hellinger,
                                 function_str=None,
                                 name='hellinger distance',
@@ -1068,7 +1120,6 @@ def compute_support_hellinger(data, supports, bad_traces, safe_strip=0, **kwargs
                                 safe_strip=safe_strip, **kwargs)
 
 def _compute_support_hellinger(data, supports, bad_traces):
-    """ !!. """
     n_supports = len(supports)
     i_range, x_range, depth = data.shape
 
@@ -1087,14 +1138,13 @@ def _compute_support_hellinger(data, supports, bad_traces):
 
 
 def compute_local_wasserstein(data, bad_traces, kernel_size=3, reduce_func='nanmean', **kwargs):
-    """ !!. """
+    """ Compute Wasserstein distance between each column in data and nearest traces. """
     return compute_local_func(_compute_local_wasserstein, 'wesserstein distance',
                               data=data, bad_traces=bad_traces,
                               kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
 
 @njit
 def _compute_local_wasserstein(array_1, array_2):
-    """ !!. """
     sorter_1 = np.argsort(array_1)
     sorter_2 = np.argsort(array_2)
 
@@ -1111,7 +1161,7 @@ def _compute_local_wasserstein(array_1, array_2):
 
 
 def compute_support_wasserstein(data, supports, bad_traces, safe_strip=0, **kwargs):
-    """ !!. """
+    #pylint: disable=missing-function-docstring
     return compute_support_func(function_ndarray=_compute_support_wasserstein,
                                 function_str=None,
                                 name='wasserstein distance',
@@ -1119,7 +1169,6 @@ def compute_support_wasserstein(data, supports, bad_traces, safe_strip=0, **kwar
                                 safe_strip=safe_strip, **kwargs)
 
 def _compute_support_wasserstein(data, supports, bad_traces):
-    """ !!. """
     n_supports = len(supports)
     i_range, x_range, depth = data.shape
 
@@ -1130,14 +1179,13 @@ def _compute_support_wasserstein(data, supports, bad_traces):
 
     divs = np.zeros((i_range, x_range, n_supports))
     for i in range(n_supports):
-        temp = emd_array(support_traces[i], data)
+        temp = _emd_array(support_traces[i], data)
         temp[bad_traces == 1] = np.nan
         divs[:, :, i] = temp
     return divs
 
 @njit
-def emd_array(array_1d, array_3d):
-    """ !!. """
+def _emd_array(array_1d, array_3d):
     temp = np.zeros(array_3d.shape[:2])
 
     for i in prange(array_3d.shape[0]):
@@ -1148,7 +1196,17 @@ def emd_array(array_1d, array_3d):
 
 
 def smooth_out(matrix, kernel_size=3, sigma=2.0, iters=3, **kwargs):
-    """ !!. """
+    """ Convolve the matrix with gaussian kernel with special treatment to `np.nan`s:
+    if the point is not `np.nan`, then it is changed to a weighted sum of all present points nearby.
+
+    Parameters
+    ----------
+    kernel_size : int
+        Size of gaussian filter.
+    sigma : number
+        Standard deviation (spread or “width”) for gaussian kernel.
+        The lower, the more weight is put into the point itself.
+    """
     _ = kwargs
     k = int(np.floor(kernel_size / 2))
 
@@ -1168,7 +1226,7 @@ def smooth_out(matrix, kernel_size=3, sigma=2.0, iters=3, **kwargs):
 
 @njit
 def apply_local_smoothing(matrix, k, raveled_kernel):
-    """ !!. """
+    """ Jit-accelerated function to apply smoothing. """
     #pylint: disable=too-many-nested-blocks, consider-using-enumerate
     i_range, x_range = matrix.shape
     smoothed = np.full((i_range, x_range), np.nan)
@@ -1193,7 +1251,7 @@ def apply_local_smoothing(matrix, k, raveled_kernel):
 
 
 def digitize(matrix, quantiles):
-    """ !!. """
+    """ Convert continious metric into binarized version with thresholds defined by `quantiles`. """
     bins = np.nanquantile(matrix.ravel(), np.sort(quantiles)[::-1])
 
     if len(bins) > 1:
@@ -1207,7 +1265,7 @@ def digitize(matrix, quantiles):
 
 
 def gridify(matrix, frequencies, iline=True, xline=True):
-    """ !!. """
+    """ Convert digitized map into grid with various frequencies corresponding to different bins. """
     values = np.unique(matrix[~np.isnan(matrix)])
     if len(values) != len(frequencies):
         min_freq = min(frequencies)

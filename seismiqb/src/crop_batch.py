@@ -1,5 +1,4 @@
 """ Seismic Crop Batch."""
-#pylint: disable=too-many-lines
 import string
 import random
 from copy import copy
@@ -133,6 +132,9 @@ class SeismicCropBatch(Batch):
             If False, then shape is never transposed.
             If True, then shape is transposed with 0.5 probability.
             If float, then shape is transposed with that probability.
+        make_slices: bool or str
+            If `adaptive`, then slices are created so that crops are cut only along the quality grid.
+            If bool, then whether to make slices.
         dst : str, optional
             Component of batch to put positions of crops in.
         passdown : str of list of str
@@ -231,7 +233,7 @@ class SeismicCropBatch(Batch):
         return slice_
 
     def _correct_point_to_grid(self, point, shape, eps=3):
-        """ !!. """
+        """ Move the point to the closest location in the quality grid. """
         #pylint: disable=too-many-return-statements
         ix = point[0]
         geometry = self.get(ix, 'geometries')
@@ -355,13 +357,9 @@ class SeismicCropBatch(Batch):
         slice_ = self.get(ix, src)
         shape_ = self.get(ix, 'shapes')
         mask = np.zeros((shape_))
-        mask_bbox = np.array([[slice_[0][0], slice_[0][-1]+1],
-                              [slice_[1][0], slice_[1][-1]+1],
-                              [slice_[2][0], slice_[2][-1]+1]],
-                             dtype=np.int32)
 
         for horizon in horizons:
-            mask = horizon.add_to_mask(mask, mask_bbox=mask_bbox, locations=slice_, width=width)
+            mask = horizon.add_to_mask(mask, locations=slice_, width=width)
         return mask
 
 
