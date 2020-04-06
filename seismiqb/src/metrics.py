@@ -714,7 +714,7 @@ class GeometryMetrics(BaseSeismicMetric):
         s_1_items = s_1.index.levels[0][:-window[0]]
         s_2_items = s_2.index.levels[1][:-window[1]]
 
-        with pbar(total=len(s_1_items) * len(s_2_items)):
+        with pbar(total=len(s_1_items) * len(s_2_items)) as _bar:
             for i, il in enumerate(s_1_items):
                 for j, ix in enumerate(s_2_items):
                     idx = (list(range(il, il+window[0])), list(range(ix, ix+window[1])))
@@ -724,7 +724,7 @@ class GeometryMetrics(BaseSeismicMetric):
                     trace_1 = self.geometries[0].load_traces_segy(trace_indices_1)
                     trace_2 = self.geometries[1].load_traces_segy(trace_indices_2)
                     metric[i, j] = func(trace_1, trace_2, **kwargs)
-                    pbar.update(1)
+                    _bar.update(1)
 
         title = f"tracewise {func}"
         plot_dict = {
