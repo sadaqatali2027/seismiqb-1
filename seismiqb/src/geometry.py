@@ -287,7 +287,6 @@ class SeismicGeometry:
                 trace_container.extend(trace.tolist())
                 #TODO: add dtype for storing
 
-
         # Collect more spatial stats: min, max, mean, std, histograms matrices
         if spatial:
             # Make bins
@@ -784,9 +783,13 @@ class SeismicGeometry:
         Depth of one trace is: {self.depth}
         Current index: {self.index}
         Shape: {self.cube_shape}
-        Min/max values: {self.value_min, self.value_max}
-        q01/q99 values: {self.q01, self.q99}
         """
+
+        if hasattr(self, 'value_min'):
+            msg += f"""
+            Min/max values: {self.value_min, self.value_max}
+            q01/q99 values: {self.q01, self.q99}
+            """
         return dedent(msg)
 
     def log(self, printer=None):

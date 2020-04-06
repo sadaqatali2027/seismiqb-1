@@ -173,6 +173,7 @@ class BaseSeismicMetric(Metrics):
         }
         return metric, plot_dict
 
+
     def local_btch(self, kernel_size=3, reduce_func='nanmean', **kwargs):
         """ Compute Bhattacharyya distance between each column in data and nearest traces. """
         metric, title = compute_local_btch(data=self.probs, bad_traces=self.bad_traces,
@@ -200,6 +201,10 @@ class BaseSeismicMetric(Metrics):
             # **kwargs
         }
         return metric, plot_dict
+
+    # Aliases for Bhattacharyya distance
+    local_bt = local_btch
+    support_bt = support_btch
 
 
     def local_kl(self, kernel_size=3, reduce_func='nanmean', **kwargs):
@@ -420,7 +425,6 @@ class BaseSeismicMetric(Metrics):
         }
         return quality_map, plot_dict
 
-
     def make_grid(self, quality_map, frequencies, iline=True, xline=True, margin=0, **kwargs):
         """ Create grid with various frequencies based on quality map. """
         _ = kwargs
@@ -464,7 +468,9 @@ class HorizonMetrics(BaseSeismicMetric):
     """
     AVAILABLE_METRICS = [
         'local_corrs', 'support_corrs',
+        'local_btch', 'support_btch',
         'local_kl', 'support_kl',
+        'local_js', 'support_js',
         'local_hellinger', 'support_hellinger',
         'local_wasserstein', 'support_wasserstein',
         'hilbert',
@@ -522,7 +528,6 @@ class HorizonMetrics(BaseSeismicMetric):
         return self._probs
 
 
-
     def compare(self, offset=0, absolute=True, hist=True, printer=print, **kwargs):
         """ Compare horizons on against the best match from the list of horizons.
 
@@ -546,10 +551,10 @@ class HorizonMetrics(BaseSeismicMetric):
         lst = []
         for hor in self.horizons[1]:
             if hor.geometry.name == self.horizon.geometry.name:
-                overlap_info = Horizon.verify_merge(self.horizon, hor, adjacency=3)[1]
+                overlap_info = Horizon.check_proximity(self.horizon, hor, offset=offset)
                 lst.append((hor, overlap_info))
         lst.sort(key=lambda x: x[1].get('mean', 999999))
-        other, overlap_info = lst[0] # the best match
+        other, oinfo = lst[0] # the best match; `oinfo` stands for `overlap_info`
 
         self_full_matrix = self.horizon.full_matrix
         other_full_matrix = other.full_matrix
@@ -558,9 +563,6 @@ class HorizonMetrics(BaseSeismicMetric):
         if absolute:
             metric = np.abs(metric)
 
-        window_rate = np.mean(np.abs(metric[~np.isnan(metric)]) < (5 / other.geometry.sample_rate))
-        max_abs_error = np.nanmax(np.abs(metric))
-        max_abs_error_count = np.sum(metric == max_abs_error) + np.sum(metric == -max_abs_error)
         at_1 = len(np.asarray((self_full_matrix != other.FILL_VALUE) &
                               (other_full_matrix == other.FILL_VALUE)).nonzero()[0])
         at_2 = len(np.asarray((self_full_matrix == other.FILL_VALUE) &
@@ -569,28 +571,29 @@ class HorizonMetrics(BaseSeismicMetric):
         if printer is not None:
             msg = f"""
             Comparing horizons:       {self.horizon.name}
-                                    {other.name}
+                                      {other.name}
             {'—'*45}
 
-            Rate in 5ms:                         {window_rate:8.4}
-            Mean/std of errors:       {np.nanmean(metric):8.4} / {np.nanstd(metric):8.4}
-            Max abs error/count:      {max_abs_error:8.4} / {max_abs_error_count:8}
+            Rate in 5ms:                         {oinfo['window_rate']:8.4}
+            Mean/std of errors:       {oinfo['mean']:8.4} / {oinfo['std']:8.4}
+            Mean/std of abs errors:   {oinfo['abs_mean']:8.4} / {oinfo['abs_std']:8.4}
+            Max error/abd error:      {oinfo['max']:8.4} / {oinfo['abs_max']:8}
             {'—'*45}
 
             Lengths of horizons:                 {len(self.horizon):8}
-                                                {len(other):8}
+                                                 {len(other):8}
             {'—'*45}
             Average heights of horizons:         {(offset + self.horizon.h_mean):8.4}
-                                                {other.h_mean:8.4}
+                                                 {other.h_mean:8.4}
             {'—'*45}
             Coverage of horizons:                {self.horizon.coverage:8.4}
-                                                {other.coverage:8.4}
+                                                 {other.coverage:8.4}
             {'—'*45}
             Solidity of horizons:                {self.horizon.solidity:8.4}
-                                                {other.solidity:8.4}
+                                                 {other.solidity:8.4}
             {'—'*45}
             Number of holes in horizons:         {self.horizon.number_of_holes:8}
-                                                {other.number_of_holes:8}
+                                                 {other.number_of_holes:8}
             {'—'*45}
             Additional traces labeled:           {at_1:8}
             (present in one, absent in other)    {at_2:8}
@@ -598,7 +601,7 @@ class HorizonMetrics(BaseSeismicMetric):
             """
             printer(dedent(msg))
 
-        if hist and not np.isnan(max_abs_error):
+        if hist:
             _ = plt.hist(metric.ravel(), bins=100)
 
         title = 'Height differences between {} and {}'.format(self.horizon.name, other.name)
@@ -619,7 +622,9 @@ class GeometryMetrics(BaseSeismicMetric):
     """ Metrics of cube quality. """
     AVAILABLE_METRICS = [
         'local_corrs', 'support_corrs',
+        'local_btch', 'support_btch',
         'local_kl', 'support_kl',
+        'local_js', 'support_js',
         'local_hellinger', 'support_hellinger',
         'local_wasserstein', 'support_wasserstein',
     ]
@@ -654,7 +659,6 @@ class GeometryMetrics(BaseSeismicMetric):
         if self._bad_traces is None:
             self._bad_traces = self.geometry.zero_traces
         return self._bad_traces
-
 
     @property
     def probs(self):
@@ -698,7 +702,6 @@ class GeometryMetrics(BaseSeismicMetric):
         }
         return metric, plot_dict
 
-
     def tracewise_unsafe(self, func, l=3, pbar=True, **kwargs):
         """ Apply `func` to compare two cubes tracewise in an unsafe way:
         structure of cubes is assumed to be identical.
@@ -732,7 +735,7 @@ class GeometryMetrics(BaseSeismicMetric):
 
 
 
-# Njitted NumPy funcions
+# Jit-accelerated NumPy funcions
 @njit
 def geomean(array):
     """ Geometric mean of an array. """
@@ -758,8 +761,8 @@ def histo_reduce(data, bins):
 
 
 class NumbaNumpy:
-    """ Holder for njitted functions.
-    Note: don't try to automate this with fancy decorators over function names.
+    """ Holder for jit-accelerated functions.
+    Note: don't try to automate this with fancy decorators over the function names.
     """
     #pylint: disable = unnecessary-lambda, undefined-variable
     nanmin = njit()(lambda array: np.nanmin(array))

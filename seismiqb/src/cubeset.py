@@ -70,7 +70,7 @@ class SeismicCubeset(Dataset):
 
 
 
-    def load_geometries(self, logs=True):
+    def load_geometries(self, collect_stats=True, spatial=True, logs=True, **kwargs):
         """ Load geometries into dataset-attribute.
 
         Parameters
@@ -83,9 +83,9 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with loaded geometries.
         """
+        _ = kwargs
         for ix in self.indices:
-            #TODO: pass kwargs from `load`
-            self.geometries[ix].process(collect_stats=True, spatial=False,)
+            self.geometries[ix].process(collect_stats=collect_stats, spatial=spatial)
             if logs:
                 self.geometries[ix].log()
         return self
@@ -341,7 +341,7 @@ class SeismicCubeset(Dataset):
 
         if normalize:
             background = (background > 0).astype(int)
-        plot_image(background, 'Sampled slices', **kwargs)
+        plot_image(background, f'Sampled slices on {self.indices[idx]}', rgb=normalize, **kwargs)
         return batch
 
 
@@ -366,7 +366,7 @@ class SeismicCubeset(Dataset):
             dir_ = dir_path + horizon_dir
             paths_txt[self.indices[i]] = glob(dir_)
 
-        self.load_geometries()
+        self.load_geometries(**kwargs)
         self.create_labels(paths=paths_txt, filter_zeros=filter_zeros, dst=dst_labels)
         self._p, self._bins = p, bins # stored for later sampler creation
         return self
@@ -489,7 +489,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def merge_horizons(self, src, mean_threshold=2.0, adjacency=3, ):
+    def merge_horizons(self, src, mean_threshold=2.0, adjacency=3, minsize=50):
         """ Iterate over a list of horizons and merge what can be merged. Can be called after
         running a pipeline with `get_point_cloud`-action. Changes the list of horizons inplace.
 
@@ -504,6 +504,7 @@ class SeismicCubeset(Dataset):
         """
         # fetch list of horizons
         horizons = getattr(self, src) if isinstance(src, str) else src
+        horizons = [horizon for horizon in horizons if len(horizon) >= minsize]
 
         # iterate over list of horizons to merge what can be merged
         i = 0
@@ -527,8 +528,9 @@ class SeismicCubeset(Dataset):
                     if merge_code == 3:
                         merged = Horizon.overlap_merge(horizons[i], horizons[j], inplace=True)
                     elif merge_code == 2:
-                        merged, _, _ = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
-                                                              adjacency=adjacency, mean_threshold=mean_threshold)
+                        merged = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
+                                                        mean_threshold=mean_threshold,
+                                                        adjacency=adjacency)
                     else:
                         merged = False
 
@@ -538,6 +540,8 @@ class SeismicCubeset(Dataset):
                     else:
                         j += 1
                 i += 1
+
+        return horizons
 
 
 

@@ -1065,11 +1065,23 @@ class Horizon(BaseLabel):
         HorizonMetrics(self).evaluate('support_corrs', supports=supports, agg='mean', plot=plot, savepath=savepath)
 
 
-    def compare_to(self, other, offset=0, absolute=True, printer=print, hist=True, plot=True):
+    def check_proximity(self, other, offset=0):
         """ Shortcut for :meth:`.HorizonMetrics.evaluate` to compare against the best match of list of horizons. """
-        from .metrics import HorizonMetrics
-        HorizonMetrics([self, other]).evaluate('compare', agg=None, absolute=absolute, offset=offset,
-                                               printer=printer, hist=hist, plot=plot)
+        _, overlap_info = self.verify_merge(other)
+        diffs = overlap_info['diffs'] + offset
+
+        overlap_info = {
+            **overlap_info,
+            'mean': np.nanmean(diffs),
+            'abs_mean': np.nanmean(np.abs(diffs)),
+            'max': np.nanmax(diffs),
+            'abs_max': np.nanmax(np.abs(diffs)),
+            'std': np.nanstd(diffs),
+            'abs_std': np.nanstd(np.abs(diffs)),
+            'window_rate': np.nanmean(np.abs(diffs) < (5 / self.geometry.sample_rate)),
+            'offset_diffs': diffs,
+        }
+        return overlap_info
 
 
     # Merge functions
@@ -1153,7 +1165,9 @@ class Horizon(BaseLabel):
 
 
     def overlap_merge(self, other, inplace=False):
-        """ Merge two horizons into one. """
+        """ Merge two horizons into one.
+        Note that this function can either merge horizons in-place of the first one (`self`), or create a new instance.
+        """
         # Create shared background for both horizons
         shared_i_min, shared_i_max = min(self.i_min, other.i_min), max(self.i_max, other.i_max)
         shared_x_min, shared_x_max = min(self.x_min, other.x_min), max(self.x_max, other.x_max)
@@ -1199,8 +1213,81 @@ class Horizon(BaseLabel):
         return merged
 
 
-    def adjacent_merge(self, other, mean_threshold=3.0, adjacency=3,
-                       check_only=False, force_merge=False, inplace=False):
+    def adjacent_merge(self, other, mean_threshold=3.0, adjacency=3, inplace=False):
+        """ Check if adjacent merge (that is merge with some margin) is possible, and, if needed, merge horizons.
+        Note that this function can either merge horizons in-place of the first one (`self`), or create a new instance.
+
+        Parameters
+        ----------
+        self, other : :class:`.Horizon` instances
+            Horizons to merge.
+        mean_threshold : number
+            Height threshold for mean distances.
+        adjacency : int
+            Margin to consider horizons close (spatially).
+        inplace : bool
+            Whether to create new instance or update `self`.
+        """
+        # Create shared background for both horizons
+        shared_i_min, shared_i_max = min(self.i_min, other.i_min), max(self.i_max, other.i_max)
+        shared_x_min, shared_x_max = min(self.x_min, other.x_min), max(self.x_max, other.x_max)
+
+        background = np.zeros((shared_i_max - shared_i_min + 1, shared_x_max - shared_x_min + 1),
+                              dtype=np.int32)
+
+        # Coordinates inside shared for `self` and `other`
+        shared_self_i_min, shared_self_x_min = self.i_min - shared_i_min, self.x_min - shared_x_min
+        shared_other_i_min, shared_other_x_min = other.i_min - shared_i_min, other.x_min - shared_x_min
+
+        # Put the second of the horizons on background
+        background[shared_other_i_min:shared_other_i_min+other.i_length,
+                   shared_other_x_min:shared_other_x_min+other.x_length] += other.matrix
+
+        # Enlarge the image to count for adjacency
+        kernel = np.ones((3, 3), np.float32)
+        dilated_background = cv2.dilate(background.astype(np.float32), kernel,
+                                        iterations=adjacency).astype(np.int32)
+
+        # Make counts: number of horizons in each point; create indices of overlap
+        counts = (dilated_background != 0).astype(np.int32)
+        counts[shared_self_i_min:shared_self_i_min+self.i_length,
+               shared_self_x_min:shared_self_x_min+self.x_length] += 1
+        so_idx_i, so_idx_x = np.asarray(counts == 2).nonzero()
+
+        # Determine whether horizon can be merged (adjacent and height-close) or not
+        mergeable = False
+        if len(so_idx_i) != 0:
+            # Put the first horizon on dilated background, compute mean
+            background[shared_self_i_min:shared_self_i_min+self.i_length,
+                       shared_self_x_min:shared_self_x_min+self.x_length] += self.matrix
+
+            # Compute diffs on overlap
+            diffs = background[so_idx_i, so_idx_x] - dilated_background[so_idx_i, so_idx_x]
+            diffs = np.abs(diffs)
+            diffs = diffs[diffs < (-self.FILL_VALUE // 2)]
+
+            if np.mean(diffs) < mean_threshold:
+                mergeable = True
+
+        if mergeable:
+            idx_i, idx_x = np.asarray((background < 0) & (background != self.FILL_VALUE)).nonzero()
+            background[idx_i, idx_x] -= self.FILL_VALUE
+            background[background == 0] = self.FILL_VALUE
+
+            # Create new instance or change `self`
+            if inplace:
+                # Change `self` inplace
+                self.from_matrix(background, i_min=shared_i_min, x_min=shared_x_min)
+                merged = True
+            else:
+                # Return a new instance of horizon
+                merged = Horizon(background, self.geometry, self.name, i_min=shared_i_min, x_min=shared_x_min)
+            return merged
+        return False
+
+
+    def adjacent_merge_old(self, other, mean_threshold=3.0, adjacency=3,
+                           check_only=False, force_merge=False, inplace=False):
         """ Collect stats on possible adjacent merge (that is merge with some margin), and, if needed, merge horizons.
         Note that this function can either merge horizons in-place of the first one (`self`), or create a new instance.
 
@@ -1219,7 +1306,6 @@ class Horizon(BaseLabel):
         inplace : bool
             Whether to create new instance or update `self`.
         """
-        #TODO: make `points`-free version
         adjacency_info = {}
 
         # Create shared background for both horizons
@@ -1256,7 +1342,7 @@ class Horizon(BaseLabel):
         counts = (dilated_background > 0).astype(np.int32)
         counts[self_idx_i, self_idx_x] += 1
 
-        # Gete heights on overlap
+        # Get heights on overlap
         so_idx_i, so_idx_x = np.asarray(counts == 2).nonzero()
         self_idx_i_so = so_idx_i - self.i_min + shared_i_min
         self_idx_x_so = so_idx_x - self.x_min + shared_x_min

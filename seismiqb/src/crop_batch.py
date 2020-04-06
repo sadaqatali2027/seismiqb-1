@@ -580,8 +580,8 @@ class SeismicCropBatch(Batch):
                     if merge_code == 3:
                         merged = Horizon.overlap_merge(horizon_target, horizon_candidate, inplace=True)
                     elif merge_code == 2:
-                        merged, _, _ = Horizon.adjacent_merge(horizon_target, horizon_candidate, inplace=True,
-                                                              adjacency=adjacency, mean_threshold=mean_threshold)
+                        merged = Horizon.adjacent_merge(horizon_target, horizon_candidate, inplace=True,
+                                                        adjacency=adjacency, mean_threshold=mean_threshold)
                     else:
                         merged = False
                     if merged:
