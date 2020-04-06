@@ -700,7 +700,7 @@ class GeometryMetrics(BaseSeismicMetric):
 
 
     def blockwise(self, func, l=3, pbar=True, window=(5, 5), **kwargs):
-        """ !!. """
+        """ Apply function to all traces in lateral window """
         if len(self.geometries) != 2:
             raise ValueError()
 
