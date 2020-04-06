@@ -699,6 +699,45 @@ class GeometryMetrics(BaseSeismicMetric):
         return metric, plot_dict
 
 
+    def blockwise(self, func, l=3, pbar=True, window=(5, 5), **kwargs):
+        """ !!. """
+        if len(self.geometries) != 2:
+            raise ValueError()
+
+        pbar = tqdm if pbar else lambda iterator, *args, **kwargs: iterator
+        metric_shape = list(map(lambda x: x[0]-x[1], list(zip(self.geometry.uniques, window))))
+        metric = np.full((*metric_shape, l), np.nan)
+
+        s_1 = self.geometries[0].dataframe[['trace_index']]
+        s_2 = self.geometries[1].dataframe[['trace_index']]
+
+        s_1_iters = s_1.index.levels[0][:-window[0]]
+        s_2_iters = s_2.index.levels[1][:-window[1]]
+
+        with pbar(total=s_1_iters * s_2_iters):
+            for i, il in enumerate(s_1_iters):
+                for j, ix in enumerate(s_2_iters):
+                    idx = (list(range(il, il+window[0])), list(range(ix, ix+window[1])))
+                    trace_indices_1 = s_1.loc[idx, 'trace_index'].values
+                    trace_indices_2 = s_2.loc[idx, 'trace_index'].values
+
+                    trace_1 = self.geometries[0].load_traces_segy(trace_indices_1)
+                    trace_2 = self.geometries[1].load_traces_segy(trace_indices_2)
+                    metric[i, j] = func(trace_1, trace_2, **kwargs)
+                    pbar.update(1)
+
+        title = f"tracewise {func}"
+        plot_dict = {
+            'spatial': self.spatial,
+            'title': f'{title} for {self.name} on cube {self.cube_name}',
+            'cmap': 'seismic',
+            'zmin': None, 'zmax': None,
+            'ignore_value': np.nan,
+            # **kwargs
+        }
+        return metric, plot_dict
+
+
     def tracewise_unsafe(self, func, l=3, pbar=True, **kwargs):
         """ Apply `func` to compare two cubes tracewise in an unsafe way:
         structure of cubes is assumed to be identical.
