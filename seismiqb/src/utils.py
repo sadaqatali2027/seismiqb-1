@@ -54,8 +54,6 @@ class SafeIO:
             self._info(self.log_file, f'Closed {self.path}')
 
 
-
-
 class IndexedDict(OrderedDict):
     """ Allows to use both indices and keys to subscript. """
     def __getitem__(self, key):
@@ -72,7 +70,6 @@ def stable_hash(key):
     if not isinstance(key, bytes):
         key = key.encode('ascii')
     return str(blake2b(key).hexdigest())
-
 
 class Singleton:
     """ There must be only one!"""

@@ -40,8 +40,11 @@ class BaseLabel(ABC):
 
 
 class UnstructuredHorizon(BaseLabel):
-    """ !!. """
-
+    """
+    init from csv-like
+    attached?
+    what can do (add_to_mask)
+    """
     CHARISMA_SPEC = ['INLINE', '_', 'INLINE_3D', 'XLINE', '__', 'CROSSLINE_3D', 'CDP_X', 'CDP_Y', 'height']
     REDUCED_CHARISMA_SPEC = ['INLINE_3D', 'CROSSLINE_3D', 'height']
 
@@ -286,8 +289,6 @@ def synchronizable(base='matrix'):
             if before and not self.synchronized:
                 self.synchronize(base)
                 self.synchronized = True
-                if self.debug:
-                    self.debug_update()
 
             result = func(self, *args, **kwargs)
             self.synchronized = False
@@ -295,8 +296,6 @@ def synchronizable(base='matrix'):
             if after:
                 self.synchronize(base)
                 self.synchronized = True
-                if self.debug:
-                    self.debug_update()
             return result
         return wrapped
     return _synchronizable
@@ -305,7 +304,15 @@ def synchronizable(base='matrix'):
 
 class Horizon(BaseLabel):
     """ Finally, we've made a separate class for horizon storing..
-    !!.
+    attributes
+    inits from various containers
+    transform to cubic coordinates!
+    matrix and points containers: lazy evaluation
+    properties description
+    metrics
+    what can do: add to mask, get cube values
+    merge strategies
+    visualization
     """
     #pylint: disable=too-many-public-methods, import-outside-toplevel
 
@@ -321,20 +328,20 @@ class Horizon(BaseLabel):
     # Value to place into blank spaces
     FILL_VALUE = -999999
 
-    def __init__(self, storage, geometry, name=None, debug=False, debug_attrs=None, **kwargs):
+    def __init__(self, storage, geometry, name=None, **kwargs):
         # Meta information
         self.path = None
         self.name = name
         self.format = None
 
-        # Main storage and coordinates of local system inside the cubic one
+        # Location of horizon inside cube spatial range
         self.bbox = None
         self.i_min, self.i_max = None, None
         self.x_min, self.x_max = None, None
         self.i_length, self.x_length = None, None
-        self.matrix = None
 
-        # Additional way of storing the underlying data
+        # Underlying data storages
+        self._matrix = None
         self._points = None
 
         # Heights information
@@ -349,10 +356,6 @@ class Horizon(BaseLabel):
         self.cube_shape = geometry.cube_shape
 
         self.sampler = None
-
-        # Store copies of attributes
-        self.debug = debug
-        self.debug_attrs = debug_attrs or ['matrix', 'points']
 
         # Check format of storage, then use it to populate attributes
         if isinstance(storage, str):
@@ -382,7 +385,7 @@ class Horizon(BaseLabel):
     @property
     def points(self):
         """ Storage of horizon data as (N, 3) array of (iline, xline, height) in cubic coordinates.
-        If the horizon is created not from (N, 3) array, evaluated at the time of first access.
+        If the horizon is created not from (N, 3) array, evaluated at the time of the first access.
         """
         if self._points is None and self.matrix is not None:
             points = self.matrix_to_points(self.matrix)
@@ -395,23 +398,47 @@ class Horizon(BaseLabel):
     def points(self, value):
         self._points = value
 
+    @staticmethod
+    def matrix_to_points(matrix):
+        """ Convert depth-map matrix to points array. """
+        idx = np.asarray(matrix != Horizon.FILL_VALUE).nonzero()
+        points = np.hstack([idx[0].reshape(-1, 1),
+                            idx[1].reshape(-1, 1),
+                            matrix[idx[0], idx[1]].reshape(-1, 1)])
+        return points
+
+
+    @property
+    def matrix(self):
+        """ Storage of horizon data as depth map: matrix of (ilines_length, xlines_length) with each point
+        corresponding to height. Matrix is shifted to a (i_min, x_min) point so it takes less space.
+        If the horizon is created not from matrix, evaluated at the time of the first access.
+        """
+        if self._matrix is None and self.points is not None:
+            self._matrix = self.points_to_matrix(self.points, self.i_min, self.x_min,
+                                                 self.i_length, self.x_length)
+        return self._matrix
+
+    @matrix.setter
+    def matrix(self, value):
+        self._matrix = value
+
+    @staticmethod
+    def points_to_matrix(points, i_min, x_min, i_length, x_length):
+        """ Convert array of (N, 3) shape to a depth map (matrix) """
+        copy_points = np.copy(points)
+        copy_points[:, 0] -= i_min
+        copy_points[:, 1] -= x_min
+        matrix = np.full((i_length, x_length), Horizon.FILL_VALUE, np.int32)
+
+        matrix[copy_points[:, 0], copy_points[:, 1]] = copy_points[:, 2]
+        return matrix
+
 
     def __len__(self):
         """ Number of labeled traces. """
         return len(np.asarray(self.matrix != self.FILL_VALUE).nonzero()[0])
 
-
-    # Debug methods
-    def debug_update(self):
-        """ Create copies of all 'debug_attributes' to use for later debug. """
-        for attr in self.debug_attrs:
-            setattr(self, 'copy_{}'.format(attr), copy(getattr(self, attr)))
-
-    def debug_check(self):
-        """ Assert that current storages are the same as their saved copies. """
-        for attr in self.debug_attrs:
-            assert (getattr(self, attr) == getattr(self, 'copy_{}'.format(attr))).all(), \
-            "Attribute `{}` is not the same as it's saved copy!".format(attr)
 
 
     # Coordinate transforms
@@ -471,18 +498,7 @@ class Horizon(BaseLabel):
         self.bbox = np.array([[self.i_min, self.i_max],
                               [self.x_min, self.x_max]],
                              dtype=np.int32)
-
-        # Convert array of (N, 3) shape to depth map (matrix)
-        copy_points = np.copy(self.points)
-        copy_points[:, 0] -= self.i_min
-        copy_points[:, 1] -= self.x_min
-        matrix = np.full((self.i_length, self.x_length), self.FILL_VALUE, np.int32)
-
-        matrix[copy_points[:, 0], copy_points[:, 1]] = copy_points[:, 2]
-        self.matrix = matrix
-
-        if self.debug:
-            self.debug_update()
+        self._matrix = None
 
 
     def from_file(self, path, transform=True, **kwargs):
@@ -535,15 +551,6 @@ class Horizon(BaseLabel):
         """ Init from matrix that covers the whole cube. """
         _ = kwargs
         self.from_matrix(matrix, 0, 0, **kwargs)
-
-    @staticmethod
-    def matrix_to_points(matrix):
-        """ Convert depth-map matrix to points array. """
-        idx = np.asarray(matrix != Horizon.FILL_VALUE).nonzero()
-        points = np.hstack([idx[0].reshape(-1, 1),
-                            idx[1].reshape(-1, 1),
-                            matrix[idx[0], idx[1]].reshape(-1, 1)])
-        return points
 
 
     def from_dict(self, dictionary, transform=True, **kwargs):
@@ -1431,7 +1438,7 @@ class Horizon(BaseLabel):
         Ilines from {self.i_min} to {self.i_max}
         Xlines from {self.x_min} to {self.x_max}
         Heights from {self.h_min} to {self.h_max}, mean is {self.h_mean:5.5}, std is {self.h_std:4.4}
-        Currently synchronized: {self.synchronized}; In debug mode: {self.debug}; At {hex(id(self))}
+        Currently synchronized: {self.synchronized}; At {hex(id(self))}
         """
         return dedent(msg)
 

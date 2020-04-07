@@ -83,7 +83,14 @@ def add_descriptors(cls):
 
 @add_descriptors
 class SeismicGeometry:
-    """ !!. """
+    """
+    Structured/unstructured: inits
+    spatial stats
+    attributes
+    load crops/slides
+    metrics: what is quality map
+    visualization
+    """
     #TODO: add separate class for cube-like labels
     #pylint: disable=attribute-defined-outside-init, too-many-instance-attributes, too-many-public-methods
     SEGY_ALIASES = ['sgy', 'segy', 'seg']
