@@ -699,20 +699,21 @@ class GeometryMetrics(BaseSeismicMetric):
         return metric, plot_dict
 
 
-    def blockwise(self, func, l=3, pbar=True, window=(5, 5), **kwargs):
+    def blockwise(self, func, l=3, pbar=True, window=(5, 5), strides=(1, 1), **kwargs):
         """ Apply function to all traces in lateral window """
         if len(self.geometries) != 2:
             raise ValueError()
 
         pbar = tqdm if pbar else lambda iterator, *args, **kwargs: iterator
-        metric_shape = list(map(lambda x: x[0]-x[1], list(zip(self.geometry.uniques, window))))
+        metric_shape = list(map(lambda x: int((x[0]-x[1]) / x[2]) + 1,
+                                list(zip(self.geometry.uniques, window, strides))))
         metric = np.full((*metric_shape, l), np.nan)
 
         s_1 = self.geometries[0].dataframe[['trace_index']]
         s_2 = self.geometries[1].dataframe[['trace_index']]
 
-        s_1_items = s_1.index.levels[0][:-window[0]]
-        s_2_items = s_2.index.levels[1][:-window[1]]
+        s_1_items = s_1.index.levels[0][:-window[0]:strides[0]]
+        s_2_items = s_2.index.levels[1][:-window[1]:strides[0]]
 
         with pbar(total=len(s_1_items) * len(s_2_items)) as _bar:
             for i, il in enumerate(s_1_items):
