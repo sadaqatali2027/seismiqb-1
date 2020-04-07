@@ -18,24 +18,35 @@ from numba import njit
 
 
 
-def stable_hash(key):
-    """ Hash that stays the same between different runs of Python interpreter. """
-    if not isinstance(key, (str, bytes)):
-        key = ''.join(sorted(str(key)))
-    if not isinstance(key, bytes):
-        key = key.encode('ascii')
-    return str(blake2b(key).hexdigest())
+class SafeIO:
+    """ !!. """
+    def __init__(self, path, opener=open, log_file=None, **kwargs):
+        self.path = path
+        self.log_file = log_file or '/notebooks/log_safeio.txt'
+        self.handler = opener(path, **kwargs)
 
+        if self.log_file:
+            self._info(self.log_file, f'Opened {self.path}')
 
+    def _info(self, log_file, msg):
+        with open(log_file, 'a') as f:
+            f.write('\n' + msg)
 
-class classproperty:
-    """ Adds property to the class, not to its instances. """
-    #pylint: disable=invalid-name
-    def __init__(self, prop):
-        self.prop = prop
+    def __getattr__(self, key):
+        return getattr(self.handler, key)
 
-    def __get__(self, obj, owner):
-        return self.prop(owner)
+    def __getitem__(self, key):
+        return self.handler[key]
+
+    def __del__(self):
+        if self.log_file:
+            self._info(self.log_file, f'Tried to close {self.path}')
+
+        self.handler.close()
+
+        if self.log_file:
+            self._info(self.log_file, f'Closed {self.path}')
+
 
 
 
@@ -46,6 +57,15 @@ class IndexedDict(OrderedDict):
             key = list(self.keys())[key]
         return super().__getitem__(key)
 
+
+
+def stable_hash(key):
+    """ Hash that stays the same between different runs of Python interpreter. """
+    if not isinstance(key, (str, bytes)):
+        key = ''.join(sorted(str(key)))
+    if not isinstance(key, bytes):
+        key = key.encode('ascii')
+    return str(blake2b(key).hexdigest())
 
 
 class Singleton:
@@ -167,6 +187,217 @@ class lru_cache:
         wrapper.stats = lambda: self.stats
         wrapper.reset = self.reset
         return wrapper
+
+
+
+#TODO: rethink
+def make_subcube(path, geometry, path_save, i_range, x_range):
+    """ Make subcube from .sgy cube by removing some of its first and
+    last ilines and xlines.
+
+    Parameters
+    ----------
+    path : str
+        Location of original .sgy cube.
+    geometry : SeismicGeometry
+        Infered information about original cube.
+    path_save : str
+        Place to save subcube.
+    i_range : array-like
+        Ilines to include in subcube.
+    x_range : array-like
+        Xlines to include in subcube.
+
+    Notes
+    -----
+    Common use of this function is to remove not fully filled slices of .sgy cubes.
+    """
+    i_low, i_high = i_range[0], i_range[-1]
+    x_low, x_high = x_range[0], x_range[-1]
+
+    with segyio.open(path, 'r', strict=False) as src:
+        src.mmap()
+        spec = segyio.spec()
+        spec.sorting = int(src.sorting)
+        spec.format = int(src.format)
+        spec.samples = range(geometry.depth)
+        spec.ilines = geometry.ilines[i_low:i_high]
+        spec.xlines = geometry.xlines[x_low:x_high]
+
+        with segyio.create(path_save, spec) as dst:
+            # Copy all textual headers, including possible extended
+            for i in range(1 + src.ext_headers):
+                dst.text[i] = src.text[i]
+
+            c = 0
+            for il_ in tqdm(spec.ilines):
+                for xl_ in spec.xlines:
+                    tr_ = geometry.il_xl_trace[(il_, xl_)]
+                    dst.header[c] = src.header[tr_]
+                    dst.header[c][segyio.TraceField.FieldRecord] = il_
+                    dst.header[c][segyio.TraceField.TRACE_SEQUENCE_FILE] = il_
+
+                    dst.header[c][segyio.TraceField.TraceNumber] = xl_ - geometry.xlines_offset
+                    dst.header[c][segyio.TraceField.TRACE_SEQUENCE_LINE] = xl_ - geometry.xlines_offset
+                    dst.trace[c] = src.trace[tr_]
+                    c += 1
+            dst.bin = src.bin
+            dst.bin = {segyio.BinField.Traces: c}
+
+    # Check that repaired cube can be opened in 'strict' mode
+    with segyio.open(path_save, 'r', strict=True) as _:
+        pass
+
+#TODO: rename, add some defaults
+def convert_point_cloud(path, path_save, names=None, order=None, transform=None):
+    """ Change set of columns in file with point cloud labels.
+    Usually is used to remove redundant columns.
+
+    Parameters
+    ----------
+    path : str
+        Path to file to convert.
+    path_save : str
+        Path for the new file to be saved to.
+    names : str or sequence of str
+        Names of columns in the original file. Default is Petrel's export format, which is
+        ('_', '_', 'iline', '_', '_', 'xline', 'cdp_x', 'cdp_y', 'height'), where `_` symbol stands for
+        redundant keywords like `INLINE`.
+    order : str or sequence of str
+        Names and order of columns to keep. Default is ('iline', 'xline', 'height').
+    """
+    #pylint: disable=anomalous-backslash-in-string
+    names = names or ['_', '_', 'iline', '_', '_', 'xline',
+                      'cdp_x', 'cdp_y', 'height']
+    order = order or ['iline', 'xline', 'height']
+
+    names = [names] if isinstance(names, str) else names
+    order = [order] if isinstance(order, str) else order
+
+    df = pd.read_csv(path, sep='\s+', names=names, usecols=set(order))
+    df.dropna(inplace=True)
+
+    if 'iline' in order and 'xline' in order:
+        df.sort_values(['iline', 'xline'], inplace=True)
+
+    data = df.loc[:, order]
+    if transform:
+        data = data.apply(transform)
+    data.to_csv(path_save, sep=' ', index=False, header=False)
+
+
+
+@njit
+def aggregate(array_crops, array_grid, crop_shape, predict_shape, order):
+    """ Jit-accelerated function to glue together crops according to grid.
+    At positions, where different crops overlap, only the maximum value is saved.
+    This function is usually called inside SeismicCropBatch's method `assemble_crops`.
+    """
+    #pylint: disable=assignment-from-no-return
+    total = len(array_grid)
+    background = np.full(predict_shape, np.min(array_crops))
+
+    for i in range(total):
+        il, xl, h = array_grid[i, :]
+        il_end = min(background.shape[0], il+crop_shape[0])
+        xl_end = min(background.shape[1], xl+crop_shape[1])
+        h_end = min(background.shape[2], h+crop_shape[2])
+
+        crop = np.transpose(array_crops[i], order)
+        crop = crop[:(il_end-il), :(xl_end-xl), :(h_end-h)]
+        previous = background[il:il_end, xl:xl_end, h:h_end]
+        background[il:il_end, xl:xl_end, h:h_end] = np.maximum(crop, previous)
+    return background
+
+
+
+@njit
+def round_to_array(values, ticks):
+    """ Jit-accelerated function to round values from one array to the
+    nearest value from the other in a vectorized fashion. Faster than numpy version.
+
+    Parameters
+    ----------
+    values : array-like
+        Array to modify.
+    ticks : array-like
+        Values to cast to. Must be sorted in the ascending order.
+
+    Returns
+    -------
+    array-like
+        Array with values from `values` rounded to the nearest from corresponding entry of `ticks`.
+    """
+    for i, p in enumerate(values):
+        if p <= ticks[0]:
+            values[i] = ticks[0]
+        elif p >= ticks[-1]:
+            values[i] = ticks[-1]
+        else:
+            ix = np.searchsorted(ticks, p)
+
+            if abs(ticks[ix] - p) <= abs(ticks[ix-1] - p):
+                values[i] = ticks[ix]
+            else:
+                values[i] = ticks[ix-1]
+    return values
+
+
+@njit
+def find_min_max(array):
+    """ Get both min and max values in just one pass through array."""
+    n = array.size
+    odd = n % 2
+    if not odd:
+        n -= 1
+    max_val = min_val = array[0]
+
+    i = 1
+    while i < n:
+        x = array[i]
+        y = array[i + 1]
+        if x > y:
+            x, y = y, x
+        min_val = min(x, min_val)
+        max_val = max(y, max_val)
+        i += 2
+    if not odd:
+        x = array[n]
+        min_val = min(x, min_val)
+        max_val = max(y, max_val)
+    return min_val, max_val
+
+
+
+
+def compute_running_mean(x, kernel_size):
+    """ Fast analogue of scipy.signal.convolve2d with gaussian filter. """
+    k = kernel_size // 2
+    padded_x = np.pad(x, (k, k), mode='symmetric')
+    cumsum = np.cumsum(padded_x, axis=1)
+    cumsum = np.cumsum(cumsum, axis=0)
+    return _compute_running_mean_jit(x, kernel_size, cumsum)
+
+@njit
+def _compute_running_mean_jit(x, kernel_size, cumsum):
+    """ Jit accelerated running mean. """
+    #pylint: disable=invalid-name
+    k = kernel_size // 2
+    result = np.zeros_like(x).astype(np.float32)
+
+    canvas = np.zeros((cumsum.shape[0] + 2, cumsum.shape[1] + 2))
+    canvas[1:-1, 1:-1] = cumsum
+    cumsum = canvas
+
+    for i in range(k, x.shape[0] + k):
+        for j in range(k, x.shape[1] + k):
+            d = cumsum[i + k + 1, j + k + 1]
+            a = cumsum[i - k, j  - k]
+            b = cumsum[i - k, j + 1 + k]
+            c = cumsum[i + 1 + k, j - k]
+            result[i - k, j - k] = float(d - b - c + a) /  float(kernel_size ** 2)
+    return result
+
 
 
 
@@ -391,212 +622,3 @@ class file_cache:
         wrapper.reset = self.reset
         wrapper.stats = lambda: self.stats
         return wrapper
-
-
-#TODO: rethink
-def make_subcube(path, geometry, path_save, i_range, x_range):
-    """ Make subcube from .sgy cube by removing some of its first and
-    last ilines and xlines.
-
-    Parameters
-    ----------
-    path : str
-        Location of original .sgy cube.
-    geometry : SeismicGeometry
-        Infered information about original cube.
-    path_save : str
-        Place to save subcube.
-    i_range : array-like
-        Ilines to include in subcube.
-    x_range : array-like
-        Xlines to include in subcube.
-
-    Notes
-    -----
-    Common use of this function is to remove not fully filled slices of .sgy cubes.
-    """
-    i_low, i_high = i_range[0], i_range[-1]
-    x_low, x_high = x_range[0], x_range[-1]
-
-    with segyio.open(path, 'r', strict=False) as src:
-        src.mmap()
-        spec = segyio.spec()
-        spec.sorting = int(src.sorting)
-        spec.format = int(src.format)
-        spec.samples = range(geometry.depth)
-        spec.ilines = geometry.ilines[i_low:i_high]
-        spec.xlines = geometry.xlines[x_low:x_high]
-
-        with segyio.create(path_save, spec) as dst:
-            # Copy all textual headers, including possible extended
-            for i in range(1 + src.ext_headers):
-                dst.text[i] = src.text[i]
-
-            c = 0
-            for il_ in tqdm(spec.ilines):
-                for xl_ in spec.xlines:
-                    tr_ = geometry.il_xl_trace[(il_, xl_)]
-                    dst.header[c] = src.header[tr_]
-                    dst.header[c][segyio.TraceField.FieldRecord] = il_
-                    dst.header[c][segyio.TraceField.TRACE_SEQUENCE_FILE] = il_
-
-                    dst.header[c][segyio.TraceField.TraceNumber] = xl_ - geometry.xlines_offset
-                    dst.header[c][segyio.TraceField.TRACE_SEQUENCE_LINE] = xl_ - geometry.xlines_offset
-                    dst.trace[c] = src.trace[tr_]
-                    c += 1
-            dst.bin = src.bin
-            dst.bin = {segyio.BinField.Traces: c}
-
-    # Check that repaired cube can be opened in 'strict' mode
-    with segyio.open(path_save, 'r', strict=True) as _:
-        pass
-
-#TODO: rename, add some defaults
-def convert_point_cloud(path, path_save, names=None, order=None, transform=None):
-    """ Change set of columns in file with point cloud labels.
-    Usually is used to remove redundant columns.
-
-    Parameters
-    ----------
-    path : str
-        Path to file to convert.
-    path_save : str
-        Path for the new file to be saved to.
-    names : str or sequence of str
-        Names of columns in the original file. Default is Petrel's export format, which is
-        ('_', '_', 'iline', '_', '_', 'xline', 'cdp_x', 'cdp_y', 'height'), where `_` symbol stands for
-        redundant keywords like `INLINE`.
-    order : str or sequence of str
-        Names and order of columns to keep. Default is ('iline', 'xline', 'height').
-    """
-    #pylint: disable=anomalous-backslash-in-string
-    names = names or ['_', '_', 'iline', '_', '_', 'xline',
-                      'cdp_x', 'cdp_y', 'height']
-    order = order or ['iline', 'xline', 'height']
-
-    names = [names] if isinstance(names, str) else names
-    order = [order] if isinstance(order, str) else order
-
-    df = pd.read_csv(path, sep='\s+', names=names, usecols=set(order))
-    df.dropna(inplace=True)
-
-    if 'iline' in order and 'xline' in order:
-        df.sort_values(['iline', 'xline'], inplace=True)
-
-    data = df.loc[:, order]
-    if transform:
-        data = data.apply(transform)
-    data.to_csv(path_save, sep=' ', index=False, header=False)
-
-
-
-@njit
-def aggregate(array_crops, array_grid, crop_shape, predict_shape, order):
-    """ Jit-accelerated function to glue together crops according to grid.
-    At positions, where different crops overlap, only the maximum value is saved.
-    This function is usually called inside SeismicCropBatch's method `assemble_crops`.
-    """
-    #pylint: disable=assignment-from-no-return
-    total = len(array_grid)
-    background = np.full(predict_shape, np.min(array_crops))
-
-    for i in range(total):
-        il, xl, h = array_grid[i, :]
-        il_end = min(background.shape[0], il+crop_shape[0])
-        xl_end = min(background.shape[1], xl+crop_shape[1])
-        h_end = min(background.shape[2], h+crop_shape[2])
-
-        crop = np.transpose(array_crops[i], order)
-        crop = crop[:(il_end-il), :(xl_end-xl), :(h_end-h)]
-        previous = background[il:il_end, xl:xl_end, h:h_end]
-        background[il:il_end, xl:xl_end, h:h_end] = np.maximum(crop, previous)
-    return background
-
-
-
-@njit
-def round_to_array(values, ticks):
-    """ Jit-accelerated function to round values from one array to the
-    nearest value from the other in a vectorized fashion. Faster than numpy version.
-
-    Parameters
-    ----------
-    values : array-like
-        Array to modify.
-    ticks : array-like
-        Values to cast to. Must be sorted in the ascending order.
-
-    Returns
-    -------
-    array-like
-        Array with values from `values` rounded to the nearest from corresponding entry of `ticks`.
-    """
-    for i, p in enumerate(values):
-        if p <= ticks[0]:
-            values[i] = ticks[0]
-        elif p >= ticks[-1]:
-            values[i] = ticks[-1]
-        else:
-            ix = np.searchsorted(ticks, p)
-
-            if abs(ticks[ix] - p) <= abs(ticks[ix-1] - p):
-                values[i] = ticks[ix]
-            else:
-                values[i] = ticks[ix-1]
-    return values
-
-
-@njit
-def find_min_max(array):
-    """ Get both min and max values in just one pass through array."""
-    n = array.size
-    odd = n % 2
-    if not odd:
-        n -= 1
-    max_val = min_val = array[0]
-
-    i = 1
-    while i < n:
-        x = array[i]
-        y = array[i + 1]
-        if x > y:
-            x, y = y, x
-        min_val = min(x, min_val)
-        max_val = max(y, max_val)
-        i += 2
-    if not odd:
-        x = array[n]
-        min_val = min(x, min_val)
-        max_val = max(y, max_val)
-    return min_val, max_val
-
-
-
-
-def compute_running_mean(x, kernel_size):
-    """ Fast analogue of scipy.signal.convolve2d with gaussian filter. """
-    k = kernel_size // 2
-    padded_x = np.pad(x, (k, k), mode='symmetric')
-    cumsum = np.cumsum(padded_x, axis=1)
-    cumsum = np.cumsum(cumsum, axis=0)
-    return _compute_running_mean_jit(x, kernel_size, cumsum)
-
-@njit
-def _compute_running_mean_jit(x, kernel_size, cumsum):
-    """ Jit accelerated running mean. """
-    #pylint: disable=invalid-name
-    k = kernel_size // 2
-    result = np.zeros_like(x).astype(np.float32)
-
-    canvas = np.zeros((cumsum.shape[0] + 2, cumsum.shape[1] + 2))
-    canvas[1:-1, 1:-1] = cumsum
-    cumsum = canvas
-
-    for i in range(k, x.shape[0] + k):
-        for j in range(k, x.shape[1] + k):
-            d = cumsum[i + k + 1, j + k + 1]
-            a = cumsum[i - k, j  - k]
-            b = cumsum[i - k, j + 1 + k]
-            c = cumsum[i + 1 + k, j - k]
-            result[i - k, j - k] = float(d - b - c + a) /  float(kernel_size ** 2)
-    return result

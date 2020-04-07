@@ -673,7 +673,7 @@ class GeometryMetrics(BaseSeismicMetric):
         if len(self.geometries) != 2:
             raise ValueError()
         pbar = tqdm if pbar else lambda iterator, *args, **kwargs: iterator
-        metric = np.full((*self.geometry.uniques, l), np.nan)
+        metric = np.full((*self.geometry.ranges, l), np.nan)
 
         s_1 = self.geometries[0].dataframe['trace_index']
         s_2 = self.geometries[1].dataframe['trace_index']
@@ -683,7 +683,7 @@ class GeometryMetrics(BaseSeismicMetric):
 
             header = self.geometries[0].segyfile.header[trace_index_1]
             keys = [header.get(field) for field in self.geometries[0].fields]
-            store_key = [self.geometries[0].vals_inversed[i][item] for i, item in enumerate(keys)]
+            store_key = [self.geometries[0].uniques_inversed[i][item] for i, item in enumerate(keys)]
             store_key = tuple(store_key)
 
             trace_1 = self.geometries[0].load_trace_segy(trace_index_1)
@@ -709,12 +709,12 @@ class GeometryMetrics(BaseSeismicMetric):
         if len(self.geometries) != 2:
             raise ValueError()
         pbar = tqdm if pbar else lambda iterator, *args, **kwargs: iterator
-        metric = np.full((*self.geometry.uniques, l), np.nan)
+        metric = np.full((*self.geometry.ranges, l), np.nan)
 
         for idx in pbar(range(len(self.geometries[0].dataframe))):
             header = self.geometries[0].segyfile.header[idx]
             keys = [header.get(field) for field in self.geometries[0].fields]
-            store_key = [self.geometries[0].vals_inversed[i][item] for i, item in enumerate(keys)]
+            store_key = [self.geometries[0].uniques_inversed[i][item] for i, item in enumerate(keys)]
             store_key = tuple(store_key)
 
             trace_1 = self.geometries[0].load_trace_segy(idx)

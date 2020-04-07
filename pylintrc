@@ -8,10 +8,13 @@ max-line-length=120
 max-attributes=25
 max-args=15
 max-locals=25
-good-names=ax,im,ix,a,b,c,h,_,n,p,s,fs,i,j,k,t,x,y,z,lc,rc,df, il, xl, tr, tr_, dx, dy, dz, q, x_, h_, hs, ds, h, v, f, l
+variable-rgx=(.*[a-z][a-z0-9_]{1,30}|[a-z_])$ # snake_case + single letters
+argument-rgx=(.*[a-z][a-z0-9_]{1,30}|[a-z_])$ # snake_case + single letters
 
 [MESSAGE CONTROL]
-disable=no-value-for-parameter,no-self-use,too-few-public-methods,unsubscriptable-object,no-method-argument,no-member,arguments-differ,len-as-condition,keyword-arg-before-vararg,too-many-locals,logging-format-interpolation, no-name-in-module, import-error, cyclic-import, duplicate-code
+disable=no-value-for-parameter, no-self-use, too-few-public-methods, unsubscriptable-object, no-method-argument,
+        no-member, arguments-differ, len-as-condition, keyword-arg-before-vararg, too-many-locals,
+        logging-format-interpolation, no-name-in-module, import-error, cyclic-import, duplicate-code
 
 [TYPECHECK]
 ignored-modules=numpy, numba

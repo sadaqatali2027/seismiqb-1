@@ -147,7 +147,7 @@ class UnstructuredHorizon(BaseLabel):
         # df[columns] = np.rint(df[columns]).astype(np.int64)
         df[columns] = df[columns].astype(np.int64)
         for i, idx in enumerate(self.geometry.index):
-            df[idx] = round_to_array(df[idx].values, self.geometry.vals[i])
+            df[idx] = round_to_array(df[idx].values, self.geometry.uniques[i])
 
         self.from_dataframe(df, transform=True, height_prefix=columns[-1])
 
@@ -190,8 +190,8 @@ class UnstructuredHorizon(BaseLabel):
         h_max = np.max(locations[-1])
 
         if iterator is None:
-            # usual case
-            iterator = list(product(*[[self.geometry.vals[idx][i] for i in locations[idx]] for idx in range(2)]))
+            # Usual case
+            iterator = list(product(*[[self.geometry.uniques[idx][i] for i in locations[idx]] for idx in range(2)]))
             idx_iterator = np.array(list(product(*locations[:2])))
             idx_1 = idx_iterator[:, 0] - shift_1
             idx_2 = idx_iterator[:, 1] - shift_2
@@ -199,7 +199,7 @@ class UnstructuredHorizon(BaseLabel):
         else:
             #TODO: remove this and make separate method inside `SeismicGeometry` for loading data with same iterator
             #TODO: think about moving horizons to `geometry` attributes altogether..
-            # Currently, `show_slide` only:
+            # Currently, used in `show_slide` only:
             axis = np.argmin(np.array([len(np.unique(np.array(iterator)[:, idx])) for idx in range(2)]))
             loc = iterator[axis][0]
             other_axis = 1 - axis
@@ -231,7 +231,7 @@ class UnstructuredHorizon(BaseLabel):
         return mask
 
     # Visualization
-    def show_slide(self, loc, width=3, axis=0, stable=False, order_axes=None, **kwargs):
+    def show_slide(self, loc, width=3, axis=0, stable=True, order_axes=None, **kwargs):
         """ Show slide with horizon on it.
 
         Parameters
@@ -259,7 +259,7 @@ class UnstructuredHorizon(BaseLabel):
         seismic_slide, mask = np.squeeze(seismic_slide), np.squeeze(mask)
 
         # Display everything
-        title = f'{self.geometry.index[axis]} {loc} out of {self.geometry.uniques[axis]}'
+        title = f'{self.geometry.index[axis]} {loc} out of {self.geometry.lens[axis]}'
         meta_title = f'U-horizon {self.name} on {self.geometry.name}'
         plot_images_overlap([seismic_slide, mask], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
 
@@ -849,7 +849,7 @@ class Horizon(BaseLabel):
         chunk_size = min(chunk_size, self.h_max - self.h_min + window)
 
         cube_hdf5 = self.geometry.file_hdf5['cube_h']
-        background = np.full((self.geometry.ilines_len, self.geometry.xlines_len, window), np.nan)
+        background = np.full((self.geometry.ilines_len, self.geometry.xlines_len, window), 0.0)
 
         # Make callable scaler
         if callable(scale):
@@ -877,16 +877,24 @@ class Horizon(BaseLabel):
             idx_x += self.x_min
             heights -= (h_start + low - offset)
 
+            # Remove traces that are not fully inside `window`
+            mask = (heights + window <= (h_end - h_start))
+            idx_i = idx_i[mask]
+            idx_x = idx_x[mask]
+            heights = heights[mask]
+
             # Subsequently add values from the cube to background, shift horizon 1 unit lower,
             # remove all heights that are bigger than can fit into background
             for j in range(window):
                 background[idx_i, idx_x, np.full_like(heights, j)] = data_chunk[heights, idx_i, idx_x]
                 heights += 1
 
-                idx_i = idx_i[heights < chunk_size]
-                idx_x = idx_x[heights < chunk_size]
-                heights = heights[heights < chunk_size]
+                mask = heights < chunk_size
+                idx_i = idx_i[mask]
+                idx_x = idx_x[mask]
+                heights = heights[mask]
 
+        background[self.geometry.zero_traces == 1] = np.nan
         return background
 
     def get_cube_values_line(self, orientation='ilines', line=1, window=23, offset=0, scale=False):
@@ -1501,7 +1509,7 @@ class Horizon(BaseLabel):
 
         # Display everything
         header = self.geometry.index[axis]
-        title = f'{header} {loc} out of {self.geometry.uniques[axis]}'
+        title = f'{header} {loc} out of {self.geometry.lens[axis]}'
         meta_title = f'Horizon `{self.name}` on `{self.geometry.name}`'
         plot_images_overlap([seismic_slide, mask], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
 

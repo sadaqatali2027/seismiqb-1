@@ -13,7 +13,7 @@ import h5py
 import segyio
 import h5pickle
 
-from .utils import lru_cache, find_min_max
+from .utils import SafeIO, lru_cache, find_min_max
 from .plot_utils import plot_images_overlap
 
 
@@ -59,18 +59,18 @@ def add_descriptors(cls):
     Name of each descriptor is `alias + postfix`.
 
     Roughly equivalent to::
-    ilines = SpatialDescriptor('INLINE_3D', 'vals', 'ilines')
-    xlines = SpatialDescriptor('CROSSLINE_3D', 'vals', 'ilines')
+    ilines = SpatialDescriptor('INLINE_3D', 'uniques', 'ilines')
+    xlines = SpatialDescriptor('CROSSLINE_3D', 'uniques', 'xlines')
 
     ilines_len = SpatialDescriptor('INLINE_3D', 'lens', 'ilines_len')
-    xlines_len = SpatialDescriptor('CROSSLINE_3D', 'lens', 'ilines_len')
+    xlines_len = SpatialDescriptor('CROSSLINE_3D', 'lens', 'xlines_len')
     etc
     """
-    attrs = ['vals', 'offsets', 'lens', 'uniques'] # which attrs hold information
-    postfixes = ['', '_offset', '_len', '_unique'] # postfix of current attr
+    attrs = ['uniques', 'offsets', 'lens']  # which attrs hold information
+    postfixes = ['', '_offset', '_len']     # postfix of current attr
 
     headers = ['INLINE_3D', 'CROSSLINE_3D'] # headers to use
-    aliases = ['ilines', 'xlines'] # alias for header
+    aliases = ['ilines', 'xlines']          # alias for header
 
     for attr, postfix in zip(attrs, postfixes):
         for alias, header in zip(aliases, headers):
@@ -92,7 +92,7 @@ class SeismicGeometry:
     # Attributes to store during SEG-Y -> HDF5 conversion
     PRESERVED = [
         'depth', 'delay', 'sample_rate',
-        'fields', 'offsets', 'uniques', 'lens', # vals can't be saved due to different lenghts of arrays
+        'fields', 'offsets', 'ranges', 'lens', # `uniques` can't be saved due to different lenghts of arrays
         'value_min', 'value_max', 'q01', 'q99', 'bins', 'trace_container',
         'ilines', 'xlines', 'ilines_offset', 'xlines_offset',
         'ilines_len', 'xlines_len', 'ilines_unique', 'xlines_unique',
@@ -111,6 +111,8 @@ class SeismicGeometry:
 
     def __init__(self, path, process=True, headers=None, index=None, **kwargs):
         self.path = path
+
+        # Names of different lengths and format: helpful for outside usage
         self.name = os.path.basename(self.path)
         self.short_name = self.name.split('.')[0]
         self.long_name = ':'.join(self.path.split('/')[-2:])
@@ -121,6 +123,7 @@ class SeismicGeometry:
         self._quality_map = None
         self._quality_grid = None
 
+        self.has_stats = False
         if process:
             self.process(headers, index, **kwargs)
 
@@ -161,7 +164,7 @@ class SeismicGeometry:
         _ = axis
         return self.load_segy(location, mode=mode, threshold=threshold)
 
-    def load_slide(self, loc=None, start=None, end=None, step=1, axis=0, stable=False):
+    def load_slide(self, loc=None, start=None, end=None, step=1, axis=0, stable=True):
         """ Selector to choose whether to load slide in `segy` or `hdf5` fashion.
 
         If the current index is 1D, then slide is defined by `start`, `end`, `step`.
@@ -184,11 +187,11 @@ class SeismicGeometry:
 
         return self.load_slide_segy(loc=loc, start=start, end=end, step=step, axis=axis, stable=stable)
 
-    def show_slide(self, loc=None, start=None, end=None, step=1, axis=0, stable=False, order_axes=None, **kwargs):
+    def show_slide(self, loc=None, start=None, end=None, step=1, axis=0, stable=True, order_axes=None, **kwargs):
         """ Load slide in `segy` or `hdf5` fashion and display it. """
         slide = self.load_slide(loc=loc, start=start, end=end, step=step, axis=axis, stable=stable)
 
-        title = f'{self.index[axis]} {loc} out of {self.uniques[axis]}'
+        title = f'{self.index[axis]} {loc} out of {self.lens[axis]}'
         meta_title = ''
         plot_images_overlap([slide], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
 
@@ -196,7 +199,7 @@ class SeismicGeometry:
     def process_segy(self, collect_stats=False, **kwargs):
         """ Create dataframe based on `segy` file headers. """
         # Note that all the `segyio` structure inference is disabled
-        self.segyfile = segyio.open(self.path, mode='r', strict=False, ignore_geometry=True)
+        self.segyfile = SafeIO(self.path, opener=segyio.open, mode='r', strict=False, ignore_geometry=True)
         self.segyfile.mmap()
 
         self.depth = len(self.segyfile.trace[0])
@@ -230,20 +233,20 @@ class SeismicGeometry:
         """ Infer info about curent index from `dataframe` attribute. """
         self.index_len = len(self.index)
         self._zero_trace = np.zeros(self.depth)
-        # Attributes
-        self.vals = [np.sort(np.unique(self.dataframe.index.get_level_values(i).values))
-                     for i in range(self.index_len)]
-        self.vals_inversed = [{v: j for j, v in enumerate(self.vals[i])}
-                              for i in range(self.index_len)]
-        self.unsorted_vals = [np.unique(self.dataframe.index.get_level_values(i).values)
-                              for i in range(self.index_len)]
+
+        # Unique values in each of the indexing column
+        self.unsorted_uniques = [np.unique(self.dataframe.index.get_level_values(i).values)
+                                 for i in range(self.index_len)]
+        self.uniques = [np.sort(item) for item in self.unsorted_uniques]
+        self.uniques_inversed = [{v: j for j, v in enumerate(self.uniques[i])}
+                                 for i in range(self.index_len)]
 
         self.fields = [getattr(segyio.TraceField, idx) for idx in self.index]
-        self.offsets = [np.min(item) for item in self.vals]
-        self.uniques = [len(item) for item in self.vals]
-        self.lens = [(np.max(item) - np.min(item) + 1) for item in self.vals]
+        self.offsets = [np.min(item) for item in self.uniques]
+        self.lens = [len(item) for item in self.uniques]
+        self.ranges = [(np.max(item) - np.min(item) + 1) for item in self.uniques]
 
-        self.cube_shape = np.asarray([*self.uniques, self.depth])
+        self.cube_shape = np.asarray([*self.lens, self.depth])
 
     def collect_stats_segy(self, spatial=True, bins=25, num_keep=15000, **kwargs):
         """ Pass through file data to collect stats:
@@ -277,13 +280,13 @@ class SeismicGeometry:
         for i in tqdm(range(num_traces), desc='Finding min/max', ncols=1000):
             trace = self.segyfile.trace[i]
 
-            val_min, val_max = find_min_max(trace)
-            if val_min < value_min:
-                value_min = val_min
-            if val_max > value_max:
-                value_max = val_max
+            trace_min, trace_max = find_min_max(trace)
+            if trace_min < value_min:
+                value_min = trace_min
+            if trace_max > value_max:
+                value_max = trace_max
 
-            if random() < (num_keep / num_traces) and val_min != val_max:
+            if random() < (num_keep / num_traces) and trace_min != trace_max:
                 trace_container.extend(trace.tolist())
                 #TODO: add dtype for storing
 
@@ -294,8 +297,8 @@ class SeismicGeometry:
             self.bins = bins
 
             # Create containers
-            min_matrix, max_matrix = np.full(self.uniques, np.nan), np.full(self.uniques, np.nan)
-            hist_matrix = np.full((*self.uniques, len(bins)-1), np.nan)
+            min_matrix, max_matrix = np.full(self.lens, np.nan), np.full(self.lens, np.nan)
+            hist_matrix = np.full((*self.lens, len(bins)-1), np.nan)
 
             # Iterate over traces
             description = f'Collecting stats for {self.name}'
@@ -305,8 +308,7 @@ class SeismicGeometry:
 
                 #
                 keys = [header.get(field) for field in self.fields]
-                store_key = [self.vals_inversed[j][item] for j, item in enumerate(keys)]
-                # store_key = [np.where(self.vals[i] == item)[0][0] for i, item in enumerate(keys)] # a bit slower
+                store_key = [self.uniques_inversed[j][item] for j, item in enumerate(keys)]
                 store_key = tuple(store_key)
 
                 #
@@ -337,6 +339,7 @@ class SeismicGeometry:
         self.value_min, self.value_max = value_min, value_max
         self.trace_container = np.array(trace_container)
         self.q01, self.q99 = np.quantile(trace_container, [0.01, 0.99])
+        self.has_stats = True
 
     # Methods to load actual data from SEG-Y
     def load_trace_segy(self, index):
@@ -352,7 +355,7 @@ class SeismicGeometry:
         return np.stack([self.load_trace_segy(idx) for idx in trace_indices])
 
     @lru_cache(128, attributes='index')
-    def load_slide_segy(self, loc=None, axis=0, start=None, end=None, step=1, stable=False):
+    def load_slide_segy(self, loc=None, axis=0, start=None, end=None, step=1, stable=True):
         """ Create indices and load actual traces for one slide.
 
         If the current index is 1D, then slide is defined by `start`, `end`, `step`.
@@ -374,7 +377,7 @@ class SeismicGeometry:
         return slide
 
 
-    def make_slide_indices(self, loc=None, axis=0, start=None, end=None, step=1, stable=False, return_iterator=False):
+    def make_slide_indices(self, loc=None, axis=0, start=None, end=None, step=1, stable=True, return_iterator=False):
         """ Choose appropriate version of index creation for various lengths of current index.
 
         Parameters
@@ -401,10 +404,10 @@ class SeismicGeometry:
             raise ValueError('Index lenght must be less than 4. ')
         return result
 
-    def make_slide_indices_1d(self, start=None, end=None, step=1, stable=False, return_iterator=False):
+    def make_slide_indices_1d(self, start=None, end=None, step=1, stable=True, return_iterator=False):
         """ 1D version of index creation. """
         start = start or self.offsets[0]
-        end = end or self.vals[0][-1]
+        end = end or self.uniques[0][-1]
 
         if stable:
             iterator = self.dataframe.index[(self.dataframe.index >= start) & (self.dataframe.index <= end)]
@@ -418,16 +421,16 @@ class SeismicGeometry:
             return indices, iterator
         return indices
 
-    def make_slide_indices_2d(self, loc, axis=0, stable=False, return_iterator=False):
+    def make_slide_indices_2d(self, loc, axis=0, stable=True, return_iterator=False):
         """ 2D version of index creation. """
         other_axis = 1 - axis
-        location = self.vals[axis][loc]
+        location = self.uniques[axis][loc]
 
         if stable:
             others = self.dataframe[self.dataframe.index.get_level_values(axis) == location]
             others = others.index.get_level_values(other_axis).values
         else:
-            others = self.vals[other_axis]
+            others = self.uniques[other_axis]
 
         iterator = list(zip([location] * len(others), others) if axis == 0 else zip(others, [location] * len(others)))
         indices = self.dataframe['trace_index'].get(iterator, np.nan).values
@@ -466,7 +469,7 @@ class SeismicGeometry:
 
     def make_crop_indices(self, locations):
         """ Create indices for 3D crop loading. """
-        iterator = list(product(*[[self.vals[idx][i] for i in locations[idx]] for idx in range(2)]))
+        iterator = list(product(*[[self.uniques[idx][i] for i in locations[idx]] for idx in range(2)]))
         indices = self.dataframe['trace_index'].get(list(iterator), np.nan).values
         return np.unique(indices)
 
@@ -511,7 +514,6 @@ class SeismicGeometry:
             os.remove(path_hdf5)
 
         # Create file and datasets inside
-        # ctx
         with h5py.File(path_hdf5, "a") as file_hdf5:
             cube_hdf5 = file_hdf5.create_dataset('cube', self.cube_shape, dtype=dtype)
             cube_hdf5_x = file_hdf5.create_dataset('cube_x', self.cube_shape[[1, 2, 0]], dtype=dtype)
@@ -542,7 +544,7 @@ class SeismicGeometry:
                 if hasattr(self, attr):
                     file_hdf5['/info/' + attr] = getattr(self, attr)
 
-        self.file_hdf5 = h5py.File(path_hdf5, "r")
+        self.file_hdf5 = SafeIO(path_hdf5, opener=h5pickle.File, mode='r')
         self.add_attributes_hdf5()
         self.structured = True
 
@@ -552,7 +554,7 @@ class SeismicGeometry:
         No passing through data whatsoever.
         """
         _ = kwargs
-        self.file_hdf5 = h5pickle.File(self.path, "r")
+        self.file_hdf5 = SafeIO(self.path, opener=h5pickle.File, mode='r')
         self.add_attributes_hdf5()
 
     def add_attributes_hdf5(self):
@@ -571,6 +573,7 @@ class SeismicGeometry:
         self.ilines_len = len(self.ilines)
         self.xlines_len = len(self.xlines)
         self.cube_shape = np.asarray([self.ilines_len, self.xlines_len, self.depth])
+        self.has_stats = True
 
     # Methods to load actual data from HDF5
     def load_hdf5(self, locations, axis=None):
@@ -605,23 +608,23 @@ class SeismicGeometry:
     def _load_hdf5_i(self, ilines, xlines, heights):
         cube_hdf5 = self.file_hdf5['cube']
         dtype = cube_hdf5.dtype
-        return np.stack([self._load_slide_hdf5(cube_hdf5, iline)[xlines, :][:, heights]
+        return np.stack([self._cached_load_hdf5(cube_hdf5, iline)[xlines, :][:, heights]
                          for iline in ilines]).astype(dtype)
 
     def _load_hdf5_x(self, ilines, xlines, heights):
         cube_hdf5 = self.file_hdf5['cube_x']
         dtype = cube_hdf5.dtype
-        return np.stack([self._load_slide_hdf5(cube_hdf5, xline)[heights, :][:, ilines].transpose([1, 0])
+        return np.stack([self._cached_load_hdf5(cube_hdf5, xline)[heights, :][:, ilines].transpose([1, 0])
                          for xline in xlines], axis=1).astype(dtype)
 
     def _load_hdf5_h(self, ilines, xlines, heights):
         cube_hdf5 = self.file_hdf5['cube_h']
         dtype = cube_hdf5.dtype
-        return np.stack([self._load_slide_hdf5(cube_hdf5, height)[ilines, :][:, xlines]
+        return np.stack([self._cached_load_hdf5(cube_hdf5, height)[ilines, :][:, xlines]
                          for height in heights], axis=2).astype(dtype)
 
     @lru_cache(128)
-    def _load_slide_hdf5(self, cube, loc):
+    def _cached_load_hdf5(self, cube, loc):
         """ Load one slide of data from a certain cube projection.
         Caches the result in a thread-safe manner.
         """
@@ -643,7 +646,8 @@ class SeismicGeometry:
             Crop of amplitudes.
         mode : str
             If `minmax`, then data is scaled to [0, 1] via minmax scaling.
-            If `q`, then data is scaled to [-1, 1] with quantiles.
+            If `q`, then data is clipped to 0.01 and 0.99 quantiles and then divided by the
+            maximum of absolute values of the two.
         """
         if mode == 'minmax':
             scale = (self.value_max - self.value_min)
@@ -655,7 +659,7 @@ class SeismicGeometry:
 
     def make_slide_locations(self, loc, axis=0, return_axis=False):
         """ Create locations (sequence of locations for each axis) for desired slide along desired axis. """
-        locations = [np.arange(item) for item in self.uniques]
+        locations = [np.arange(item) for item in self.lens]
         locations += [np.arange(self.depth)]
 
         if isinstance(axis, str):
@@ -785,10 +789,10 @@ class SeismicGeometry:
         Shape: {self.cube_shape}
         """
 
-        if hasattr(self, 'value_min'):
+        if self.has_stats:
             msg += f"""
-            Min/max values: {self.value_min, self.value_max}
-            q01/q99 values: {self.q01, self.q99}
+        Min/max values: {self.value_min, self.value_max}
+        q01/q99 values: {self.q01, self.q99}
             """
         return dedent(msg)
 
