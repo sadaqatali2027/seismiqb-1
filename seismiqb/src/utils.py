@@ -19,10 +19,13 @@ from numba import njit
 
 
 class SafeIO:
-    """ !!. """
+    """ Opens the file handler with desired `open` function, closes it at destruction.
+    Can log open and close actions to the `log_file`.
+    getattr, getitem and `in` operator are directed to the `handler`.
+    """
     def __init__(self, path, opener=open, log_file=None, **kwargs):
         self.path = path
-        self.log_file = log_file or '/notebooks/log_safeio.txt'
+        self.log_file = log_file # or '/notebooks/log_safeio.txt'
         self.handler = opener(path, **kwargs)
 
         if self.log_file:
@@ -37,6 +40,9 @@ class SafeIO:
 
     def __getitem__(self, key):
         return self.handler[key]
+
+    def __contains__(self, key):
+        return key in self.handler
 
     def __del__(self):
         if self.log_file:
