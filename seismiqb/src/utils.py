@@ -1,5 +1,6 @@
 """ Utility functions. """
 import os
+from copy import copy
 from collections import OrderedDict, MutableMapping
 from threading import RLock
 from functools import wraps
@@ -44,6 +45,128 @@ class IndexedDict(OrderedDict):
         if isinstance(key, int):
             key = list(self.keys())[key]
         return super().__getitem__(key)
+
+
+
+class Singleton:
+    """ There must be only one!"""
+    instance = None
+    def __init__(self):
+        if not Singleton.instance:
+            Singleton.instance = self
+
+class lru_cache:
+    """ Thread-safe least recent used cache. Must be applied to class methods.
+
+    Parameters
+    ----------
+    maxsize : int
+        Maximum amount of stored values.
+    storage : None, OrderedDict or PickleDict
+        Storage to use.
+        If None, then no caching is applied.
+    classwide : bool
+        If True, then first argument of a method (self) is changed to class name for the purposes on hashing.
+    anchor : bool
+        If True, then code of the whole directory this file is located is used to create a persistent hash
+        for the purposes of storing.
+    attributes: None, str or sequence of str
+        Attributes to get from object and use as additions to key.
+    pickle_module: str
+        Module to use to save/load files on disk. Used only if `storage` is :class:`.PickleDict`.
+
+    Examples
+    --------
+    Store loaded slides::
+
+    @lru_cache(maxsize=128)
+    def load_slide(cube_name, slide_no):
+        pass
+
+    Notes
+    -----
+    All arguments to the decorated method must be hashable.
+    """
+    #pylint: disable=invalid-name, attribute-defined-outside-init
+    def __init__(self, maxsize=None, classwide=False, attributes=None):
+        self.maxsize = maxsize
+        self.classwide = classwide
+
+        # Make `attributes` always a list
+        if isinstance(attributes, str):
+            self.attributes = [attributes]
+        elif isinstance(attributes, (tuple, list)):
+            self.attributes = attributes
+        else:
+            self.attributes = False
+
+        self.default = Singleton()
+        self.lock = RLock()
+        self.reset()
+
+
+    def reset(self):
+        """ Clear cache and stats. """
+        self.cache = OrderedDict()
+        self.is_full = False
+        self.stats = {'hit': 0, 'miss': 0}
+
+    def make_key(self, args, kwargs):
+        """ Create a key from a combination of instance reference or class reference,
+        method args, and instance attributes.
+        """
+        key = list(args)
+        # key[0] is `instance` if applied to a method
+        if kwargs:
+            for k, v in sorted(kwargs.items()):
+                key.append((k, v))
+
+        if self.attributes:
+            for attr in self.attributes:
+                attr_hash = stable_hash(getattr(key[0], attr))
+                key.append(attr_hash)
+
+        if self.classwide:
+            key[0] = key[0].__class__
+        return tuple(key)
+
+
+    def __call__(self, func):
+        """ Add the cache to the function. """
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            key = self.make_key(args, kwargs)
+
+            #
+            with self.lock:
+                result = self.cache.get(key, self.default)
+                if result is not self.default:
+                    del self.cache[key]
+                    self.cache[key] = result
+                    self.stats['hit'] += 1
+                    return result
+
+            #
+            result = func(*args, **kwargs)
+
+            #
+            with self.lock:
+                self.stats['miss'] += 1
+                if key in self.cache:
+                    pass
+                elif self.is_full:
+                    self.cache.popitem(last=False)
+                    self.cache[key] = result
+                else:
+                    self.cache[key] = result
+                    self.is_full = (len(self.cache) >= self.maxsize)
+            return result
+
+        wrapper.__name__ = func.__name__
+        wrapper.cache = lambda: self.cache
+        wrapper.stats = lambda: self.stats
+        wrapper.reset = self.reset
+        return wrapper
 
 
 
@@ -133,15 +256,7 @@ class PickleDict(MutableMapping):
         return 'PickleDict on {}'.format(self.dirname)
 
 
-
-class Singleton:
-    """ There must be only one!"""
-    instance = None
-    def __init__(self):
-        if not Singleton.instance:
-            Singleton.instance = self
-
-class lru_cache:
+class file_cache:
     """ Thread-safe least recent used cache. Must be applied to class methods.
 
     Parameters
@@ -214,7 +329,8 @@ class lru_cache:
         elif isinstance(self.storage, str):
             self.cache = PickleDict(self.storage, maxsize=self.maxsize, pickle_module=self.pickle_module)
         else:
-            self.cache = self.storage
+            #TODO: add good explanation of this
+            self.cache = copy(self.storage)
 
         self.is_full = False
         self.stats = {'hit': 0, 'miss': 0}
@@ -235,11 +351,10 @@ class lru_cache:
 
         if self.classwide:
             key[0] = key[0].__class__
-            if self.anchor is not None:
+            if self.anchor:
                 key[0] = self.anchor
         else:
-            key[0] = hash(key[0])
-            if self.anchor is not None:
+            if self.anchor:
                 key.append(self.anchor)
         return tuple(key)
 
@@ -272,14 +387,13 @@ class lru_cache:
             return result
 
         wrapper.__name__ = func.__name__
-        wrapper.cache = self.cache
+        wrapper.cache = lambda: self.cache
         wrapper.reset = self.reset
-        wrapper.stats = self.stats
+        wrapper.stats = lambda: self.stats
         return wrapper
 
 
-
-
+#TODO: rethink
 def make_subcube(path, geometry, path_save, i_range, x_range):
     """ Make subcube from .sgy cube by removing some of its first and
     last ilines and xlines.
@@ -337,7 +451,7 @@ def make_subcube(path, geometry, path_save, i_range, x_range):
     with segyio.open(path_save, 'r', strict=True) as _:
         pass
 
-
+#TODO: rename, add some defaults
 def convert_point_cloud(path, path_save, names=None, order=None, transform=None):
     """ Change set of columns in file with point cloud labels.
     Usually is used to remove redundant columns.
@@ -384,7 +498,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, order):
     """
     #pylint: disable=assignment-from-no-return
     total = len(array_grid)
-    background = np.zeros(predict_shape)
+    background = np.full(predict_shape, np.min(array_crops))
 
     for i in range(total):
         il, xl, h = array_grid[i, :]
@@ -400,7 +514,7 @@ def aggregate(array_crops, array_grid, crop_shape, predict_shape, order):
 
 
 
-@njit(parallel=True)
+@njit
 def round_to_array(values, ticks):
     """ Jit-accelerated function to round values from one array to the
     nearest value from the other in a vectorized fashion. Faster than numpy version.
@@ -432,29 +546,30 @@ def round_to_array(values, ticks):
     return values
 
 
-
 @njit
-def update_minmax(array, val_min, val_max, matrix, il, xl, ilines_offset, xlines_offset):
-    """ Get both min and max values in just one pass through array.
-    Simultaneously updates (inplace) matrix if the trace is filled with zeros.
-    """
-    maximum = array[0]
-    minimum = array[0]
-    for i in array[1:]:
-        if i > maximum:
-            maximum = i
-        elif i < minimum:
-            minimum = i
+def find_min_max(array):
+    """ Get both min and max values in just one pass through array."""
+    n = array.size
+    odd = n % 2
+    if not odd:
+        n -= 1
+    max_val = min_val = array[0]
 
-    if (minimum == 0) and (maximum == 0):
-        matrix[il - ilines_offset, xl - xlines_offset] = 1
+    i = 1
+    while i < n:
+        x = array[i]
+        y = array[i + 1]
+        if x > y:
+            x, y = y, x
+        min_val = min(x, min_val)
+        max_val = max(y, max_val)
+        i += 2
+    if not odd:
+        x = array[n]
+        min_val = min(x, min_val)
+        max_val = max(y, max_val)
+    return min_val, max_val
 
-    if minimum < val_min:
-        val_min = minimum
-    if maximum > val_max:
-        val_max = maximum
-
-    return val_min, val_max, matrix
 
 
 

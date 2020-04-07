@@ -1,19 +1,19 @@
 """ Contains container for storing dataset of seismic crops. """
 #pylint: disable=too-many-lines
-import os
 from glob import glob
 
 import numpy as np
 
-from ..batchflow import Dataset, Sampler
+from ..batchflow import Dataset, Sampler, DatasetIndex
 from ..batchflow import NumpySampler, ConstantSampler
 
 from .geometry import SeismicGeometry
 from .crop_batch import SeismicCropBatch
 
-from .horizon import Horizon, HorizonMetrics
-from .utils import IndexedDict, lru_cache, round_to_array
-from .plot_utils import show_sampler, plot_slide
+from .horizon import Horizon, UnstructuredHorizon
+from .metrics import HorizonMetrics
+from .utils import IndexedDict, round_to_array
+from .plot_utils import show_sampler, plot_slide, plot_image
 
 
 class SeismicCubeset(Dataset):
@@ -35,16 +35,41 @@ class SeismicCubeset(Dataset):
     def __init__(self, index, batch_class=SeismicCropBatch, preloaded=None, *args, **kwargs):
         """ Initialize additional attributes. """
         super().__init__(index, batch_class=batch_class, preloaded=preloaded, *args, **kwargs)
+        self.crop_index, self.crop_points = None, None
 
-        self.geometries = IndexedDict({ix: SeismicGeometry(self.index.get_fullpath(ix)) for ix in self.indices})
+        self.geometries = IndexedDict({ix: SeismicGeometry(self.index.get_fullpath(ix), process=False)
+                                       for ix in self.indices})
         self.labels = IndexedDict({ix: dict() for ix in self.indices})
         self.samplers = IndexedDict({ix: None for ix in self.indices})
-        self.sampler = None
+        self._sampler = None
+        self._p, self._bins = None, None
 
         self.grid_gen, self.grid_info, self.grid_iters = None, None, None
 
 
-    def load_geometries(self, logs=True):
+    def gen_batch(self, batch_size, shuffle=False, n_iters=None, n_epochs=None, drop_last=False,
+                  bar=False, bar_desc=None, iter_params=None, sampler=None):
+        """ Allows to pass `sampler` directly to `next_batch` method to avoid re-creating of batch
+        during pipeline run.
+        """
+        #pylint: disable=blacklisted-name
+        if n_epochs is not None or shuffle or drop_last:
+            raise ValueError('SeismicCubeset does not comply with `n_epochs`, `shuffle`\
+                              and `drop_last`. Use `n_iters` instead! ')
+        if sampler:
+            sampler = sampler if callable(sampler) else sampler.sample
+            points = sampler(batch_size * n_iters)
+
+            self.crop_points = points
+            self.crop_index = DatasetIndex(points[:, 0])
+            return self.crop_index.gen_batch(batch_size, n_iters=n_iters, iter_params=iter_params,
+                                             bar=bar, bar_desc=bar_desc)
+        return super().gen_batch(batch_size, shuffle=shuffle, n_iters=n_iters, n_epochs=n_epochs,
+                                 drop_last=drop_last, bar=bar, bar_desc=bar_desc, iter_params=iter_params)
+
+
+
+    def load_geometries(self, collect_stats=True, spatial=True, logs=True, **kwargs):
         """ Load geometries into dataset-attribute.
 
         Parameters
@@ -57,21 +82,22 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with loaded geometries.
         """
+        _ = kwargs
         for ix in self.indices:
-            self.geometries[ix].load()
+            self.geometries[ix].process(collect_stats=collect_stats, spatial=spatial)
             if logs:
                 self.geometries[ix].log()
         return self
 
-    def convert_to_h5py(self, postfix='', dtype=np.float32):
+    def convert_to_hdf5(self, postfix='', dtype=np.float32):
         """ Converts every cube in dataset from `.sgy` to `.hdf5`. """
         for ix in self.indices:
-            self.geometries[ix].make_h5py(postfix=postfix, dtype=dtype)
+            self.geometries[ix].make_hdf5(postfix=postfix, dtype=dtype)
         return self
 
 
-    def create_labels(self, paths=None, filter_zeros=True, dst='labels', **kwargs):
-        """ Make labels in inline-xline coordinates using cloud of points and supplied transforms.
+    def create_labels(self, paths=None, filter_zeros=True, dst='labels', labels_class=None, **kwargs):
+        """ Create labels (horizons, facies, etc) from given paths.
 
         Parameters
         ----------
@@ -88,13 +114,31 @@ class SeismicCubeset(Dataset):
         if not hasattr(self, dst):
             setattr(self, dst, IndexedDict({ix: dict() for ix in self.indices}))
 
+
         for ix in self.indices:
-            horizon_list = [Horizon(path, self.geometries[ix], **kwargs) for path in paths[ix]]
+            if labels_class is None:
+                if self.geometries[ix].structured:
+                    labels_class = Horizon
+                else:
+                    labels_class = UnstructuredHorizon
+
+            horizon_list = [labels_class(path, self.geometries[ix], **kwargs) for path in paths[ix]]
             horizon_list.sort(key=lambda horizon: horizon.h_mean)
             if filter_zeros:
                 _ = [getattr(horizon, 'filter_points')() for horizon in horizon_list]
             getattr(self, dst)[ix] = horizon_list
         return self
+
+    @property
+    def sampler(self):
+        """ Lazily create sampler at the time of first access. """
+        if self._sampler is None:
+            self.create_sampler(p=self._p, bins=self._bins)
+        return self._sampler
+
+    @sampler.setter
+    def sampler(self, sampler):
+        self._sampler = sampler
 
 
     def create_sampler(self, mode='hist', p=None, transforms=None, dst='sampler', **kwargs):
@@ -275,8 +319,31 @@ class SeismicCubeset(Dataset):
         sampler = getattr(self, src_sampler)
         show_sampler(sampler, cube_name, geom, n=n, eps=eps, show_unique=show_unique, **kwargs)
 
+    def show_slices(self, idx=0, src_sampler='sampler', n=10000, normalize=False, shape=None,
+                    make_slices=True, side_view=False, **kwargs):
+        """ Show actually sampled slices of desired shape. """
+        sampler = getattr(self, src_sampler)
+        if callable(sampler):
+            #pylint: disable=not-callable
+            points = sampler(n)
+        else:
+            points = sampler.sample(n)
+        batch = (self.p.crop(points=points, shape=shape, make_slices=make_slices, side_view=side_view)
+                 .next_batch(self.size))
 
-    @lru_cache(3, storage=os.environ.get('SEISMIQB_CACHEDIR'), anchor=True, attributes='indices')
+        unsalted = np.array([batch.unsalt(item) for item in batch.indices])
+        background = np.zeros_like(self.geometries[idx].zero_traces)
+
+        for slice_ in np.array(batch.slices)[unsalted == self.indices[idx]]:
+            idx_i, idx_x, _ = slice_
+            background[idx_i, idx_x] += 1
+
+        if normalize:
+            background = (background > 0).astype(int)
+        plot_image(background, f'Sampled slices on {self.indices[idx]}', rgb=normalize, **kwargs)
+        return batch
+
+
     def load(self, horizon_dir=None, filter_zeros=True, dst_labels='labels', p=None, bins=None, **kwargs):
         """ Load everything: geometries, point clouds, labels, samplers.
 
@@ -298,9 +365,9 @@ class SeismicCubeset(Dataset):
             dir_ = dir_path + horizon_dir
             paths_txt[self.indices[i]] = glob(dir_)
 
-        self.load_geometries()
+        self.load_geometries(**kwargs)
         self.create_labels(paths=paths_txt, filter_zeros=filter_zeros, dst=dst_labels)
-        self.create_sampler(p=p, bins=bins)
+        self._p, self._bins = p, bins # stored for later sampler creation
         return self
 
 
@@ -413,6 +480,7 @@ class SeismicCubeset(Dataset):
         prefix : str
             Name of horizon to use.
         """
+        #TODO: add `chunks` mode
         mask = getattr(self, src) if isinstance(src, str) else src
 
         if getattr(self, 'grid_info'):
@@ -427,7 +495,7 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def merge_horizons(self, src, mean_threshold=2.0, q_threshold=2.0, q=0.9, adjacency=3, ):
+    def merge_horizons(self, src, mean_threshold=2.0, adjacency=3, minsize=50):
         """ Iterate over a list of horizons and merge what can be merged. Can be called after
         running a pipeline with `get_point_cloud`-action. Changes the list of horizons inplace.
 
@@ -442,6 +510,7 @@ class SeismicCubeset(Dataset):
         """
         # fetch list of horizons
         horizons = getattr(self, src) if isinstance(src, str) else src
+        horizons = [horizon for horizon in horizons if len(horizon) >= minsize]
 
         # iterate over list of horizons to merge what can be merged
         i = 0
@@ -460,22 +529,25 @@ class SeismicCubeset(Dataset):
                         break
 
                     merge_code, _ = Horizon.verify_merge(horizons[i], horizons[j],
-                                                         mean_threshold=mean_threshold, q_threshold=q_threshold, q=q,
+                                                         mean_threshold=mean_threshold,
                                                          adjacency=adjacency)
-                    if merge_code in [2, 3]:
-                        force_merge = (merge_code == 3)
-                        merged, _, _ = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
-                                                              force_merge=force_merge, adjacency=adjacency,
-                                                              mean_threshold=mean_threshold,
-                                                              q_threshold=q_threshold, q=q)
-                        if merged:
-                            _ = horizons.pop(j)
-                            flag = True
-                        else:
-                            j += 1
+                    if merge_code == 3:
+                        merged = Horizon.overlap_merge(horizons[i], horizons[j], inplace=True)
+                    elif merge_code == 2:
+                        merged = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
+                                                        mean_threshold=mean_threshold,
+                                                        adjacency=adjacency)
+                    else:
+                        merged = False
+
+                    if merged:
+                        _ = horizons.pop(j)
+                        flag = True
                     else:
                         j += 1
                 i += 1
+
+        return horizons
 
 
 

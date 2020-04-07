@@ -1,11 +1,9 @@
 """ Seismic Crop Batch."""
-#pylint: disable=too-many-lines
 import string
 import random
 from copy import copy
 
 import numpy as np
-import segyio
 import cv2
 from scipy.signal import butter, lfilter, hilbert
 
@@ -13,7 +11,7 @@ from ..batchflow import FilesIndex, Batch, action, inbatch_parallel
 from ..batchflow.batch_image import transform_actions # pylint: disable=no-name-in-module,import-error
 
 from .horizon import Horizon
-from .utils import lru_cache, classproperty, aggregate
+from .utils import aggregate
 from .plot_utils import plot_batch_components
 
 
@@ -40,7 +38,7 @@ class SeismicCropBatch(Batch):
             dst = (dst,)
         for comp in dst:
             if not hasattr(self, comp):
-                self.add_components(comp, np.array([None] * len(self.index)))
+                self.add_components(comp, np.array([np.nan] * len(self.index)))
         return self.indices
 
 
@@ -113,7 +111,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    def crop(self, points, shape=None, dilations=(1, 1, 1), loc=(0, 0, 0), side_view=False,
+    def crop(self, points, shape=None, loc=(0, 0, 0), side_view=False, eps=3,
              make_slices=True, dst='slices', passdown=None, dst_points='points', dst_shapes='shapes'):
         """ Generate positions of crops. Creates new instance of `SeismicCropBatch`
         with crop positions in one of the components (`slices` by default).
@@ -127,8 +125,6 @@ class SeismicCropBatch(Batch):
             as its upper rightmost point and must be cut from 'Cube.sgy' file.
         shape : sequence
             Desired shape of crops.
-        dilations : sequence
-            Intervals between successive slides along each dimension.
         loc : sequence of numbers
             Location of the point relative to the cut crop. Must be a location on unit cube.
         side_view : bool or float
@@ -136,6 +132,9 @@ class SeismicCropBatch(Batch):
             If False, then shape is never transposed.
             If True, then shape is transposed with 0.5 probability.
             If float, then shape is transposed with that probability.
+        make_slices: bool or str
+            If `adaptive`, then slices are created so that crops are cut only along the quality grid.
+            If bool, then whether to make slices.
         dst : str, optional
             Component of batch to put positions of crops in.
         passdown : str of list of str
@@ -155,6 +154,7 @@ class SeismicCropBatch(Batch):
             Batch with positions of crops in specified component.
         """
         # pylint: disable=protected-access
+
         if not hasattr(self, 'transformed'):
             new_index = [self.salt(ix) for ix in points[:, 0]]
             new_dict = {ix: self.index.get_fullpath(self.unsalt(ix))
@@ -174,11 +174,21 @@ class SeismicCropBatch(Batch):
                 raise ValueError('Subsequent usage of `crop` must have the same number of points!')
             new_batch = self
 
-        shapes = self._make_shapes(points, shape, side_view)
-        new_batch.add_components((dst_points, dst_shapes), (points, shapes))
+        if make_slices in ['adaptive']:
+            shape = np.asarray(shape)
 
-        if make_slices:
-            slices = [self._make_slice(point, shape, dilations, loc)
+            corrected_points_shapes = [self._correct_point_to_grid(point, shape, eps) for point in points]
+            points = [item[0] for item in corrected_points_shapes]
+            shapes = [item[1] for item in corrected_points_shapes]
+            new_batch.add_components((dst_points, dst_shapes), (points, shapes))
+
+            slices = [self._make_slice(point, shape, loc) for point, shape in corrected_points_shapes]
+            new_batch.add_components(dst, slices)
+        elif make_slices:
+            shapes = self._make_shapes(points, shape, side_view)
+            new_batch.add_components((dst_points, dst_shapes), (points, shapes))
+
+            slices = [self._make_slice(point, shape, loc)
                       for point, shape in zip(points, shapes)]
             new_batch.add_components(dst, slices)
         return new_batch
@@ -206,7 +216,7 @@ class SeismicCropBatch(Batch):
         return shapes
 
 
-    def _make_slice(self, point, shape, dilations, loc=(0, 0, 0)):
+    def _make_slice(self, point, shape, loc=(0, 0, 0)):
         """ Creates list of `np.arange`'s for desired location. """
         if isinstance(point[1], float) or isinstance(point[2], float) or isinstance(point[3], float):
             ix = point[0]
@@ -217,204 +227,83 @@ class SeismicCropBatch(Batch):
 
         slice_ = []
         for i in range(3):
-            start_point = int(max(slice_point[i] - loc[i]*shape[i]*dilations[i], 0))
-            end_point = start_point + shape[i]*dilations[i]
-            slice_.append(np.arange(start_point, end_point, dilations[i]))
+            start_point = int(max(slice_point[i] - loc[i]*shape[i], 0))
+            end_point = start_point + shape[i]
+            slice_.append(np.arange(start_point, end_point))
         return slice_
 
-    @property
-    def crop_shape(self):
-        """ Shape of crops, made by action `crop`. """
-        _, shapes_count = np.unique([image.shape for image in self.images], return_counts=True, axis=0)
-        if len(shapes_count) == 1:
-            return self.images[0].shape
-        raise RuntimeError('Crops have different shapes')
+    def _correct_point_to_grid(self, point, shape, eps=3):
+        """ Move the point to the closest location in the quality grid. """
+        #pylint: disable=too-many-return-statements
+        ix = point[0]
+        geometry = self.get(ix, 'geometries')
+        grid = geometry.quality_grid
+        shape_t = shape[[1, 0, 2]]
 
-    @property
-    def crop_shape_dice(self):
-        """ Extended crop shape. Useful for model with Dice-coefficient as loss-function. """
-        return (*self.crop_shape, 1)
+        pnt = (point[1:] * geometry.cube_shape)
+        pnt = np.rint(pnt.astype(float)).astype(int)
+
+        # Point is already in grid
+        if grid[pnt[0], pnt[1]] == 1:
+            sum_i = np.nansum(grid[pnt[0], max(pnt[1]-eps, 0) : pnt[1]+eps])
+            sum_x = np.nansum(grid[max(pnt[0]-eps, 0) : pnt[0]+eps, pnt[1]])
+            if sum_i >= sum_x:
+                return point, shape
+            return point, shape_t
+
+        # Horizontal search: xline changes, shape is x-oriented
+        for pnt_ in range(max(pnt[1]-eps, 0), min(pnt[1]+eps, geometry.cube_shape[1])):
+            if grid[pnt[0], pnt_] == 1:
+                sum_i = np.nansum(grid[pnt[0], max(pnt_-eps, 0):pnt_+eps])
+                sum_x = np.nansum(grid[max(pnt[0]-eps, 0):pnt[0]+eps, pnt_])
+                point[1:3] = np.array((pnt[0], pnt_)) / geometry.cube_shape[:2]
+                if sum_i >= sum_x:
+                    return point, shape
+                return point, shape_t
+
+        # Vertical search: inline changes, shape is i-oriented
+        for pnt_ in range(max(pnt[0]-eps, 0), min(pnt[0]+eps, geometry.cube_shape[0])):
+            if grid[pnt_, pnt[1]] == 1:
+                sum_i = np.nansum(grid[pnt_, max(pnt[1]-eps, 0) : pnt[1]+eps])
+                sum_x = np.nansum(grid[max(pnt_-eps, 0) : pnt_+eps, pnt[1]])
+                point[1:3] = np.array((pnt_, pnt[1])) / geometry.cube_shape[:2]
+                if sum_i >= sum_x:
+                    return point, shape
+                return point, shape_t
+
+        # Double the search radius
+        return self._correct_point_to_grid(point, shape, 2*eps)
+
 
 
     @action
-    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
-    def load_segy_trace(self, ix, segyfile, dst, src='points'):
-        """ Load data from .sgy-cube in given positions. """
-        point = self.get(ix, src)
-        trace = segyfile.trace[point[1]]
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = trace
-        return segyfile
-
-    @action
-    def load_cubes(self, dst, fmt='h5py', src='slices', view=None):
+    @inbatch_parallel(init='indices', post='_assemble', target='threads')
+    def load_cubes(self, ix, dst, fmt=None, src='slices', axis=None, mode=None):
         """ Load data from cube in given positions.
 
         Parameters
         ----------
-        fmt : 'h5py' or 'sgy'
+        fmt : 'h5py' or 'segy'
             Cube storing format.
         src : str
             Component of batch with positions of crops to load.
         dst : str
             Component of batch to put loaded crops in.
-
-        Returns
-        -------
-        SeismicCropBatch
-            Batch with loaded crops in desired component.
         """
+        #pylint: disable=unused-argument
+        geom = self.get(ix, 'geometries')
+        slice_ = self.get(ix, src)
+        fmt = fmt or ('hdf5' if hasattr(geom, 'file_hdf5') else 'segy')
+
         if fmt.lower() in ['sgy', 'segy']:
-            _ = view
-            return self._load_cubes_sgy(src=src, dst=dst)
-        if fmt.lower() in ['h5py', 'h5']:
-            return self._load_cubes_h5py(src=src, dst=dst, view=view)
-
-        return self
-
-
-    def _sgy_init(self, *args, **kwargs):
-        """ Create `dst` component and preemptively open all the .sgy files.
-        Should always be used in pair with `_sgy_post`!
-
-        Note
-        ----
-        This init function is helpful for actions that work directly with .sgy
-        files through `segyio` API: all the file handlers are created only once per batch,
-        rather than once for every item in the batch.
-        """
-        _ = args
-        dst = kwargs.get("dst")
-        if dst is None:
-            raise KeyError("dst argument must be specified")
-        if isinstance(dst, str):
-            dst = (dst,)
-        for comp in dst:
-            if not hasattr(self, comp):
-                self.add_components(comp, np.array([None] * len(self.index)))
-
-        segyfiles = {}
-        for ix in self.indices:
-            path_data = self.index.get_fullpath(ix)
-            if segyfiles.get(self.unsalt(ix)) is None:
-                segyfile = segyio.open(path_data, 'r', strict=False, ignore_geometry=False)
-                segyfile.mmap()
-                segyfiles[self.unsalt(ix)] = segyfile
-
-        return [dict(ix=ix, segyfile=segyfiles[self.unsalt(ix)])
-                for ix in self.indices]
-
-    def _sgy_post(self, segyfiles, *args, **kwargs):
-        """ Close opened .sgy files."""
-        _, _ = args, kwargs
-        for segyfile in segyfiles:
-            segyfile.close()
-        return self
-
-    @inbatch_parallel(init='_sgy_init', post='_sgy_post', target='threads')
-    def _load_cubes_sgy(self, ix, segyfile, dst, src='slices'):
-        """ Load data from .sgy-cube in given positions. """
-        geom = self.get(ix, 'geometries')
-        slice_ = self.get(ix, src)
-        ilines_, xlines_, hs_ = slice_[0], slice_[1], slice_[2]
-
-        crop = np.zeros((len(ilines_), len(xlines_), len(hs_)))
-        for i, iline_ in enumerate(ilines_):
-            for j, xline_ in enumerate(xlines_):
-                il_, xl_ = geom.ilines[iline_], geom.xlines[xline_]
-                try:
-                    tr_ = geom.il_xl_trace[(il_, xl_)]
-                    crop[i, j, :] = segyfile.trace[tr_][hs_]
-                except KeyError:
-                    pass
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = crop
-        return segyfile
-
-
-    @inbatch_parallel(init='_init_component', target='threads')
-    def _load_cubes_h5py(self, ix, dst, src='slices', view=None):
-        """ Load data from .hdf5-cube in given positions. """
-        geom = self.get(ix, 'geometries')
-        slice_ = self.get(ix, src)
-
-        if view is None:
-            slice_lens = np.array([len(item) for item in slice_])
-            axis = np.argmin(slice_lens)
-        else:
-            mapping = {0: 0, 1: 1, 2: 2,
-                       'i': 0, 'x': 1, 'h': 2,
-                       'iline': 0, 'xline': 1, 'height': 2, 'depth': 2}
-            axis = mapping[view]
-
-        if axis == 0:
-            crop = self.__load_h5py_i(geom, *slice_)
-        elif axis == 1 and 'cube_x' in geom.h5py_file:
-            crop = self.__load_h5py_x(geom, *slice_)
-        elif axis == 2 and 'cube_h' in geom.h5py_file:
-            crop = self.__load_h5py_h(geom, *slice_)
-        else: # backward compatibility
-            crop = self.__load_h5py_i(geom, *slice_)
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = crop
-        return self
-
-    def __load_h5py_i(self, geom, ilines, xlines, heights):
-        h5py_cube = geom.h5py_file['cube']
-        dtype = h5py_cube.dtype
-
-        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
-        for i, iline in enumerate(ilines):
-            slide = self.__load_slide(h5py_cube, iline)
-            crop[i, :, :] = slide[xlines, :][:, heights]
+            crop = geom.load_segy(slice_, mode=mode)
+        if fmt.lower() in ['hdf5', 'h5py', 'h5']:
+            crop = geom.load_hdf5(slice_, axis=axis)
         return crop
-
-    def __load_h5py_x(self, geom, ilines, xlines, heights):
-        h5py_cube = geom.h5py_file['cube_x']
-        dtype = h5py_cube.dtype
-
-        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
-        for i, xline in enumerate(xlines):
-            slide = self.__load_slide(h5py_cube, xline)
-            crop[:, i, :] = slide[heights, :][:, ilines].transpose([1, 0])
-        return crop
-
-    def __load_h5py_h(self, geom, ilines, xlines, heights):
-        h5py_cube = geom.h5py_file['cube_h']
-        dtype = h5py_cube.dtype
-
-        crop = np.zeros((len(ilines), len(xlines), len(heights)), dtype=dtype)
-        for i, height in enumerate(heights):
-            slide = self.__load_slide(h5py_cube, height)
-            crop[:, :, i] = slide[ilines, :][:, xlines]
-        return crop
-
-    @lru_cache(96)
-    def __load_slide(self, cube, index):
-        """ Cached function for slide loading.
-
-        Notes
-        -----
-        Each usage of `autoreload` resets the cache.
-        """
-        return cube[index, :, :]
-
-    @classproperty
-    def cache_stats(self):
-        """ Show number of hits/misses of cache. """
-        return self._SeismicCropBatch__load_slide.stats
-
-    @classmethod
-    def reset_cache(cls):
-        """ Clear stored values from the cache. """
-        return cls._SeismicCropBatch__load_slide.reset()
 
 
     @action
-    @inbatch_parallel(init='_init_component', target='for')
+    @inbatch_parallel(init='indices', post='_assemble', target='threads')
     def create_masks(self, ix, dst, src='slices', mode='horizon', width=3, src_labels='labels', horizons=-1):
         """ Create masks from labels-dictionary in given positions.
 
@@ -452,6 +341,7 @@ class SeismicCropBatch(Batch):
         -----
         Can be run only after labels-dict is loaded into labels-component.
         """
+        #pylint: disable=unused-argument
         _ = mode
         labels = self.get(ix, src_labels)
 
@@ -467,17 +357,10 @@ class SeismicCropBatch(Batch):
         slice_ = self.get(ix, src)
         shape_ = self.get(ix, 'shapes')
         mask = np.zeros((shape_))
-        mask_bbox = np.array([[slice_[0][0], slice_[0][-1]+1],
-                              [slice_[1][0], slice_[1][-1]+1],
-                              [slice_[2][0], slice_[2][-1]+1]],
-                             dtype=np.int32)
 
         for horizon in horizons:
-            mask = horizon.add_to_mask(mask, mask_bbox, width=width)
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = mask
-        return self
+            mask = horizon.add_to_mask(mask, locations=slice_, width=width)
+        return mask
 
 
     @action
@@ -584,27 +467,14 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    @inbatch_parallel(init='indices', target='threads')
+    @inbatch_parallel(init='indices', post='_assemble', target='threads')
     def scale(self, ix, mode, src=None, dst=None):
         """ Scale values in crop. """
+        #pylint: disable=unused-argument
         pos = self.get_pos(None, src, ix)
         comp_data = getattr(self, src)[pos]
         geom = self.get(ix, 'geometries')
-
-        if mode == 'normalize':
-            new_data = geom.scaler(comp_data)
-        elif mode == 'denormalize':
-            new_data = geom.descaler(comp_data)
-        else:
-            raise ValueError('Scaling mode is not recognized.')
-
-        dst = dst or src
-        if not hasattr(self, dst):
-            self.add_components(dst, np.array([None] * len(self)))
-
-        pos = self.get_pos(None, dst, ix)
-        getattr(self, dst)[pos] = new_data
-        return self
+        return geom.scaler(comp_data, mode)
 
 
     @action
@@ -669,7 +539,7 @@ class SeismicCropBatch(Batch):
         SeismicCropBatch
             batch with fetched labels.
         """
-        _ = dst, mean_threshold, q_threshold, q, adjacency
+        _ = dst, mean_threshold, adjacency
 
         # threshold the mask, reshape and rotate the mask if needed
         pos = self.get_pos(None, src, ix)
@@ -707,17 +577,18 @@ class SeismicCropBatch(Batch):
             for horizon_candidate in horizons:
                 for horizon_target in dst:
                     merge_code, _ = Horizon.verify_merge(horizon_target, horizon_candidate,
-                                                         mean_threshold=mean_threshold, q_threshold=q_threshold, q=q,
+                                                         mean_threshold=mean_threshold,
                                                          adjacency=adjacency)
 
-                    if merge_code in [2, 3]:
-                        force_merge = (merge_code == 3)
-                        merged, _, _ = Horizon.adjacent_merge(horizon_target, horizon_candidate, inplace=True,
-                                                              force_merge=force_merge, adjacency=adjacency,
-                                                              mean_threshold=mean_threshold,
-                                                              q_threshold=q_threshold, q=q)
-                        if merged:
-                            break
+                    if merge_code == 3:
+                        merged = Horizon.overlap_merge(horizon_target, horizon_candidate, inplace=True)
+                    elif merge_code == 2:
+                        merged = Horizon.adjacent_merge(horizon_target, horizon_candidate, inplace=True,
+                                                        adjacency=adjacency, mean_threshold=mean_threshold)
+                    else:
+                        merged = False
+                    if merged:
+                        break
                 else:
                     # if a horizon cannot be stitched to a horizon from dst, we enrich dst with it
                     dst.append(horizon_candidate)
@@ -764,7 +635,7 @@ class SeismicCropBatch(Batch):
         return self
 
 
-    def _side_view_reshape_(self, crop, shape):
+    def _adaptive_reshape_(self, crop, shape):
         """ Changes axis of view to match desired shape.
         Must be used in combination with `side_view` argument of `crop` action.
 
