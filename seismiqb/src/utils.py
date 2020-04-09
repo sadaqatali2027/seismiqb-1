@@ -350,26 +350,11 @@ def round_to_array(values, ticks):
 def find_min_max(array):
     """ Get both min and max values in just one pass through array."""
     n = array.size
-    odd = n % 2
-    if not odd:
-        n -= 1
     max_val = min_val = array[0]
-
-    i = 1
-    while i < n:
-        x = array[i]
-        y = array[i + 1]
-        if x > y:
-            x, y = y, x
-        min_val = min(x, min_val)
-        max_val = max(y, max_val)
-        i += 2
-    if not odd:
-        x = array[n]
-        min_val = min(x, min_val)
-        max_val = max(y, max_val)
+    for i in range(1, n):
+        min_val = min(array[i], min_val)
+        max_val = max(array[i], max_val)
     return min_val, max_val
-
 
 
 

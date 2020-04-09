@@ -278,13 +278,11 @@ class SeismicCropBatch(Batch):
 
     @action
     @inbatch_parallel(init='indices', post='_assemble', target='threads')
-    def load_cubes(self, ix, dst, fmt=None, src='slices', axis=None, mode=None):
+    def load_cubes(self, ix, dst, src='slices', **kwargs):
         """ Load data from cube in given positions.
 
         Parameters
         ----------
-        fmt : 'h5py' or 'segy'
-            Cube storing format.
         src : str
             Component of batch with positions of crops to load.
         dst : str
@@ -293,13 +291,7 @@ class SeismicCropBatch(Batch):
         #pylint: disable=unused-argument
         geom = self.get(ix, 'geometries')
         slice_ = self.get(ix, src)
-        fmt = fmt or ('hdf5' if hasattr(geom, 'file_hdf5') else 'segy')
-
-        if fmt.lower() in ['sgy', 'segy']:
-            crop = geom.load_segy(slice_, mode=mode)
-        if fmt.lower() in ['hdf5', 'h5py', 'h5']:
-            crop = geom.load_hdf5(slice_, axis=axis)
-        return crop
+        return geom.load_crop(slice_, **kwargs)
 
 
     @action
@@ -503,7 +495,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    @inbatch_parallel(init='indices', target='threads', post='_masks_to_horizons_post')
+    @inbatch_parallel(init='indices', target='for', post='_masks_to_horizons_post')
     def masks_to_horizons(self, ix, src='masks', src_slices='slices', dst='predicted_labels', prefix='predict',
                           threshold=0.5, averaging='mean', minsize=0, order=(2, 0, 1),
                           mean_threshold=2.0, adjacency=1):

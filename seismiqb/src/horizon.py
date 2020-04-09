@@ -40,10 +40,22 @@ class BaseLabel(ABC):
 
 
 class UnstructuredHorizon(BaseLabel):
-    """
-    init from csv-like
-    attached?
-    what can do (add_to_mask)
+    """  Contains unstructured horizon.
+
+    Initialized from `storage` and `geometry`, where `storage` is a csv-like file.
+
+    The main inner storage is `dataframe`, that is a mapping from indexing headers to horizon depth.
+    Since the index of that dataframe is the same, as the index of dataframe of a geometry, these can be combined.
+
+    UnstructuredHorizon provides following features:
+        - Method `add_to_mask` puts 1's on the location of a horizon inside provided `background`.
+
+        - `get_cube_values` allows to cut seismic data along the horizon: that data can be used to evaluate
+          horizon quality.
+
+        - Few of visualization methods: view from above, slices along iline/xline axis, etc.
+
+    There is a lazy method creation in place: the first person who needs them would need to code them.
     """
     CHARISMA_SPEC = ['INLINE', '_', 'INLINE_3D', 'XLINE', '__', 'CROSSLINE_3D', 'CDP_X', 'CDP_Y', 'height']
     REDUCED_CHARISMA_SPEC = ['INLINE_3D', 'CROSSLINE_3D', 'height']
@@ -103,7 +115,7 @@ class UnstructuredHorizon(BaseLabel):
         if transform:
             dataframe[height_prefix] = (dataframe[height_prefix] - self.geometry.delay) / self.geometry.sample_rate
         dataframe.rename(columns={height_prefix: self.name}, inplace=True)
-        dataframe.set_index(self.geometry.index, inplace=True)
+        dataframe.set_index(self.geometry.index_headers, inplace=True)
         self.dataframe = dataframe
 
         self.h_min, self.h_max = self.dataframe.min().values[0], self.dataframe.max().values[0]
@@ -136,7 +148,7 @@ class UnstructuredHorizon(BaseLabel):
                 names = UnstructuredHorizon.REDUCED_CHARISMA_SPEC
             elif line_len == 9:
                 names = UnstructuredHorizon.CHARISMA_SPEC
-        columns = columns or self.geometry.index + [height_prefix]
+        columns = columns or self.geometry.index_headers + [height_prefix]
 
         self.path = path
         self.name = os.path.basename(path)
@@ -149,7 +161,7 @@ class UnstructuredHorizon(BaseLabel):
         # Convert coordinates of horizons to the one that present in cube geometry
         # df[columns] = np.rint(df[columns]).astype(np.int64)
         df[columns] = df[columns].astype(np.int64)
-        for i, idx in enumerate(self.geometry.index):
+        for i, idx in enumerate(self.geometry.index_headers):
             df[idx] = round_to_array(df[idx].values, self.geometry.uniques[i])
 
         self.from_dataframe(df, transform=True, height_prefix=columns[-1])
@@ -163,11 +175,6 @@ class UnstructuredHorizon(BaseLabel):
                                           left_index=True, right_index=True,
                                           how='left')
         self.attached = True
-
-    def filter_points(self, **kwargs):
-        """ Remove points that correspond to bad traces, e.g. zero traces. """
-        _ = kwargs
-        raise NotImplementedError('Yet to be done!')
 
 
     def add_to_mask(self, mask, locations=None, width=3, alpha=1, iterator=None, **kwargs):
@@ -233,6 +240,21 @@ class UnstructuredHorizon(BaseLabel):
             heights += 1
         return mask
 
+    # Methods to implement in the future
+    def filter_points(self, **kwargs):
+        """ Remove points that correspond to bad traces, e.g. zero traces. """
+
+    def merge(self, **kwargs):
+        """ Merge two instances into one. """
+
+    def get_cube_values(self, **kwargs):
+        """ Get cube values along the horizon.
+        Can be easily done via subsequent `segyfile.depth_slice` and `reshape`.
+        """
+
+    def dump(self, **kwargs):
+        """ Save the horizon to the disk. """
+
     # Visualization
     def show_slide(self, loc, width=3, axis=0, stable=True, order_axes=None, **kwargs):
         """ Show slide with horizon on it.
@@ -246,8 +268,9 @@ class UnstructuredHorizon(BaseLabel):
         stable : bool
             Whether or not to use the same sorting order as in the segyfile.
         """
-        # Load seismic slide
-        locations, axis = self.geometry.make_slide_locations(loc, axis=axis, return_axis=True)
+        # Make `locations` for slide loading
+        axis = self.geometry.parse_axis(axis)
+        locations = self.geometry.make_slide_locations(loc, axis=axis)
         shape = np.array([len(item) for item in locations])
 
         # Create the same indices, as for seismic slide loading
@@ -262,7 +285,7 @@ class UnstructuredHorizon(BaseLabel):
         seismic_slide, mask = np.squeeze(seismic_slide), np.squeeze(mask)
 
         # Display everything
-        title = f'{self.geometry.index[axis]} {loc} out of {self.geometry.lens[axis]}'
+        title = f'{self.geometry.index_headers[axis]} {loc} out of {self.geometry.lens[axis]}'
         meta_title = f'U-horizon {self.name} on {self.geometry.name}'
         plot_images_overlap([seismic_slide, mask], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
 
@@ -303,16 +326,60 @@ def synchronizable(base='matrix'):
 
 
 class Horizon(BaseLabel):
-    """ Finally, we've made a separate class for horizon storing..
-    attributes
-    inits from various containers
-    transform to cubic coordinates!
-    matrix and points containers: lazy evaluation
-    properties description
-    metrics
-    what can do: add to mask, get cube values
-    merge strategies
-    visualization
+    """ Contains spatially-structured horizon: each point describes a height on a particular (iline, xline).
+
+    Initialized from `storage` and `geometry`.
+
+    Storage can be one of:
+        - csv-like file in CHARISMA or REDUCED_CHARISMA format.
+        - ndarray of (N, 3) shape.
+        - ndarray of (ilines_len, xlines_len) shape.
+        - dictionary: a mapping from (iline, xline) -> height.
+        - mask: ndarray of (ilines_len, xlines_len, depth) with 1's at places of horizon location.
+
+    Main storages are `matrix` and `points` attributes: they are loaded lazily at the time of first access.
+        - `matrix` is a depth map, ndarray of (ilines_len, xlines_len) shape with each point
+          corresponding to horizon height at this point. Note that shape of the matrix is generally smaller
+          than cube spatial range: that allows to save space.
+          Attributes `i_min` and `x_min` describe position of the matrix in relation to the cube spatial range.
+          Each point with absent horizon is filled with `FILL_VALUE`.
+          Note that since the dtype of `matrix` is `np.int32`, we can't use `np.nan` as the fill value.
+          In order to initialize from this storage, one must supply `matrix`, `i_min`, `x_min`.
+
+        - `points` is a (N, 3) ndarray with every row being (iline, xline, height). Note that (iline, xline) are
+          stored in cube coordinates that range from 0 to `ilines_len` and 0 to `xlines_len` respectively.
+          Stored height is corrected on `time_delay` and `sample_rate` of the cube.
+          In order to initialize from this storage, one must supply (N, 3) ndarray.
+
+    Independently of type of initial storage, Horizon provides following:
+        - Attributes `i_min`, `x_min`, `i_max`, `x_max`, `h_min`, `h_max`, `h_mean`, `h_std`, `bbox`,
+          to completely describe location of the horizon in the 3D volume of the seismic cube.
+
+        - Convenient methods of changing the horizon: `apply_to_matrix` and `apply_to_points`:
+          these methods must be used instead of manually permuting `matrix` and `points` attributes.
+          For example, filtration or smoothing of a horizon can be done with their help.
+
+        - `Sampler` instance to generate points that are close to the horizon.
+          Note that these points are scaled into [0, 1] range along each of the coordinate.
+
+        - Method `add_to_mask` puts 1's on the location of a horizon inside provided `background`.
+
+        - `get_cube_values` allows to cut seismic data along the horizon: that data can be used to evaluate
+          horizon quality.
+
+        - `evaluate` allows to quickly assess the quality of a seismic reflection;
+         for more metrics, check :class:`~.HorizonMetrics`.
+
+        - A number of properties that describe geometrical, geological and mathematical characteristics of a horizon.
+          For example, `borders_matrix` and `boundaries_matrix`: the latter containes outer and inner borders;
+          `coverage` is the ratio between labeled traces and non-zero traces in the seismic cube;
+          `solidity` is the ratio between labeled traces and traces inside the hull of the horizon;
+          `perimeter` and `number_of_holes` speak for themselves.
+
+        - Multiple instances of Horizon can be compared against one another and, if needed,
+          merged into one (either in-place or not) via `check_proximity`, `overlap_merge`, `adjacent_merge` methods.
+
+        - A wealth of visualization methods: view from above, slices along iline/xline axis, etc.
     """
     #pylint: disable=too-many-public-methods, import-outside-toplevel
 
@@ -438,7 +505,6 @@ class Horizon(BaseLabel):
     def __len__(self):
         """ Number of labeled traces. """
         return len(np.asarray(self.matrix != self.FILL_VALUE).nonzero()[0])
-
 
 
     # Coordinate transforms
@@ -1501,7 +1567,8 @@ class Horizon(BaseLabel):
             Whether or not to use the same sorting order as in the segyfile.
         """
         # Make `locations` for slide loading
-        locations, axis = self.geometry.make_slide_locations(loc, axis=axis, return_axis=True)
+        axis = self.geometry.parse_axis(axis)
+        locations = self.geometry.make_slide_locations(loc, axis=axis)
         shape = np.array([len(item) for item in locations])
 
         # Load seismic and mask
@@ -1515,7 +1582,7 @@ class Horizon(BaseLabel):
             mask = mask[:, heights]
 
         # Display everything
-        header = self.geometry.index[axis]
+        header = self.geometry.index_headers[axis]
         title = f'{header} {loc} out of {self.geometry.lens[axis]}'
         meta_title = f'Horizon `{self.name}` on `{self.geometry.name}`'
         plot_images_overlap([seismic_slide, mask], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
