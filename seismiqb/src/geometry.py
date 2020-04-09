@@ -14,7 +14,7 @@ import segyio
 import h5pickle
 
 from .utils import update_minmax, lru_cache, find_min_max
-from .plot_utils import plot_images_overlap
+from .plotters import plot_image
 
 
 
@@ -128,12 +128,11 @@ class SeismicGeometry:
         return self.load_slide_sgy(loc, axis=axis, stable=stable)
 
     def show_slide(self, loc, axis=0, stable=False, order_axes=None, **kwargs):
-        """ !!. """
+        """ TODO: check """
         slide = self.load_slide(loc=loc, axis=axis, stable=stable)
 
         title = f'{self.index[axis]} {loc} out of {self.lens[axis]}'
-        meta_title = ''
-        plot_images_overlap([slide], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
+        plot_image([slide], title=title, mode='overlap', **kwargs)
 
     # SEG-Y methods: infer dataframe, attributes, load data from file
     def process_sgy(self, collect_stats=False, **kwargs):

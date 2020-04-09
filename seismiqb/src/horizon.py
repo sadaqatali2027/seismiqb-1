@@ -19,7 +19,7 @@ from ..batchflow import HistoSampler
 
 from .geometry import SeismicGeometry
 from .utils import round_to_array
-from .plot_utils import plot_image, plot_images_overlap
+from .plotters import plot_image
 
 
 
@@ -195,7 +195,7 @@ class UnstructuredHorizon(BaseLabel):
 
     # Visualization
     def show_slide(self, loc, width=3, axis=0, stable=False, order_axes=None, **kwargs):
-        """ !!. """
+        """ TODO: check """
         #
         locations, axis = self.geometry.make_slide_locations(loc, axis=axis, return_axis=True)
         shape = np.array([len(item) for item in locations])
@@ -213,7 +213,7 @@ class UnstructuredHorizon(BaseLabel):
         #
         title = f'{self.geometry.index[axis]} {loc} out of {self.geometry.lens[axis]}'
         meta_title = f'U-horizon {self.name} on {self.geometry.name}'
-        plot_images_overlap([seismic_slide, mask], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
+        plot_image([seismic_slide, mask], mode='separate', title=title, **kwargs)
 
 
 
@@ -1251,32 +1251,42 @@ class Horizon(BaseLabel):
             matrix = copy(matrix).astype(np.float32)
 
         matrix[matrix == fill_value] = np.nan
-        plot_image(matrix, 'Depth map {} of {} on {}'.format('on full'*on_full, self.name, self.cube_name),
-                   cmap='viridis_r', **kwargs)
+        plot_image([matrix], mode='separate', **kwargs)
 
-
-    def show_amplitudes_rgb(self, width=3, **kwargs):
+    def show_amplitudes_rgb(self, width=3, channel_weights=(1, 0.5, 0.25), to_uint8=True, **kwargs):
         """ Show trace values on the horizon and surfaces directly under it.
+        TODO: check
 
         Parameters
         ----------
         width : int
             Space between surfaces to cut.
+        channel_weights : tuple
+            Weights applied to rgb-channels.
+        to_uint8 : bool
+            Determines whether the image should be cast to uint8.
+        backend : str
+            Can be either 'matplotlib' ('plt') or 'plotly' ('go')
         """
+        # get values along the horizon and cast them to [0, 1]
         amplitudes = self.get_cube_values(window=1 + width*2, offset=width)
-
         amplitudes = amplitudes[:, :, (0, width, -1)]
         amplitudes -= amplitudes.min(axis=(0, 1)).reshape(1, 1, -1)
         amplitudes *= 1 / amplitudes.max(axis=(0, 1)).reshape(1, 1, -1)
-        amplitudes[self.full_matrix == self.FILL_VALUE, :] = 0
+        amplitudes[self.fullmatrix == self.FILL_VALUE, :] = 0
         amplitudes = amplitudes[:, :, ::-1]
-        amplitudes *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
+        amplitudes *= np.asarray(channel_weights).reshape(1, 1, -1)
+
+        # cast values to uint8 if needed
+        if to_uint8:
+            amplitudes = (amplitudes * 255).astype(np.uint8)
+
         plot_image(amplitudes, 'RGB amplitudes of {} on cube {}'.format(self.name, self.cube_name),
-                   rgb=True, **kwargs)
+                   mode='rgb', **kwargs)
 
 
-    def show_slide(self, loc, width=3, axis='i', order_axes=None, **kwargs):
-        """ !!. """
+    def show_slide(self, loc, width=3, axis='i', **kwargs):
+        """ TODO: check """
         #
         locations, axis = self.geometry.make_slide_locations(loc, axis=axis, return_axis=True)
         shape = np.array([len(item) for item in locations])
@@ -1291,7 +1301,7 @@ class Horizon(BaseLabel):
         header = self.geometry.index[axis]
         title = f'{header} {loc} out of {self.geometry.lens[axis]}'
         meta_title = f'S-horizon {self.name} on {self.geometry.name}'
-        plot_images_overlap([seismic_slide, mask], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
+        plot_image([seismic_slide, mask], mode='overlap', **kwargs)
 
 class StructuredHorizon(Horizon):
     """ Convenient alias for `Horizon` class. """
