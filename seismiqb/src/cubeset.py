@@ -460,8 +460,8 @@ class SeismicCubeset(Dataset):
         return self
 
 
-    def mask_to_horizons(self, src, cube_name, min_point=None, threshold=0.5, averaging='mean', minsize=0,
-                         dst='predicted_horizons', prefix='predict'):
+    def mask_to_horizons(self, src, cube_name, threshold=0.5, averaging='mean', minsize=0,
+                         dst='predicted_horizons', prefix='predict', src_grid_info='grid_info'):
         """ Convert mask to a list of horizons.
 
         Parameters
@@ -483,10 +483,9 @@ class SeismicCubeset(Dataset):
         #TODO: add `chunks` mode
         mask = getattr(self, src) if isinstance(src, str) else src
 
-        if getattr(self, 'grid_info'):
-            min_point = [item[0] for item in self.grid_info['range']]
-
-        horizons = Horizon.from_mask(mask, self.geometries[cube_name], min_point=min_point,
+        grid_info = getattr(self, src_grid_info)
+        
+        horizons = Horizon.from_mask(mask, grid_info,
                                      threshold=threshold, averaging=averaging, minsize=minsize, prefix=prefix)
         if not hasattr(self, dst):
             setattr(self, dst, IndexedDict({ix: dict() for ix in self.indices}))
@@ -670,7 +669,8 @@ class SeismicCubeset(Dataset):
                                  'predict_shape': predict_shape,
                                  'range': [ilines_range, xlines_range, h_range],
                                  'crop_shape': (crop_shape[1], crop_shape[0], crop_shape[2]),
-                                 'cube_name': cube_name}
+                                 'cube_name': cube_name,
+                                 'geom': self.geometries[cube_name]}
 
         xline_crops = []
         # sample vertical border points
@@ -724,7 +724,8 @@ class SeismicCubeset(Dataset):
                                  'predict_shape': x_predict_shape,
                                  'range': [x_ilines_range, x_xlines_range, x_h_range],
                                  'crop_shape': crop_shape,
-                                 'cube_name': cube_name}
+                                 'cube_name': cube_name,
+                                 'geom': self.geometries[cube_name]}
         return self
 
     def subset_labels(self, idx=0, horizon_idx=0, src='labels', coords=None,

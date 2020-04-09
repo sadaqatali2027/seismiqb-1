@@ -500,8 +500,6 @@ class SeismicCropBatch(Batch):
             result.append(getattr(self, component)[pos])
         return np.concatenate(result, axis=axis)
 
-
-
     @action
     @inbatch_parallel(init='indices', target='for', post='_masks_to_horizons_post')
     def masks_to_horizons(self, ix, src='masks', src_slices='slices', dst='predicted_labels', prefix='predict',
@@ -912,3 +910,63 @@ class SeismicCropBatch(Batch):
             Opacity for showing images.
         """
         plot_batch_components(self, *components, idx=idx, plot_mode=plot_mode, order_axes=order_axes, **kwargs)
+
+    @action
+    def generate_point(self, stride, shape, labels_src='predicted_labels', dst='next_point',
+                       xline=None, iline=None):
+        """ Generates coordinates of two crops to extend a horizon
+        on the slide in the direction of increasing xlines.
+
+        Parameters:
+        -----------
+        stride : int
+            a distance between top left corners of the last and
+            the next crop.
+        xline : int
+            Number of the xline coordinate of the slide.
+        iline :int
+            Number of the iline coordinate of the slide.
+        """
+        ds = self.dataset
+        geom = ds.geometries[ds.indices[0]]
+        height = shape[-1]
+        overlap = shape[1] - stride
+        horizon = getattr(self, labels_src)[ds.indices[0]][0]
+        if isinstance(iline, int):
+            flat_horizon = horizon.matrix[iline - horizon.i_min, :]
+        elif isinstance(xline, int):
+            flat_horizon = horizon.matrix[:, xline - horizon.x_min]
+        non_zero = np.asarray(flat_horizon != horizon.FILL_VALUE).nonzero()[0]
+        left_border = np.min(non_zero)
+        right_border = np.max(non_zero)
+
+        points = []
+        if isinstance(iline, int):
+            if left_border - stride + horizon.x_min > 0:
+                left_point = [iline, left_border - stride + horizon.x_min,
+                              flat_horizon[left_border] - height // 2]
+                points.append(left_point)
+            if right_border - overlap + horizon.x_min < geom.xlines_len - shape[1]:
+                right_point = [iline, right_border - overlap + horizon.x_min,
+                               flat_horizon[right_border] - height // 2]
+                points.append(right_point)
+        elif isinstance(xline, int):
+            if left_border - stride + horizon.i_min > 0:
+                left_point = [left_border - stride + horizon.i_min, xline,
+                              flat_horizon[left_border] - height // 2]
+                points.append(left_point)
+            if right_border - overlap + horizon.i_min < geom.ilines_len - shape[1]:
+                right_point = [right_border - overlap + horizon.i_min, xline,
+                               flat_horizon[right_border] - height // 2]
+                points.append(right_point)
+
+        
+        if len(points) == 0:
+            raise StopIteration('Reached the end of the slide')
+        else:
+            points = np.asarray(points).reshape(-1, 3)
+
+        cube_names = np.array([ds.indices[0]] * len(points), dtype=np.object).reshape(-1, 1)
+        points = np.concatenate([cube_names, points], axis=1)
+        setattr(self, dst, points)
+        return self
