@@ -612,22 +612,13 @@ class SeismicCubeset(Dataset):
 
         labels = getattr(self, labels_src)[cube_name][0]
         labels_i_min, labels_x_min = labels.i_min, labels.x_min
-        
+
         zero_traces = self.geometries[cube_name].zero_traces
-        
+
         deb_h, deb_l = 0, 0
         # sample horizontal border points
         for xline in range(x_min, x_max, width):
             non_zero = np.where(borders_img[il_min:il_max + 1, xline] == 1)[0]
-
-#             non_zero_traces = np.where(zero_traces[:, xline] == 0)[0]
-#             if len(non_zero_traces) != 0:
-#                 min_non_zero_trace = np.min(non_zero_traces)
-#                 max_non_zero_trace = np.max(non_zero_traces)
-# #                 print('min_non_zero_trace, max_non_zero_trace', min_non_zero_trace, max_non_zero_trace)
-#             else:
-#                 min_non_zero_trace = 0
-#                 max_non_zero_trace = self.geometries[cube_name].ilines_len
 
             if len(non_zero) == 0:
                 continue
@@ -641,10 +632,8 @@ class SeismicCubeset(Dataset):
 
             
             if _lower_il + labels_i_min >= 0:
-#             if _lower_il + labels_i_min >= min_non_zero_trace:
                 iline_crops.append([cube_name, _lower_il + labels_i_min, xline + labels_x_min, _lower_h])
             if _upper_il + labels_i_min + line_shape <= self.geometries[cube_name].ilines_len:
-#             if _upper_il + labels_i_min + line_shape <= max_non_zero_trace:
                 deb_h += 1
                 iline_crops.append([cube_name, _upper_il + labels_i_min, xline + labels_x_min, _upper_h])
         iline_crops = np.array(iline_crops, dtype=object)
@@ -755,4 +744,87 @@ class SeismicCubeset(Dataset):
             setattr(self, dst, IndexedDict({ix: list() for ix in self.indices}))
 
         getattr(self, dst)[self.indices[0]] = [subset_horizon]
+        return self
+
+    def make_expand_grid_v2(self, cube_name, crop_shape, labels_src='predicted_labels', stride=10, batch_size=16):
+        """ Unordered crop generation
+        """
+        horizon = getattr(self, labels_src)[cube_name][0]
+        
+        def find_max_overlap(point, horizon, stride, shape):
+            horizon_matrix = horizon.full_matrix
+            candidates, shapes = [], []
+            lines, intersections = [], []
+
+            eps = 0.2
+            hor_height = horizon_matrix[point[0], point[1]]
+            empty_space = horizon_matrix[point[0] - stride: point[0] - stride + shape[1], :] == horizon.FILL_VALUE
+            if len(empty_space) > int(stride * (1 - eps)):
+                if point[0] - stride > 0 and point[0] - stride + crop_shape[1] < horizon.geometry.ilines_len:
+                    candidates.append([point[0] - stride, point[1], hor_height - shape[2] // 2])
+                    intersections.append(shape[1] - len(empty_space))
+                    shapes.append([shape[1], shape[0], shape[2]])
+                    lines.append('iline')
+            empty_space = horizon_matrix[:, point[1] - stride: point[1] - stride + shape[1]] == horizon.FILL_VALUE
+            if len(empty_space) > int(stride * (1 - eps)):
+                if point[1] - stride > 0 and point[1] - stride + crop_shape[1] < horizon.geometry.xlines_len:
+                    candidates.append([point[0], point[1] - stride, hor_height - shape[2] // 2])
+                    intersections.append(shape[1] - len(empty_space))
+                    shapes.append([shape[0], shape[1], shape[2]])
+                    lines.append('xline')
+            if len(candidates) == 0:
+                return None
+            return candidates[np.argmax(np.array(intersections))],
+                   lines[np.argmax(np.array(intersections))],
+                   shapes[np.argmax(np.array(intersections))]
+
+        border_points = np.array(list(zip(*np.where(horizon.boundaries_matrix == True))))
+
+        border_points[:, 0] += horizon.i_min
+        border_points[:, 1] += horizon.x_min
+        
+        iline_crops = []
+        xline_crops = []
+        for point in border_points:
+            new_point, line, shape = find_max_overlap(point, horizon, stride, crop_shape)
+            if line == 'iline':
+                iline_crops.append(new_point)
+                iline_shape = shape
+            else:
+                xline_crops.append(new_point)
+                xline_shape = shape
+
+        def set_direction_grid(crops, shape, name):
+            crops = np.asarray(crops).reshape(-1, 3)
+            cube_names = np.array([cube_name] * len(crops), dtype=np.object).reshape(-1, 1)
+            crops = np.concatenate([cube_names, crops], axis=1)
+
+            crops_gen = (crops[i:i+batch_size]
+                                    for i in range(0, len(crops), batch_size))
+            settatr(self, name + '_crops_gen', lambda: next(crops_gen))
+            settatr(self, name + '_crops_iters', - (-len(crops) // batch_size))
+            offsets = np.array([np.min(crops[:, 1]),
+                                np.min(crops[:, 2]),
+                                np.min(crops[:, 3])])
+
+            ilines_range = (np.min(crops[:, 1]), np.max(crops[:, 1]) + line_shape)
+            xlines_range = (np.min(crops[:, 2]), np.max(crops[:, 2]) + width)
+            h_range = (np.min(crops[:, 3]), np.max(crops[:, 3]) + height)
+            grid_array = crops[:, 1:].astype(int) - offsets
+
+            predict_shape = (ilines_range[1] - ilines_range[0],
+                                xlines_range[1] - xlines_range[0],
+                                h_range[1] - h_range[0])
+
+            crops_info = {'grid_array': grid_array,
+                            'predict_shape': predict_shape,
+                            'range': [ilines_range, xlines_range, h_range],
+                            'crop_shape': shape,
+                            'cube_name': cube_name,
+                            'geom': self.geometries[cube_name]}
+            setattr(self, name + '_crops_info', crops_info)
+            return crops_gen, crops_iters, crops_info
+
+        set_direction_grid(iline_crops, iline_shape, 'iline')
+        set_direction_grid(xline_crops, xline_shape, 'xline')
         return self
