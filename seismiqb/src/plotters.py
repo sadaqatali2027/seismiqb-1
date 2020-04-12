@@ -77,7 +77,7 @@ class PlotlyPlotter:
         # manually combine first image in greyscale and the rest ones colored differently
         combined = channelize_image(255 * image[0].T, total_channels=4, greyscale=True)
         for img, n_channel in zip(image[1:], (0, 1, 2)):
-            combined += channelize_image(img, total_channels=4, n_channel=n_channel, opacity=updated['opacity'])
+            combined += channelize_image(255 * img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity'])
         plot_data = go.Image(z=combined, **render_kwargs) # plot manually combined image
 
         # plot the figure
@@ -146,23 +146,26 @@ class MatplotlibPlotter:
                     'xlabel': 'xlines',
                     'ylabel': 'ilines',
                     'cmap': 'gray',
-                    'fontdict' : {'fontsize': 20},
+                    'fontsize': 20,
                     'opacity': 1.0}
-        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['vmin', 'vmax'])} # TODO: more args to add in here
+        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['vmin', 'vmax',
+                                                                                'family', 'color'])} # TODO: more args to add in here
+        print(updated)
 
         # form different groups of kwargs
         render_kwargs = filter_kwargs(updated, ['cmap', 'vmin', 'vmax'])
-        label_kwargs = filter_kwargs(updated, ['t', 'fontdict'])
-        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontdict'])
-        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontdict'])
+        label_kwargs = filter_kwargs(updated, ['t', 'fontsize', 'family', 'color'])
+        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
+        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
 
         # channelize images and put them on a canvas
         fig, ax = plt.subplots(figsize=updated['figsize'])
         ax.imshow(image[0].T, **render_kwargs) # note transposition in here
+        ax.set_xlabel(**xaxis_kwargs)
+        ax.set_ylabel(**yaxis_kwargs)
+
         for img, n_channel in zip(image[1:], (0, 1, 2)):
             ax.imshow(channelize_image(img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity']), **render_kwargs)
-            ax.set_xlabel(**xaxis_kwargs)
-            ax.set_ylabel(**yaxis_kwargs)
         fig.suptitle(y=1.1, **label_kwargs)
         plt.show()
 
@@ -172,15 +175,14 @@ class MatplotlibPlotter:
                     'label': 'RGB amplitudes',
                     'xlabel': 'xlines',
                     'ylabel': 'ilines',
-                    'cmap': 'gray',
-                    'fontdict' : {'fontsize': 20}}
-        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()))} # TODO: more args to add in here
+                    'fontsize': 20}
+        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['family', 'color'])} # TODO: more args to add in here
 
         # form different groups of kwargs
-        render_kwargs = filter_kwargs(updated, ['cmap'])
-        label_kwargs = filter_kwargs(updated, ['label', 'fontdict'])
-        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontdict'])
-        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontdict'])
+        render_kwargs = filter_kwargs(updated, [])
+        label_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
+        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
+        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
 
         # channelize and plot the image
         image = channelize_image(image, total_channels=3)
@@ -201,14 +203,15 @@ class MatplotlibPlotter:
                     'xlabel': 'xlines',
                     'ylabel': 'ilines',
                     'cmap': 'gray',
-                    'fontdict' : {'fontsize': 20}}
-        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['vmin', 'vmax'])} # TODO: more args to add in here
+                    'fontsize': 20}
+        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['vmin', 'vmax',
+                                                                                'family', 'color'])} # TODO: more args to add in here
 
         # form different groups of kwargs
         render_kwargs = filter_kwargs(updated, ['cmap', 'vmin', 'vmax'])
-        label_kwargs = filter_kwargs(updated, ['t', 'fontdict'])
-        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontdict'])
-        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontdict'])
+        label_kwargs = filter_kwargs(updated, ['t', 'fontsize', 'family', 'color'])
+        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
+        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
 
         grid = (1, len(image))
         fig, ax = plt.subplots(*grid, figsize=updated['figsize'])
@@ -223,4 +226,28 @@ class MatplotlibPlotter:
             ax[i].set_ylabel(**yaxis_kwargs)
 
         fig.suptitle(y=1.1, **label_kwargs)
+        plt.show()
+
+    def plot_histogram(image, **kwargs):
+        # update defaults
+        defaults = {'n_bins': 50,
+                    'density': True,
+                    'alpha': 0.75,
+                    'facecolor': 'b',
+                    'xlabel': 'amplitudes',
+                    'ylabel': 'probability',
+                    'fontsize': 20}
+        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['family', 'color'])} # TODO: more args to add in here
+
+        # form different groups of kwargs
+        histo_kwargs = filter_kwargs(updated, ['n_bins', 'density', 'alpha', 'facecolor'])
+        label_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
+        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
+        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
+
+        # render histogram
+        _, _, _ = plt.hist(image.flatten, **histo_kwargs)
+        plt.xlabel(**xaxis_kwargs)
+        plt.ylabel(**yaxis_kwargs)
+        plt.title(**label_kwargs)
         plt.show()
