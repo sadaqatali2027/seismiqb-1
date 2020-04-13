@@ -228,26 +228,31 @@ class MatplotlibPlotter:
         fig.suptitle(y=1.1, **label_kwargs)
         plt.show()
 
-    def plot_histogram(image, **kwargs):
+    def plot_histogram(self, image, **kwargs):
         # update defaults
-        defaults = {'n_bins': 50,
+        defaults = {'bins': 50,
                     'density': True,
                     'alpha': 0.75,
                     'facecolor': 'b',
-                    'xlabel': 'amplitudes',
-                    'ylabel': 'probability',
+                    'label': 'Amplitudes histogram',
+                    'xlabel': 'xlines',
+                    'ylabel': 'density',
                     'fontsize': 20}
-        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['family', 'color'])} # TODO: more args to add in here
+        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['family', 'color', 'xlim', 'ylim'])} # TODO: more args to add in here
 
         # form different groups of kwargs
-        histo_kwargs = filter_kwargs(updated, ['n_bins', 'density', 'alpha', 'facecolor'])
+        histo_kwargs = filter_kwargs(updated, ['bins', 'density', 'alpha', 'facecolor'])
         label_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
-        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
-        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
+        xlabel_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
+        ylabel_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color', 'ylim'])
+        xaxis_kwargs = filter_kwargs(updated, ['xlim'])
+        yaxis_kwargs = filter_kwargs(updated, ['ylim'])
 
-        # render histogram
-        _, _, _ = plt.hist(image.flatten, **histo_kwargs)
-        plt.xlabel(**xaxis_kwargs)
-        plt.ylabel(**yaxis_kwargs)
+        _, _, _ = plt.hist(image.flatten(), **histo_kwargs)
+        plt.xlabel(**xlabel_kwargs)
+        plt.ylabel(**ylabel_kwargs)
         plt.title(**label_kwargs)
+        plt.xlim(xaxis_kwargs.get('xlim'))  # these are positional ones
+        plt.ylim(yaxis_kwargs.get('ylim'))
+
         plt.show()
