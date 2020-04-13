@@ -1,5 +1,11 @@
 """ Plotters-class containing all plotting backend for seismic cubes - data.
 """
+import numpy as np
+
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 
 def channelize_image(image, total_channels, n_channel=0, greyscale=False, opacity=None):
     """ Channelize an image. Can be used to make an opaque rgb or greyscale image.
@@ -53,6 +59,35 @@ def plot_image(image, mode, backend, **kwargs):
 class PlotlyPlotter:
     """ Plotting backend for plotly.
     """
+    def plot_single(self, image, **kwargs):
+        # update defaults to make total dict of kwargs
+        defaults = {'xaxis': {'title_text': 'xlines', 'titlefont': {'size': 30}},
+                    'yaxis': {'title_text': 'height', 'titlefont': {'size': 30}, 'autorange': 'reversed'},
+                    'reversescale': True,
+                    'colorscale': 'viridis' ,
+                    'coloraxis_colorbar': {'title': 'amplitude'},
+                    'opacity' : 1.0,
+                    'title': 'Depth map',
+                    'max_size' : 600}
+        for_update = filter_kwargs(kwargs, list(defaults.keys()) + ['opacity', 'zmin', 'zmax', 'showscale']) # TODO: more args to add in here
+        updated = {**defaults, **for_update}
+
+        # form different groups of kwargs
+        render_kwargs = filter_kwargs(updated, ['reversescale', 'colorscale', 'opacity', 'showscale'])
+        label_kwargs = filter_kwargs(updated, ['xaxis', 'yaxis', 'coloraxis_colorbar', 'title'])
+
+        # calculate canvas sizes
+        width, height = image.shape[1], image.shape[0]
+        coeff = updated['max_size'] / max(width, height)
+        width = coeff * width
+        height = coeff * height
+
+        # plot the image and set titles
+        plot_data = go.Heatmap(z=image.T, **render_kwargs) # note the usage of Heatmap here
+        fig = go.Figure(data=plot_data)
+        fig.update_layout(width=width, height=height, **label_kwargs)
+        fig.show()
+
     def plot_overlap(self, image, **kwargs):
         # update defaults to make total dict of kwargs
         defaults = {'xaxis': {'title_text': 'xlines', 'titlefont': {'size': 30}},
@@ -61,11 +96,11 @@ class PlotlyPlotter:
                     'opacity' : 1.0,
                     'title': 'Seismic inline',
                     'max_size' : 600}
-        for_update = filter_kwargs(kwargs, list(defaults.keys()) + ['opacity', 'zmin', 'zmax', 'showscale']) # TODO: more args to add in here
+        for_update = filter_kwargs(kwargs, list(defaults.keys()) + ['opacity', 'zmin', 'zmax']) # TODO: more args to add in here
         updated = {**defaults, **for_update}
 
         # form different groups of kwargs
-        render_kwargs = filter_kwargs(updated, ['zmin', 'zmax', 'showscale'])
+        render_kwargs = filter_kwargs(updated, ['zmin', 'zmax'])
         label_kwargs = filter_kwargs(updated, ['xaxis', 'yaxis', 'coloraxis_colorbar', 'title'])
 
         # calculate canvas sizes
@@ -105,7 +140,7 @@ class PlotlyPlotter:
         height = coeff * height
 
         # plot the image and set titles
-        plot_data = go.Image(z=image, **render_kwargs)
+        plot_data = go.Image(z=image.T, **render_kwargs)
         fig = go.Figure(data=plot_data)
         fig.update_layout(width=width, height=height, **label_kwargs)
         fig.show()
@@ -140,6 +175,40 @@ class PlotlyPlotter:
 class MatplotlibPlotter:
     """ Plotting backend for matplotlib.
     """
+    def plot_single(self, image, **kwargs):
+        # update defaults
+        defaults = {'figsize': (12, 7),
+                    'label': 'Depth map',
+                    'cmap': 'viridis_r',
+                    'colorbar': True,
+                    'xlabel': 'xlines',
+                    'ylabel': 'ilines',
+                    'fontsize': 20,
+                    'labeltop': True,
+                    'labelright': True}
+        updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['family', 'color'])} # TODO: more args to add in here
+
+        # form different groups of kwargs
+        render_kwargs = filter_kwargs(updated, [])
+        label_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
+        xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
+        yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
+        tick_params = filter_kwargs(updated, ['labeltop', 'labelright'])
+
+        # channelize and plot the image
+        image = channelize_image(image, total_channels=3)
+        plt.figure(figsize=updated['figsize'])
+        _= plt.imshow(image.T, **render_kwargs)
+
+        # add titles and labels
+        plt.title(y=1.1, **label_kwargs)
+        plt.xlabel(**xaxis_kwargs)
+        plt.ylabel(**yaxis_kwargs)
+        if updated['colorbar']:
+            plt.colorbar()
+        plt.tick_params(**tick_params)
+        plt.show()
+
     def plot_overlap(self, image, **kwargs):
         defaults = {'figsize': (12, 7),
                     't': 'Seismic inline',
@@ -150,7 +219,6 @@ class MatplotlibPlotter:
                     'opacity': 1.0}
         updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['vmin', 'vmax',
                                                                                 'family', 'color'])} # TODO: more args to add in here
-        print(updated)
 
         # form different groups of kwargs
         render_kwargs = filter_kwargs(updated, ['cmap', 'vmin', 'vmax'])
@@ -169,13 +237,16 @@ class MatplotlibPlotter:
         fig.suptitle(y=1.1, **label_kwargs)
         plt.show()
 
+
     def plot_rgb(self, image, **kwargs):
         # update defaults
         defaults = {'figsize': (12, 7),
                     'label': 'RGB amplitudes',
                     'xlabel': 'xlines',
                     'ylabel': 'ilines',
-                    'fontsize': 20}
+                    'fontsize': 20,
+                    'labeltop': True,
+                    'labelright': True}
         updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['family', 'color'])} # TODO: more args to add in here
 
         # form different groups of kwargs
@@ -183,17 +254,19 @@ class MatplotlibPlotter:
         label_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
         xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
         yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
+        tick_params = filter_kwargs(updated, ['labeltop', 'labelright'])
+
 
         # channelize and plot the image
         image = channelize_image(image, total_channels=3)
         plt.figure(figsize=updated['figsize'])
-        _= plt.imshow(image, **render_kwargs)
+        _= plt.imshow(image.T, **render_kwargs)
 
         # add titles and labels
         plt.title(y=1.1, **label_kwargs)
         plt.xlabel(**xaxis_kwargs)
         plt.ylabel(**yaxis_kwargs)
-        plt.tick_params(labeltop=True, labelright=True)
+        plt.tick_params(**tick_params)
         plt.show()
 
     def plot_separate(self, image, **kwargs):

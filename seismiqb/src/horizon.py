@@ -1251,7 +1251,7 @@ class Horizon(BaseLabel):
             matrix = copy(matrix).astype(np.float32)
 
         matrix[matrix == fill_value] = np.nan
-        plot_image([matrix], mode='separate', **kwargs)
+        plot_image(matrix, mode='single', **kwargs)
 
     def show_amplitudes_rgb(self, width=3, channel_weights=(1, 0.5, 0.25), to_uint8=True, **kwargs):
         """ Show trace values on the horizon and surfaces directly under it.
