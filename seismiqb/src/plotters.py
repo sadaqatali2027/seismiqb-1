@@ -130,9 +130,9 @@ class PlotlyPlotter:
         fig = make_subplots(rows=grid[0], cols=grid[1])
         for i in range(grid[1]):
             img = channelize_image(255 * image[i].T, total_channels=4, greyscale=True, opacity=1)
-            fig.add_trace(go.Image(z=img, **render_kwargs), row=1, col=i)
-            fig.update_xaxes(row=1, col=i, **xaxis_kwargs)
-            fig.update_yaxes(row=1, col=i, **yaxis_kwargs)
+            fig.add_trace(go.Image(z=img, **render_kwargs), row=1, col=i + 1)
+            fig.update_xaxes(row=1, col=i + 1, **xaxis_kwargs['xaxis'])
+            fig.update_yaxes(row=1, col=i + 1, **yaxis_kwargs['yaxis'])
         fig.update_layout(**label_kwargs)
         fig.show()
 
