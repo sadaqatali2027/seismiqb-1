@@ -60,6 +60,27 @@ class PlotlyPlotter:
     """ Plotting backend for plotly.
     """
     def plot_single(self, image, **kwargs):
+        """ Plot single image/heatmap using plotly.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            2d-array for plotting.
+        kwargs : dict
+            max_size : int
+                maximum size of a rendered image.
+            title : str
+                title of rendered image.
+            zmin : float
+                the lowest brightness-level to be rendered.
+            zmax : float
+                the highest brightness-level to be rendered.
+            xaxis : dict
+                controls the properties of xaxis-labels; uses plotly-format.
+            yaxis : dict
+                controls the properties of yaxis-labels; uses plotly-format.
+            other
+        """
         # update defaults to make total dict of kwargs
         defaults = {'xaxis': {'title_text': 'xlines', 'titlefont': {'size': 30}},
                     'yaxis': {'title_text': 'height', 'titlefont': {'size': 30}, 'autorange': 'reversed'},
@@ -89,6 +110,27 @@ class PlotlyPlotter:
         fig.show()
 
     def plot_overlap(self, image, **kwargs):
+        """ Plot several images on one canvas using plotly: render the first one in greyscale
+        and the rest ones in opaque 'rgb' channels, one channel for each image.
+        Supports up to four images in total.
+
+        Parameters
+        ----------
+        image : list/tuple
+            sequence of 2d-arrays for plotting. Can store up to four images.
+        kwargs : dict
+            max_size : int
+                maximum size of a rendered image.
+            title : str
+                title of rendered image.
+            opacity : float
+                opacity of 'rgb' channels.
+            xaxis : dict
+                controls the properties of xaxis-labels; uses plotly-format.
+            yaxis : dict
+                controls the properties of yaxis-labels; uses plotly-format.
+            other
+        """
         # update defaults to make total dict of kwargs
         defaults = {'xaxis': {'title_text': 'xlines', 'titlefont': {'size': 30}},
                     'yaxis': {'title_text': 'height', 'titlefont': {'size': 30}, 'autorange': 'reversed'},
@@ -121,6 +163,23 @@ class PlotlyPlotter:
         fig.show()
 
     def plot_rgb(self, image, **kwargs):
+        """ Plot one image in 'rgb' using plotly.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            3d-array containing channeled rgb-image.
+        kwargs : dict
+            max_size : int
+                maximum size of a rendered image.
+            title : str
+                title of the rendered image.
+            xaxis : dict
+                controls the properties of xaxis-labels; uses plotly-format.
+            yaxis : dict
+                controls the properties of yaxis-labels; uses plotly-format.
+            other
+        """
         # update defaults to make total dict of kwargs
         defaults = {'xaxis': {'title_text': 'xlines', 'titlefont': {'size': 30}},
                     'yaxis': {'title_text': 'height', 'titlefont': {'size': 30}, 'autorange': 'reversed'},
@@ -146,6 +205,24 @@ class PlotlyPlotter:
         fig.show()
 
     def plot_separate(self, image, **kwargs):
+        """ Plot several images on a row of canvases using plotly.
+        TODO: add grid support.
+
+        Parameters
+        ----------
+        image : list/tuple
+            sequence of 2d-arrays for plotting.
+        kwargs : dict
+            max_size : int
+                maximum size of a rendered image.
+            title : str
+                title of rendered image.
+            xaxis : dict
+                controls the properties of xaxis-labels; uses plotly-format.
+            yaxis : dict
+                controls the properties of yaxis-labels; uses plotly-format.
+            other
+        """
         # defaults
         defaults = {'xaxis': {'title_text': 'xlines', 'titlefont': {'size': 30}},
                     'yaxis': {'title_text': 'height', 'titlefont': {'size': 30}, 'autorange': 'reversed'},
@@ -176,6 +253,25 @@ class MatplotlibPlotter:
     """ Plotting backend for matplotlib.
     """
     def plot_single(self, image, **kwargs):
+        """ Plot single image/heatmap using matplotlib.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            2d-array for plotting.
+        kwargs : dict
+            figsize : tuple
+                tuple of two ints containing the size of the rendered image.
+            label : str
+                title of rendered image.
+            cmap : str
+                colormap of rendered image.
+            xlabel : str
+                xaxis-label.
+            ylabel : str
+                yaxis-label.
+            other
+        """
         # update defaults
         defaults = {'figsize': (12, 7),
                     'label': 'Depth map',
@@ -212,6 +308,31 @@ class MatplotlibPlotter:
         plt.show()
 
     def plot_overlap(self, image, **kwargs):
+        """ Plot several images on one canvas using matplotlib: render the first one in greyscale
+        and the rest ones in 'rgb' channels, one channel for each image.
+        Supports up to four images in total.
+
+        Parameters
+        ----------
+        image : tuple or list
+            sequence of 2d-arrays for plotting. Supports up to 4 images.
+        kwargs : dict
+            figsize : tuple
+                tuple of two ints containing the size of the rendered image.
+            t : str
+                title of rendered image.
+            cmap : str
+                colormap to render the first image in.
+            vmin : float
+                the lowest brightness-level to be rendered.
+            vmax : float
+                the highest brightness-level to be rendered.
+            xlabel : str
+                xaxis-label.
+            ylabel : str
+                yaxis-label.
+            other
+        """
         defaults = {'figsize': (12, 7),
                     't': 'Seismic inline',
                     'xlabel': 'xlines',
@@ -241,6 +362,24 @@ class MatplotlibPlotter:
 
 
     def plot_rgb(self, image, **kwargs):
+        """ Plot one image in 'rgb' using matplotlib.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            3d-array containing channeled rgb-image.
+        kwargs : dict
+            figsize : tuple
+                tuple of two ints containing the size of the rendered image.
+            label : str
+                title of rendered image.
+            xlabel : str
+                xaxis-label.
+            ylabel : str
+                yaxis-label.
+            other
+        """
+
         # update defaults
         defaults = {'figsize': (12, 7),
                     'label': 'RGB amplitudes',
@@ -272,6 +411,26 @@ class MatplotlibPlotter:
         plt.show()
 
     def plot_separate(self, image, **kwargs):
+        """ Plot several images on a row of canvases using matplotlib.
+        TODO: add grid support.
+
+        Parameters
+        ----------
+        image : tuple or list
+            sequence of 2d-arrays for plotting. Supports up to 4 images.
+        kwargs : dict
+            figsize : tuple
+                tuple of two ints containing the size of the rendered image.
+            t : str
+                title of rendered image.
+            cmap : str
+                colormap to render the first image in.
+            xlabel : str
+                xaxis-label.
+            ylabel : str
+                yaxis-label.
+            other
+        """
         # embedded params
         defaults = {'figsize': (6 * len(image), 15),
                     't': 'Seismic inline',
@@ -304,6 +463,23 @@ class MatplotlibPlotter:
         plt.show()
 
     def plot_histogram(self, image, **kwargs):
+        """ Plot histogram using matplotlib.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            2d-image for plotting.
+        kwargs : dict
+            label : str
+                title of rendered image.
+            xlabel : str
+                xaxis-label.
+            ylabel : str
+                yaxis-label.
+            bins : int
+                the number of bins to use.
+            other
+        """
         # update defaults
         defaults = {'bins': 50,
                     'density': True,
