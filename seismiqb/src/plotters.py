@@ -184,19 +184,21 @@ class MatplotlibPlotter:
                     'xlabel': 'xlines',
                     'ylabel': 'ilines',
                     'fontsize': 20,
+                    'fraction': 0.022,
+                    'pad': 0.07,
                     'labeltop': True,
                     'labelright': True}
         updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['family', 'color'])} # TODO: more args to add in here
 
         # form different groups of kwargs
-        render_kwargs = filter_kwargs(updated, [])
+        render_kwargs = filter_kwargs(updated, ['cmap'])
         label_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
         xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
         yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
         tick_params = filter_kwargs(updated, ['labeltop', 'labelright'])
+        colorbar_kwargs = filter_kwargs(updated, ['fraction', 'pad'])
 
         # channelize and plot the image
-        image = channelize_image(image, total_channels=3)
         plt.figure(figsize=updated['figsize'])
         _= plt.imshow(image.T, **render_kwargs)
 
@@ -205,7 +207,7 @@ class MatplotlibPlotter:
         plt.xlabel(**xaxis_kwargs)
         plt.ylabel(**yaxis_kwargs)
         if updated['colorbar']:
-            plt.colorbar()
+            plt.colorbar(**colorbar_kwargs)
         plt.tick_params(**tick_params)
         plt.show()
 
@@ -260,7 +262,7 @@ class MatplotlibPlotter:
         # channelize and plot the image
         image = channelize_image(image, total_channels=3)
         plt.figure(figsize=updated['figsize'])
-        _= plt.imshow(image.T, **render_kwargs)
+        _= plt.imshow(np.swapaxes(image, 0, 1), **render_kwargs)
 
         # add titles and labels
         plt.title(y=1.1, **label_kwargs)
