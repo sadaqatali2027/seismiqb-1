@@ -13,7 +13,7 @@ import h5py
 import segyio
 import h5pickle
 
-from .utils import SafeIO, lru_cache, find_min_max
+from .utils import lru_cache, find_min_max #, SafeIO
 from .plot_utils import plot_images_overlap
 
 
@@ -177,11 +177,13 @@ class SeismicGeometry:
             If `q`, then data is clipped to 0.01 and 0.99 quantiles and then divided by the
             maximum of absolute values of the two.
         """
+        if mode in ['q', 'normalize']:
+            return array / max(abs(self.q01), abs(self.q99))
+        if mode in ['q_clip']:
+            return np.clip(array, self.q01, self.q99) / max(abs(self.q01), abs(self.q99))
         if mode == 'minmax':
             scale = (self.value_max - self.value_min)
             return (array - self.value_min) / scale
-        if mode in ['q', 'normalize']:
-            return np.clip(array, self.q01, self.q99) / max(abs(self.q01), abs(self.q99))
         raise ValueError('Wrong mode', mode)
 
 
@@ -350,6 +352,7 @@ class SeismicGeometry:
 
 
 
+
 class SeismicGeometrySEGY(SeismicGeometry):
     """ Class to infer information about SEG-Y cubes and provide convenient methods of working with them.
     A wrapper around `segyio` to provide higher-level API.
@@ -385,7 +388,8 @@ class SeismicGeometrySEGY(SeismicGeometry):
     def process(self, collect_stats=False, **kwargs):
         """ Create dataframe based on `segy` file headers. """
         # Note that all the `segyio` structure inference is disabled
-        self.segyfile = SafeIO(self.path, opener=segyio.open, mode='r', strict=False, ignore_geometry=True)
+        # self.segyfile = SafeIO(self.path, opener=segyio.open, mode='r', strict=False, ignore_geometry=True)
+        self.segyfile = segyio.open(self.path, mode='r', strict=False, ignore_geometry=True)
         self.segyfile.mmap()
 
         self.depth = len(self.segyfile.trace[0])
@@ -709,8 +713,7 @@ class SeismicGeometrySEGY(SeismicGeometry):
 
             pbar.set_description(f'Converting {self.long_name}; ilines projection')
             for i in range(self.ilines_len):
-                #
-                slide = self.load_slide(i)
+                slide = self.load_slide(i, stable=False)
                 cube_hdf5[i, :, :] = slide.reshape(1, self.xlines_len, self.depth)
                 cube_hdf5_h[:, i, :] = slide.T
                 pbar.update()
@@ -718,7 +721,7 @@ class SeismicGeometrySEGY(SeismicGeometry):
             # xline-oriented projection: (xlines, depth, ilines)
             pbar.set_description(f'Converting {self.long_name} to hdf5; xlines projection')
             for x in range(self.xlines_len):
-                slide = self.load_slide(x, axis=1).T
+                slide = self.load_slide(x, axis=1, stable=False).T
                 cube_hdf5_x[x, :, :,] = slide
                 pbar.update()
             pbar.close()
@@ -750,7 +753,8 @@ class SeismicGeometryHDF5(SeismicGeometry):
         No passing through data whatsoever.
         """
         _ = kwargs
-        self.file_hdf5 = SafeIO(self.path, opener=h5pickle.File, mode='r')
+        # self.file_hdf5 = SafeIO(self.path, opener=h5pickle.File, mode='r')
+        self.file_hdf5 = h5pickle.File(self.path, mode='r')
         self.add_attributes()
 
     def add_attributes(self):

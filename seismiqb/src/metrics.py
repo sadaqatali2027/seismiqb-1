@@ -608,7 +608,7 @@ class HorizonMetrics(BaseSeismicMetric):
             Rate in 5ms:                         {oinfo['window_rate']:8.4}
             Mean/std of errors:       {oinfo['mean']:8.4} / {oinfo['std']:8.4}
             Mean/std of abs errors:   {oinfo['abs_mean']:8.4} / {oinfo['abs_std']:8.4}
-            Max error/abd error:      {oinfo['max']:8.4} / {oinfo['abs_max']:8}
+            Max error/abd error:      {oinfo['max']:8} / {oinfo['abs_max']:8}
             {'—'*45}
 
             Lengths of horizons:                 {len(self.horizon):8}

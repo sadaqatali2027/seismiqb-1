@@ -586,7 +586,7 @@ class SeismicCropBatch(Batch):
 
 
     @action
-    @inbatch_parallel(init='run_once')
+    @inbatch_parallel(init='run_once', target='for')
     def assemble_crops(self, src, dst, grid_info, order=None):
         """ Glue crops together in accordance to the grid.
 

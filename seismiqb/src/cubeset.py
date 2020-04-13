@@ -536,7 +536,6 @@ class SeismicCubeset(Dataset):
         return horizons
 
 
-
     def compare_to_labels(self, horizon, src_labels='labels', offset=0, absolute=True,
                           printer=print, hist=True, plot=True):
         """ Compare given horizon to labels in dataset.
