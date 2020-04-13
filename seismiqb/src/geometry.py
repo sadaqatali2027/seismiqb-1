@@ -116,8 +116,8 @@ class SeismicGeometry:
     # Attributes to store during SEG-Y -> HDF5 conversion
     PRESERVED = [
         'depth', 'delay', 'sample_rate',
-        'fields', 'offsets', 'ranges', 'lens', # `uniques` can't be saved due to different lenghts of arrays
-        'value_min', 'value_max', 'q01', 'q99', 'bins', 'trace_container',
+        'byte_no', 'offsets', 'ranges', 'lens', # `uniques` can't be saved due to different lenghts of arrays
+        'value_min', 'value_max', 'q01', 'q99', 'q001', 'q999', 'bins', 'trace_container',
         'ilines', 'xlines', 'ilines_offset', 'xlines_offset', 'ilines_len', 'xlines_len',
         'zero_traces', 'min_matrix', 'max_matrix', 'mean_matrix', 'std_matrix', 'hist_matrix',
         '_quality_map',
@@ -134,6 +134,7 @@ class SeismicGeometry:
     INDEX_CDP = ['CDP_Y', 'CDP_X']
 
     def __new__(cls, path, *args, **kwargs):
+        """ Select the type of geometry based on file extension. """
         _ = args, kwargs
         fmt = os.path.splitext(path)[1][1:]
 
@@ -321,7 +322,7 @@ class SeismicGeometry:
 
         if self.has_stats:
             msg += f"""
-        Unique amplitudes:             {len(np.unique(self.trace_container))}
+        Num of unique amplitudes:      {len(np.unique(self.trace_container))}
         Mean/std of amplitudes:        {np.mean(self.trace_container):6.6}/{np.std(self.trace_container):6.6}
         Min/max amplitudes:            {self.value_min:6.6}/{self.value_max:6.6}
         q01/q99 amplitudes:            {self.q01:6.6}/{self.q99:6.6}
@@ -350,7 +351,18 @@ class SeismicGeometry:
         meta_title = ''
         plot_images_overlap([slide], title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
 
+    def show_amplitude_hist(self, scaler=None, bins=50):
+        """ Show distribution of amplitudes in `trace_container`. Optionally applies chosen `scaler`. """
+        import matplotlib.pyplot as plt #pylint: disable=import-outside-toplevel
+        data = np.copy(self.trace_container)
+        if scaler:
+            data = self.scaler(data, mode=scaler)
 
+        title = f'Amplitude distribution for {self.short_name}\nMean/std: {np.mean(data):3.3}/{np.std(data):3.3}'
+        plt.figure()
+        _ = plt.hist(data.ravel(), bins=bins)
+        plt.title(title)
+        plt.show()
 
 
 class SeismicGeometrySEGY(SeismicGeometry):
@@ -431,7 +443,7 @@ class SeismicGeometrySEGY(SeismicGeometry):
         self.uniques_inversed = [{v: j for j, v in enumerate(self.uniques[i])}
                                  for i in range(self.index_len)]
 
-        self.fields = [getattr(segyio.TraceField, idx) for idx in self.index_headers]
+        self.byte_no = [getattr(segyio.TraceField, h) for h in self.index_headers]
         self.offsets = [np.min(item) for item in self.uniques]
         self.lens = [len(item) for item in self.uniques]
         self.ranges = [(np.max(item) - np.min(item) + 1) for item in self.uniques]
@@ -496,12 +508,12 @@ class SeismicGeometrySEGY(SeismicGeometry):
                 trace = self.segyfile.trace[i]
                 header = self.segyfile.header[i]
 
-                #
-                keys = [header.get(field) for field in self.fields]
+                # i -> id in a dataframe
+                keys = [header.get(field) for field in self.byte_no]
                 store_key = [self.uniques_inversed[j][item] for j, item in enumerate(keys)]
                 store_key = tuple(store_key)
 
-                #
+                # for each trace, we store an entire histogram of amplitudes
                 val_min, val_max = find_min_max(trace)
                 min_matrix[store_key] = val_min
                 max_matrix[store_key] = val_max
@@ -528,7 +540,7 @@ class SeismicGeometrySEGY(SeismicGeometry):
 
         self.value_min, self.value_max = value_min, value_max
         self.trace_container = np.array(trace_container)
-        self.q01, self.q99 = np.quantile(trace_container, [0.01, 0.99])
+        self.q001, self.q01, self.q99, self.q999 = np.quantile(trace_container, [0.001, 0.01, 0.99, 0.999])
         self.has_stats = True
 
 

@@ -464,13 +464,13 @@ class Horizon(BaseLabel):
 
     @property
     def depths(self):
-        """ Depths """
+        """ Array of depth only. Useful for faster stats computation when initialized from a matrix. """
         if self._depths is None:
             if self._points is not None:
                 self._depths = self.points[:, -1]
             else:
                 self._depths = self.matrix[self.matrix != self.FILL_VALUE]
-        return self.depthsl
+        return self._depths
 
 
     @property
@@ -1183,15 +1183,6 @@ class Horizon(BaseLabel):
         # Overlap bbox
         overlap_i_min, overlap_i_max = max(self.i_min, other.i_min), min(self.i_max, other.i_max) + 1
         overlap_x_min, overlap_x_max = max(self.x_min, other.x_min), min(self.x_max, other.x_max) + 1
-        # overlap_bbox = np.array([[overlap_i_min, overlap_i_max],
-        #                          [overlap_x_min, overlap_x_max]],
-        #                         dtype=np.int32)
-
-        # overlap_info.update({'i_min': overlap_i_min,
-        #                      'i_max': overlap_i_max,
-        #                      'x_min': overlap_x_min,
-        #                      'x_max': overlap_x_max,
-        #                      'bbox': overlap_bbox})
 
         i_range = overlap_i_min - overlap_i_max
         x_range = overlap_x_min - overlap_x_max
@@ -1502,10 +1493,17 @@ class Horizon(BaseLabel):
     def __str__(self):
         msg = f"""
         Horizon {self.name} for {self.cube_name} loaded from {self.format}
-        Ilines from {self.i_min} to {self.i_max}
-        Xlines from {self.x_min} to {self.x_max}
-        Heights from {self.h_min} to {self.h_max}, mean is {self.h_mean:5.5}, std is {self.h_std:4.4}
-        At {hex(id(self))}
+        Ilines range:      {self.i_min} to {self.i_max}
+        Xlines range:      {self.x_min} to {self.x_max}
+        Heights range:     {self.h_min} to {self.h_max}
+        Heights mean:      {self.h_mean:.6}
+        Heights std:       {self.h_std:.6}
+
+        Length:            {len(self)}
+        Perimeter:         {self.perimeter}
+        Coverage:          {self.coverage:3.5}
+        Solidity:          {self.solidity:3.5}
+        Num of holes:      {self.number_of_holes}
         """
         return dedent(msg)
 
@@ -1546,9 +1544,9 @@ class Horizon(BaseLabel):
         amplitudes = self.get_cube_values(window=1 + width*2, offset=width)
 
         amplitudes = amplitudes[:, :, (0, width, -1)]
-        amplitudes -= amplitudes.min(axis=(0, 1)).reshape(1, 1, -1)
-        amplitudes *= 1 / amplitudes.max(axis=(0, 1)).reshape(1, 1, -1)
-        amplitudes[self.full_matrix == self.FILL_VALUE, :] = 0
+        amplitudes -= np.nanmin(amplitudes, axis=(0, 1)).reshape(1, 1, -1)
+        amplitudes *= 1 / np.nanmax(amplitudes, axis=(0, 1)).reshape(1, 1, -1)
+        amplitudes[self.full_matrix == self.FILL_VALUE, :] = np.nan
         amplitudes = amplitudes[:, :, ::-1]
         amplitudes *= np.asarray([1, 0.5, 0.25]).reshape(1, 1, -1)
         plot_image(amplitudes, 'RGB amplitudes of {} on cube {}'.format(self.name, self.cube_name),

@@ -160,7 +160,7 @@ class lru_cache:
         def wrapper(*args, **kwargs):
             key = self.make_key(args, kwargs)
 
-            #
+            # If result is already in cache, just retrieve it and update its timings
             with self.lock:
                 result = self.cache.get(key, self.default)
                 if result is not self.default:
@@ -169,10 +169,10 @@ class lru_cache:
                     self.stats['hit'] += 1
                     return result
 
-            #
+            # The result was not found in cache: evaluate function
             result = func(*args, **kwargs)
 
-            #
+            # Add the result to cache
             with self.lock:
                 self.stats['miss'] += 1
                 if key in self.cache:

@@ -55,6 +55,8 @@ class BaseSeismicMetric(Metrics):
             If callable, then directly applied to the output of metric computation function.
             If str, then must be a function from `numpy` module. Applied along the last axis only.
             If int, then index of slice along the last axis to return.
+        plot, show_plot, savepath, backend, plot_kwargs
+            Parameters that are passed directly to plotting function, see :func:`.plot_image`.
         kwargs : dict
             Metric-specific parameters.
 
@@ -714,7 +716,7 @@ class GeometryMetrics(BaseSeismicMetric):
             trace_index_2 = s_2[idx]
 
             header = self.geometries[0].segyfile.header[trace_index_1]
-            keys = [header.get(field) for field in self.geometries[0].fields]
+            keys = [header.get(field) for field in self.geometries[0].byte_no]
             store_key = [self.geometries[0].uniques_inversed[i][item] for i, item in enumerate(keys)]
             store_key = tuple(store_key)
 
@@ -745,7 +747,7 @@ class GeometryMetrics(BaseSeismicMetric):
 
         for idx in pbar(range(len(self.geometries[0].dataframe))):
             header = self.geometries[0].segyfile.header[idx]
-            keys = [header.get(field) for field in self.geometries[0].fields]
+            keys = [header.get(field) for field in self.geometries[0].byte_no]
             store_key = [self.geometries[0].uniques_inversed[i][item] for i, item in enumerate(keys)]
             store_key = tuple(store_key)
 
