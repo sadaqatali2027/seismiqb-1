@@ -68,8 +68,7 @@ class SeismicCubeset(Dataset):
                                  drop_last=drop_last, bar=bar, bar_desc=bar_desc, iter_params=iter_params)
 
 
-
-    def load_geometries(self, collect_stats=True, spatial=True, logs=True, **kwargs):
+    def load_geometries(self, logs=True, **kwargs):
         """ Load geometries into dataset-attribute.
 
         Parameters
@@ -82,17 +81,16 @@ class SeismicCubeset(Dataset):
         SeismicCubeset
             Same instance with loaded geometries.
         """
-        _ = kwargs
         for ix in self.indices:
-            self.geometries[ix].process(collect_stats=collect_stats, spatial=spatial)
+            self.geometries[ix].process(**kwargs)
             if logs:
                 self.geometries[ix].log()
         return self
 
-    def convert_to_hdf5(self, postfix='', dtype=np.float32):
-        """ Converts every cube in dataset from `.sgy` to `.hdf5`. """
+    def convert_to_hdf5(self, postfix=''):
+        """ Converts every cube in dataset from `.segy` to `.hdf5`. """
         for ix in self.indices:
-            self.geometries[ix].make_hdf5(postfix=postfix, dtype=dtype)
+            self.geometries[ix].make_hdf5(postfix=postfix)
         return self
 
 
@@ -113,7 +111,6 @@ class SeismicCubeset(Dataset):
         """
         if not hasattr(self, dst):
             setattr(self, dst, IndexedDict({ix: dict() for ix in self.indices}))
-
 
         for ix in self.indices:
             if labels_class is None:
@@ -391,11 +388,6 @@ class SeismicCubeset(Dataset):
             Distance between grid points.
         batch_size : int
             Amount of returned points per generator call.
-
-        Returns
-        -------
-        SeismicCubeset
-            Same instance with grid generator and grid information in attributes.
         """
         geom = self.geometries[cube_name]
         strides = strides or crop_shape
@@ -547,7 +539,6 @@ class SeismicCubeset(Dataset):
                 i += 1
 
         return horizons
-
 
 
     def compare_to_labels(self, horizon, src_labels='labels', offset=0, absolute=True,

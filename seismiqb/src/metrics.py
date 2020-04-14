@@ -55,6 +55,8 @@ class BaseSeismicMetric(Metrics):
             If callable, then directly applied to the output of metric computation function.
             If str, then must be a function from `numpy` module. Applied along the last axis only.
             If int, then index of slice along the last axis to return.
+        plot, show_plot, savepath, backend, plot_kwargs
+            Parameters that are passed directly to plotting function, see :func:`.plot_image`.
         kwargs : dict
             Metric-specific parameters.
 
@@ -189,7 +191,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_btch(self, supports=10, safe_strip=0, **kwargs):
-        """ Compute Bhattacharyya distance between each trace and support traces """
+        """ Compute Bhattacharyya distance between each trace and support traces. """
         metric, title = compute_support_btch(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                              safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -222,7 +224,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_kl(self, supports=10, safe_strip=0, **kwargs):
-        """ Compute Kullback-Leibler divergence between each trace and support traces """
+        """ Compute Kullback-Leibler divergence between each trace and support traces. """
         metric, title = compute_support_kl(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                            safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -253,7 +255,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_js(self, supports=10, safe_strip=0, **kwargs):
-        """ Compute Jensen-Shannon distance between each trace and support traces """
+        """ Compute Jensen-Shannon distance between each trace and support traces. """
         metric, title = compute_support_js(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                            safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -282,9 +284,38 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_hellinger(self, supports=10, safe_strip=0, **kwargs):
-        """ Compute Hellinger distance between each trace and support traces """
+        """ Compute Hellinger distance between each trace and support traces. """
         metric, title = compute_support_hellinger(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                                   safe_strip=safe_strip, **kwargs)
+        plot_dict = {
+            'spatial': self.spatial,
+            'title': f'{title} for {self.name} on cube {self.cube_name}',
+            'cmap': 'seismic',
+            'zmin': None, 'zmax': None,
+            'ignore_value': np.nan,
+            # **kwargs
+        }
+        return metric, plot_dict
+
+
+    def local_tv(self, kernel_size=3, reduce_func='nanmean', **kwargs):
+        """ Compute total variation distance between each column in data and nearest traces. """
+        metric, title = compute_local_tv(data=self.probs, bad_traces=self.bad_traces,
+                                         kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
+        plot_dict = {
+            'spatial': self.spatial,
+            'title': f'{title} for {self.name} on cube {self.cube_name}, k={kernel_size}, reduce={reduce_func}',
+            'cmap': 'seismic',
+            'zmin': None, 'zmax': None,
+            'ignore_value': np.nan,
+            # **kwargs
+        }
+        return metric, plot_dict
+
+    def support_tv(self, supports=10, safe_strip=0, **kwargs):
+        """ Compute total variation distance between each trace and support traces. """
+        metric, title = compute_support_tv(data=self.probs, supports=supports, bad_traces=self.bad_traces,
+                                           safe_strip=safe_strip, **kwargs)
         plot_dict = {
             'spatial': self.spatial,
             'title': f'{title} for {self.name} on cube {self.cube_name}',
@@ -313,7 +344,7 @@ class BaseSeismicMetric(Metrics):
         return metric, plot_dict
 
     def support_wasserstein(self, supports=10, safe_strip=0, **kwargs):
-        """ Compute Wasserstein distance between each trace and support traces """
+        """ Compute Wasserstein distance between each trace and support traces. """
         metric, title = compute_support_wasserstein(data=self.probs, supports=supports, bad_traces=self.bad_traces,
                                                     safe_strip=safe_strip, **kwargs)
         plot_dict = {
@@ -395,14 +426,15 @@ class BaseSeismicMetric(Metrics):
         local_params = {**self.LOCAL_DEFAULTS, **local_params}
         support_params = {**self.SUPPORT_DEFAULTS, **support_params}
 
-        for metric_name in metric_names:
-            if metric_name.startswith('local'):
-                kwds = copy(local_params)
-            elif metric_name.startswith('supp'):
-                kwds = copy(support_params)
+        if metric_names:
+            for metric_name in metric_names:
+                if metric_name.startswith('local'):
+                    kwds = copy(local_params)
+                elif metric_name.startswith('supp'):
+                    kwds = copy(support_params)
 
-            metric = self.evaluate(metric_name, plot=False, **kwds)
-            computed_metrics.append(metric)
+                metric = self.evaluate(metric_name, plot=False, **kwds)
+                computed_metrics.append(metric)
 
         digitized_metrics = []
         for metric_matrix in computed_metrics:
@@ -473,6 +505,7 @@ class HorizonMetrics(BaseSeismicMetric):
         'local_js', 'support_js',
         'local_hellinger', 'support_hellinger',
         'local_wasserstein', 'support_wasserstein',
+        'local_tv', 'support_tv',
         'hilbert',
     ]
 
@@ -577,7 +610,7 @@ class HorizonMetrics(BaseSeismicMetric):
             Rate in 5ms:                         {oinfo['window_rate']:8.4}
             Mean/std of errors:       {oinfo['mean']:8.4} / {oinfo['std']:8.4}
             Mean/std of abs errors:   {oinfo['abs_mean']:8.4} / {oinfo['abs_std']:8.4}
-            Max error/abd error:      {oinfo['max']:8.4} / {oinfo['abs_max']:8}
+            Max error/abd error:      {oinfo['max']:8} / {oinfo['abs_max']:8}
             {'—'*45}
 
             Lengths of horizons:                 {len(self.horizon):8}
@@ -627,6 +660,7 @@ class GeometryMetrics(BaseSeismicMetric):
         'local_js', 'support_js',
         'local_hellinger', 'support_hellinger',
         'local_wasserstein', 'support_wasserstein',
+        'local_tv', 'support_tv',
     ]
 
 
@@ -673,7 +707,7 @@ class GeometryMetrics(BaseSeismicMetric):
         if len(self.geometries) != 2:
             raise ValueError()
         pbar = tqdm if pbar else lambda iterator, *args, **kwargs: iterator
-        metric = np.full((*self.geometry.uniques, l), np.nan)
+        metric = np.full((*self.geometry.ranges, l), np.nan)
 
         s_1 = self.geometries[0].dataframe['trace_index']
         s_2 = self.geometries[1].dataframe['trace_index']
@@ -682,12 +716,12 @@ class GeometryMetrics(BaseSeismicMetric):
             trace_index_2 = s_2[idx]
 
             header = self.geometries[0].segyfile.header[trace_index_1]
-            keys = [header.get(field) for field in self.geometries[0].fields]
-            store_key = [self.geometries[0].vals_inversed[i][item] for i, item in enumerate(keys)]
+            keys = [header.get(field) for field in self.geometries[0].byte_no]
+            store_key = [self.geometries[0].uniques_inversed[i][item] for i, item in enumerate(keys)]
             store_key = tuple(store_key)
 
-            trace_1 = self.geometries[0].load_trace_segy(trace_index_1)
-            trace_2 = self.geometries[1].load_trace_segy(trace_index_2)
+            trace_1 = self.geometries[0].load_trace(trace_index_1)
+            trace_2 = self.geometries[1].load_trace(trace_index_2)
 
             metric[store_key] = func(trace_1, trace_2, **kwargs)
 
@@ -709,16 +743,16 @@ class GeometryMetrics(BaseSeismicMetric):
         if len(self.geometries) != 2:
             raise ValueError()
         pbar = tqdm if pbar else lambda iterator, *args, **kwargs: iterator
-        metric = np.full((*self.geometry.uniques, l), np.nan)
+        metric = np.full((*self.geometry.ranges, l), np.nan)
 
         for idx in pbar(range(len(self.geometries[0].dataframe))):
             header = self.geometries[0].segyfile.header[idx]
-            keys = [header.get(field) for field in self.geometries[0].fields]
-            store_key = [self.geometries[0].vals_inversed[i][item] for i, item in enumerate(keys)]
+            keys = [header.get(field) for field in self.geometries[0].byte_no]
+            store_key = [self.geometries[0].uniques_inversed[i][item] for i, item in enumerate(keys)]
             store_key = tuple(store_key)
 
-            trace_1 = self.geometries[0].load_trace_segy(idx)
-            trace_2 = self.geometries[1].load_trace_segy(idx)
+            trace_1 = self.geometries[0].load_trace(idx)
+            trace_2 = self.geometries[1].load_trace(idx)
             metric[store_key] = func(trace_1, trace_2, **kwargs)
 
         title = f"tracewise unsafe {func}"
@@ -1195,6 +1229,44 @@ def _emd_array(array_1d, array_3d):
         for j in range(array_3d.shape[1]):
             temp[i, j] = _compute_local_wasserstein(array_1d, array_3d[i, j, :])
     return temp
+
+
+
+def compute_local_tv(data, bad_traces, kernel_size=3, reduce_func='nanmean', **kwargs):
+    """ Compute Bhattacharyya distance between each column in data and nearest traces. """
+    return compute_local_func(_compute_local_tv, 'Total variation',
+                              data=data, bad_traces=bad_traces,
+                              kernel_size=kernel_size, reduce_func=reduce_func, **kwargs)
+
+@njit
+def _compute_local_tv(array_1, array_2):
+    return 1 - 0.5*np.sum(np.abs(array_1 - array_2))
+
+
+def compute_support_tv(data, supports, bad_traces, safe_strip=0, **kwargs):
+    #pylint: disable=missing-function-docstring
+    return compute_support_func(function_ndarray=_compute_support_tv,
+                                function_str=None,
+                                name='Total variation',
+                                data=data, supports=supports, bad_traces=bad_traces,
+                                safe_strip=safe_strip, **kwargs)
+
+def _compute_support_tv(data, supports, bad_traces):
+    n_supports = len(supports)
+    i_range, x_range, depth = data.shape
+
+    support_traces = np.zeros((n_supports, depth))
+    for i in range(n_supports):
+        coord = supports[i]
+        support_traces[i, :] = data[coord[0], coord[1], :]
+
+    divs = np.zeros((i_range, x_range, n_supports))
+    for i in range(n_supports):
+        supports_ = support_traces[i]
+        temp = 1 - 0.5*np.sum(np.abs(supports_ - data), axis=-1)
+        temp[bad_traces == 1] = np.nan
+        divs[:, :, i] = temp
+    return divs
 
 
 
