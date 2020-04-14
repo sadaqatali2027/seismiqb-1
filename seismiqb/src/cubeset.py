@@ -12,7 +12,7 @@ from .crop_batch import SeismicCropBatch
 
 from .horizon import Horizon, UnstructuredHorizon
 from .metrics import HorizonMetrics
-from .utils import IndexedDict, round_to_array
+from .utils import IndexedDict, round_to_array, find_max_overlap2
 from .plot_utils import show_sampler, plot_slide, plot_image
 
 
@@ -750,81 +750,52 @@ class SeismicCubeset(Dataset):
         """ Unordered crop generation
         """
         horizon = getattr(self, labels_src)[cube_name][0]
-        
-        def find_max_overlap(point, horizon, stride, shape):
-            horizon_matrix = horizon.full_matrix
-            candidates, shapes = [], []
-            lines, intersections = [], []
-
-            eps = 0.2
-            hor_height = horizon_matrix[point[0], point[1]]
-            empty_space = horizon_matrix[point[0] - stride: point[0] - stride + shape[1], :] == horizon.FILL_VALUE
-            if len(empty_space) > int(stride * (1 - eps)):
-                if point[0] - stride > 0 and point[0] - stride + crop_shape[1] < horizon.geometry.ilines_len:
-                    candidates.append([point[0] - stride, point[1], hor_height - shape[2] // 2])
-                    intersections.append(shape[1] - len(empty_space))
-                    shapes.append([shape[1], shape[0], shape[2]])
-                    lines.append('iline')
-            empty_space = horizon_matrix[:, point[1] - stride: point[1] - stride + shape[1]] == horizon.FILL_VALUE
-            if len(empty_space) > int(stride * (1 - eps)):
-                if point[1] - stride > 0 and point[1] - stride + crop_shape[1] < horizon.geometry.xlines_len:
-                    candidates.append([point[0], point[1] - stride, hor_height - shape[2] // 2])
-                    intersections.append(shape[1] - len(empty_space))
-                    shapes.append([shape[0], shape[1], shape[2]])
-                    lines.append('xline')
-            if len(candidates) == 0:
-                return None
-            return candidates[np.argmax(np.array(intersections))],
-                   lines[np.argmax(np.array(intersections))],
-                   shapes[np.argmax(np.array(intersections))]
-
         border_points = np.array(list(zip(*np.where(horizon.boundaries_matrix == True))))
 
         border_points[:, 0] += horizon.i_min
         border_points[:, 1] += horizon.x_min
-        
-        iline_crops = []
-        xline_crops = []
+
+        crops = []
+        orders = []
+        shapes = []
+
+        hor_matrix = horizon.full_matrix
+        xlines_len = horizon.geometry.xlines_len
+        ilines_len = horizon.geometry.ilines_len
+        fill_value = horizon.FILL_VALUE
+
         for point in border_points:
-            new_point, line, shape = find_max_overlap(point, horizon, stride, crop_shape)
-            if line == 'iline':
-                iline_crops.append(new_point)
-                iline_shape = shape
-            else:
-                xline_crops.append(new_point)
-                xline_shape = shape
 
-        def set_direction_grid(crops, shape, name):
-            crops = np.asarray(crops).reshape(-1, 3)
-            cube_names = np.array([cube_name] * len(crops), dtype=np.object).reshape(-1, 1)
-            crops = np.concatenate([cube_names, crops], axis=1)
+            result = find_max_overlap2(point, hor_matrix,
+                                                        xlines_len, ilines_len,
+                                                        stride, crop_shape, fill_value)
+            if not result:
+                continue
+            new_point, shape, order = result
 
-            crops_gen = (crops[i:i+batch_size]
-                                    for i in range(0, len(crops), batch_size))
-            settatr(self, name + '_crops_gen', lambda: next(crops_gen))
-            settatr(self, name + '_crops_iters', - (-len(crops) // batch_size))
-            offsets = np.array([np.min(crops[:, 1]),
-                                np.min(crops[:, 2]),
-                                np.min(crops[:, 3])])
+            crops.append(new_point)
+            shapes.extend(shape)
+            orders.extend(order)
 
-            ilines_range = (np.min(crops[:, 1]), np.max(crops[:, 1]) + line_shape)
-            xlines_range = (np.min(crops[:, 2]), np.max(crops[:, 2]) + width)
-            h_range = (np.min(crops[:, 3]), np.max(crops[:, 3]) + height)
-            grid_array = crops[:, 1:].astype(int) - offsets
+        crops = np.asarray(crops).reshape(-1, 3)
+        cube_names = np.array([cube_name] * len(crops), dtype=np.object).reshape(-1, 1)
+        crops = np.concatenate([cube_names, crops], axis=1)
 
-            predict_shape = (ilines_range[1] - ilines_range[0],
-                                xlines_range[1] - xlines_range[0],
-                                h_range[1] - h_range[0])
+        crops_gen = (crops[i:i+batch_size]
+                                for i in range(0, len(crops), batch_size))
+        shapes = np.array(shapes)
+        shapes_gen = (shapes[i:i+batch_size]
+                                for i in range(0, len(shapes), batch_size))
+        orders_gen = (orders[i:i+batch_size]
+                                for i in range(0, len(orders), batch_size))
 
-            crops_info = {'grid_array': grid_array,
-                            'predict_shape': predict_shape,
-                            'range': [ilines_range, xlines_range, h_range],
-                            'crop_shape': shape,
-                            'cube_name': cube_name,
-                            'geom': self.geometries[cube_name]}
-            setattr(self, name + '_crops_info', crops_info)
-            return crops_gen, crops_iters, crops_info
+        setattr(self, 'crops_gen', lambda: next(crops_gen))
+        setattr(self, 'shapes_gen', lambda: next(shapes_gen))
+        setattr(self, 'orders_gen', lambda: next(orders_gen))
 
-        set_direction_grid(iline_crops, iline_shape, 'iline')
-        set_direction_grid(xline_crops, xline_shape, 'xline')
+
+        setattr(self, 'crops_iters', - (-len(crops) // batch_size))
+        crops_info = {'cube_name': cube_name,
+                      'geom': self.geometries[cube_name]}
+        setattr(self, 'crops_info', crops_info)
         return self

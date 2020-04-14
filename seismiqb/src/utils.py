@@ -600,3 +600,44 @@ def _compute_running_mean_jit(x, kernel_size, cumsum):
             c = cumsum[i + 1 + k, j - k]
             result[i - k, j - k] = float(d - b - c + a) /  float(kernel_size ** 2)
     return result
+
+@njit
+def find_max_overlap2(point, horizon_matrix, xlines_len, ilines_len,
+                        stride, shape, fill_value):
+    candidates, shapes = [], []
+    orders, intersections = [], []
+
+    hor_height = int(horizon_matrix[point[0], point[1]])
+
+    ils = [point[0] - stride, point[0] - shape[1] + stride]
+    for il in ils:
+        if il > 0 and il + shape[1] < ilines_len:
+            candidates.append([il, point[1], hor_height - shape[2] // 2])
+            shapes.append([shape[1], shape[0], shape[2]])
+            orders.append([0, 2, 1])
+            empty_space = np.nonzero(horizon_matrix[il: il + shape[1],
+                            point[1]:point[1] + shape[0]] == fill_value)
+            intersections.append(shape[1] - len(empty_space[0]))
+
+    xls = [point[1] - stride, point[1] - shape[1] + stride]
+    for xl in xls:
+        if xl > 0 and xl + shape[1] < xlines_len:
+            candidates.append([point[0], xl, hor_height - shape[2] // 2])
+            shapes.append(shape)
+            orders.append([2, 0, 1])
+            empty_space = np.nonzero(horizon_matrix[point[0]:point[0] + shape[0],
+                                                    xl: xl + shape[1]] == fill_value)
+            intersections.append(shape[1] - len(empty_space[0]))
+
+    if len(candidates) == 0:
+        return None
+
+    candidates_array = np.array(candidates)
+    shapes_array = np.array(shapes)
+    orders_array = np.array(orders)
+    top2 = np.argsort(np.array(intersections))[:2]
+
+    return (candidates_array[top2], \
+                shapes_array[top2], \
+                orders_array[top2]
+                )
