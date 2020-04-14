@@ -1560,7 +1560,7 @@ class Horizon(BaseLabel):
         if to_uint8:
             amplitudes = (amplitudes * 255).astype(np.uint8)
 
-        plot_image(amplitudes, 'RGB amplitudes of {} on cube {}'.format(self.name, self.cube_name),
+        plot_image(amplitudes, title='RGB amplitudes of {} on cube {}'.format(self.name, self.cube_name),
                    mode='rgb', **kwargs)
 
 

@@ -363,7 +363,7 @@ class SeismicGeometry:
             data = self.scaler(data, mode=scaler)
 
         title = f'Amplitude distribution for {self.short_name}\nMean/std: {np.mean(data):3.3}/{np.std(data):3.3}'
-        plot_image(data, backend='matplotlib', mode='histogram', title=title, **kwargs)
+        plot_image(data, backend='matplotlib', bins=bins, mode='histogram', title=title, **kwargs)
 
 class SeismicGeometrySEGY(SeismicGeometry):
     """ Class to infer information about SEG-Y cubes and provide convenient methods of working with them.

@@ -14,13 +14,13 @@ def channelize_image(image, total_channels, n_channel=0, greyscale=False, opacit
     if image.ndim == 3:
         if image.shape[-1] == total_channels:
             return image
-        else:
-            background = np.zeros((*image.shape[:-1], total_channels))
-            background[:, :, :image.shape[-1]] = image
 
-            if opacity is not None:
-                background[:, :, -1] = opacity
-            return background
+        background = np.zeros((*image.shape[:-1], total_channels))
+        background[:, :, :image.shape[-1]] = image
+
+        if opacity is not None:
+            background[:, :, -1] = opacity
+        return background
 
     # case of non-channelized image
     background = np.zeros((*image.shape, total_channels))
@@ -39,6 +39,8 @@ def channelize_image(image, total_channels, n_channel=0, greyscale=False, opacit
 
 
 def filter_kwargs(kwargs, keys):
+    """ Filter the dict of kwargs leaving only supplied keys.
+    """
     kwargs_ = {}
     for key in keys:
         if key in kwargs:
@@ -84,7 +86,7 @@ class PlotlyPlotter:
         defaults = {'xaxis': {'title_text': 'xlines', 'titlefont': {'size': 30}},
                     'yaxis': {'title_text': 'height', 'titlefont': {'size': 30}, 'autorange': 'reversed'},
                     'reversescale': True,
-                    'colorscale': 'viridis' ,
+                    'colorscale': 'viridis',
                     'coloraxis_colorbar': {'title': 'amplitude'},
                     'opacity' : 1.0,
                     'title': 'Depth map',
@@ -295,7 +297,7 @@ class MatplotlibPlotter:
 
         # channelize and plot the image
         plt.figure(figsize=updated['figsize'])
-        _= plt.imshow(image.T, **render_kwargs)
+        _ = plt.imshow(image.T, **render_kwargs)
 
         # add titles and labels
         plt.title(y=1.1, **label_kwargs)
@@ -355,7 +357,8 @@ class MatplotlibPlotter:
         ax.set_ylabel(**yaxis_kwargs)
 
         for img, n_channel in zip(image[1:], (0, 1, 2)):
-            ax.imshow(channelize_image(img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity']), **render_kwargs)
+            ax.imshow(channelize_image(img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity']),
+                                       **render_kwargs)
         fig.suptitle(y=1.1, **label_kwargs)
         plt.show()
 
@@ -400,7 +403,7 @@ class MatplotlibPlotter:
         # channelize and plot the image
         image = channelize_image(image, total_channels=3)
         plt.figure(figsize=updated['figsize'])
-        _= plt.imshow(np.swapaxes(image, 0, 1), **render_kwargs)
+        _ = plt.imshow(np.swapaxes(image, 0, 1), **render_kwargs)
 
         # add titles and labels
         plt.title(y=1.1, **label_kwargs)
