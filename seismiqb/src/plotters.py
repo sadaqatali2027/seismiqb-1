@@ -38,7 +38,6 @@ def channelize_image(image, total_channels, n_channel=0, greyscale=False, opacit
     return background
 
 
-
 def filter_kwargs(kwargs, keys):
     kwargs_ = {}
     for key in keys:
