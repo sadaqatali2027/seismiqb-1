@@ -76,10 +76,14 @@ class PlotlyPlotter:
                 the lowest brightness-level to be rendered.
             zmax : float
                 the highest brightness-level to be rendered.
+            opacity : float
+                transparency-level of the rendered image
             xaxis : dict
                 controls the properties of xaxis-labels; uses plotly-format.
             yaxis : dict
                 controls the properties of yaxis-labels; uses plotly-format.
+            slice : tuple
+                sequence of slice-objects for slicing the image to a lesser one.
             other
         """
         # update defaults to make total dict of kwargs
@@ -90,13 +94,15 @@ class PlotlyPlotter:
                     'coloraxis_colorbar': {'title': 'amplitude'},
                     'opacity' : 1.0,
                     'title': 'Depth map',
-                    'max_size' : 600}
+                    'max_size' : 600,
+                    'slice': (slice(None, None), slice(None, None))}
         for_update = filter_kwargs(kwargs, list(defaults.keys()) + ['opacity', 'zmin', 'zmax', 'showscale']) # TODO: more args to add in here
         updated = {**defaults, **for_update}
 
         # form different groups of kwargs
         render_kwargs = filter_kwargs(updated, ['reversescale', 'colorscale', 'opacity', 'showscale'])
         label_kwargs = filter_kwargs(updated, ['xaxis', 'yaxis', 'coloraxis_colorbar', 'title'])
+        slc = updated['slice']
 
         # calculate canvas sizes
         width, height = image.shape[1], image.shape[0]
@@ -105,7 +111,7 @@ class PlotlyPlotter:
         height = coeff * height
 
         # plot the image and set titles
-        plot_data = go.Heatmap(z=image.T, **render_kwargs) # note the usage of Heatmap here
+        plot_data = go.Heatmap(z=image.T[slc], **render_kwargs) # note the usage of Heatmap here
         fig = go.Figure(data=plot_data)
         fig.update_layout(width=width, height=height, **label_kwargs)
         fig.show()
@@ -130,6 +136,8 @@ class PlotlyPlotter:
                 controls the properties of xaxis-labels; uses plotly-format.
             yaxis : dict
                 controls the properties of yaxis-labels; uses plotly-format.
+            slice : tuple
+                sequence of slice-objects for slicing the image to a lesser one.
             other
         """
         # update defaults to make total dict of kwargs
@@ -138,13 +146,15 @@ class PlotlyPlotter:
                     'coloraxis_colorbar': {'title': 'amplitude'},
                     'opacity' : 1.0,
                     'title': 'Seismic inline',
-                    'max_size' : 600}
+                    'max_size' : 600,
+                    'slice': (slice(None, None), slice(None, None))}
         for_update = filter_kwargs(kwargs, list(defaults.keys()) + ['opacity', 'zmin', 'zmax']) # TODO: more args to add in here
         updated = {**defaults, **for_update}
 
         # form different groups of kwargs
         render_kwargs = filter_kwargs(updated, ['zmin', 'zmax'])
         label_kwargs = filter_kwargs(updated, ['xaxis', 'yaxis', 'coloraxis_colorbar', 'title'])
+        slc = updated['slice']
 
         # calculate canvas sizes
         width, height = image[0].shape[1], image[0].shape[0]
@@ -156,7 +166,7 @@ class PlotlyPlotter:
         combined = channelize_image(255 * image[0].T, total_channels=4, greyscale=True)
         for img, n_channel in zip(image[1:], (0, 1, 2)):
             combined += channelize_image(255 * img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity'])
-        plot_data = go.Image(z=combined, **render_kwargs) # plot manually combined image
+        plot_data = go.Image(z=combined[slc], **render_kwargs) # plot manually combined image
 
         # plot the figure
         fig = go.Figure(data=plot_data)
@@ -179,6 +189,8 @@ class PlotlyPlotter:
                 controls the properties of xaxis-labels; uses plotly-format.
             yaxis : dict
                 controls the properties of yaxis-labels; uses plotly-format.
+            slice : tuple
+                sequence of slice-objects for slicing the image to a lesser one.
             other
         """
         # update defaults to make total dict of kwargs
@@ -186,12 +198,14 @@ class PlotlyPlotter:
                     'yaxis': {'title_text': 'height', 'titlefont': {'size': 30}, 'autorange': 'reversed'},
                     'coloraxis_colorbar': {'title': 'depth'},
                     'title': 'RGB amplitudes',
-                    'max_size' : 600}
+                    'max_size' : 600,
+                    'slice': (slice(None, None), slice(None, None))}
         updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()))} # TODO: more args to add in here
 
         # form different groups of kwargs
         render_kwargs = filter_kwargs(updated, [])
         label_kwargs = filter_kwargs(updated, ['xaxis', 'yaxis', 'coloraxis_colorbar', 'title'])
+        slc = updated['slice']
 
         # calculate canvas sizes
         width, height = image.shape[1], image.shape[0]
@@ -200,7 +214,7 @@ class PlotlyPlotter:
         height = coeff * height
 
         # plot the image and set titles
-        plot_data = go.Image(z=image.T, **render_kwargs)
+        plot_data = go.Image(z=image.T[slc], **render_kwargs)
         fig = go.Figure(data=plot_data)
         fig.update_layout(width=width, height=height, **label_kwargs)
         fig.show()
@@ -222,6 +236,8 @@ class PlotlyPlotter:
                 controls the properties of xaxis-labels; uses plotly-format.
             yaxis : dict
                 controls the properties of yaxis-labels; uses plotly-format.
+            slice : tuple
+                sequence of slice-objects for slicing the image to a lesser one.
             other
         """
         # defaults
@@ -238,12 +254,13 @@ class PlotlyPlotter:
         label_kwargs = filter_kwargs(updated, ['title'])
         xaxis_kwargs = filter_kwargs(updated, ['xaxis'])
         yaxis_kwargs = filter_kwargs(updated, ['yaxis'])
+        slc = updated['slice']
 
         # make sure that the images are greyscale and put them each on separate canvas
         fig = make_subplots(rows=grid[0], cols=grid[1])
         for i in range(grid[1]):
             img = channelize_image(255 * image[i].T, total_channels=4, greyscale=True, opacity=1)
-            fig.add_trace(go.Image(z=img, **render_kwargs), row=1, col=i + 1)
+            fig.add_trace(go.Image(z=img[slc], **render_kwargs), row=1, col=i + 1)
             fig.update_xaxes(row=1, col=i + 1, **xaxis_kwargs['xaxis'])
             fig.update_yaxes(row=1, col=i + 1, **yaxis_kwargs['yaxis'])
         fig.update_layout(**label_kwargs)
@@ -265,12 +282,18 @@ class MatplotlibPlotter:
                 tuple of two ints containing the size of the rendered image.
             label : str
                 title of rendered image.
+            vmin : float
+                the lowest brightness-level to be rendered.
+            vmax : float
+                the highest brightness-level to be rendered.
             cmap : str
                 colormap of rendered image.
             xlabel : str
                 xaxis-label.
             ylabel : str
                 yaxis-label.
+            alpha : float
+                transparency-level of the rendered image
             other
         """
         # update defaults
@@ -288,7 +311,7 @@ class MatplotlibPlotter:
         updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()) + ['family', 'color'])} # TODO: more args to add in here
 
         # form different groups of kwargs
-        render_kwargs = filter_kwargs(updated, ['cmap'])
+        render_kwargs = filter_kwargs(updated, ['cmap', 'vmin', 'vmax', 'alpha'])
         label_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
         xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
         yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
@@ -320,8 +343,10 @@ class MatplotlibPlotter:
         kwargs : dict
             figsize : tuple
                 tuple of two ints containing the size of the rendered image.
-            t : str
+            label : str
                 title of rendered image.
+            y : float
+                height of the title
             cmap : str
                 colormap to render the first image in.
             vmin : float
@@ -335,7 +360,8 @@ class MatplotlibPlotter:
             other
         """
         defaults = {'figsize': (12, 7),
-                    't': 'Seismic inline',
+                    'label': 'Seismic inline',
+                    'y' : 1.1,
                     'xlabel': 'xlines',
                     'ylabel': 'ilines',
                     'cmap': 'gray',
@@ -346,7 +372,7 @@ class MatplotlibPlotter:
 
         # form different groups of kwargs
         render_kwargs = filter_kwargs(updated, ['cmap', 'vmin', 'vmax'])
-        label_kwargs = filter_kwargs(updated, ['t', 'fontsize', 'family', 'color'])
+        label_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color', 'y'])
         xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
         yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
 
@@ -359,7 +385,7 @@ class MatplotlibPlotter:
         for img, n_channel in zip(image[1:], (0, 1, 2)):
             ax.imshow(channelize_image(img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity']),
                                        **render_kwargs)
-        fig.suptitle(y=1.1, **label_kwargs)
+        plt.title(**label_kwargs)
         plt.show()
 
 
@@ -424,7 +450,9 @@ class MatplotlibPlotter:
             figsize : tuple
                 tuple of two ints containing the size of the rendered image.
             t : str
-                title of rendered image.
+                overal title of rendered image.
+            label : list or tuple
+                sequence of titles for each image.
             cmap : str
                 colormap to render the first image in.
             xlabel : str
@@ -448,6 +476,7 @@ class MatplotlibPlotter:
         label_kwargs = filter_kwargs(updated, ['t', 'fontsize', 'family', 'color'])
         xaxis_kwargs = filter_kwargs(updated, ['xlabel', 'fontsize', 'family', 'color'])
         yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
+        titles_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
 
         grid = (1, len(image))
         fig, ax = plt.subplots(*grid, figsize=updated['figsize'])
@@ -460,6 +489,7 @@ class MatplotlibPlotter:
                                                   # if so, param for colorscheme is to be added
             ax[i].set_xlabel(**xaxis_kwargs)
             ax[i].set_ylabel(**yaxis_kwargs)
+            ax[i].set_title(**dict(titles_kwargs, **{'label': titles_kwargs['label'][i]}))
 
         fig.suptitle(y=1.1, **label_kwargs)
         plt.show()
