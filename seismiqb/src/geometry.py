@@ -350,11 +350,8 @@ class SeismicGeometry:
 
         title = f'{self.index_headers[axis]} {loc} out of {self.lens[axis]}'
         meta_title = ''
-        plot_image(slide, mode='single', title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
-                                                                                                 # for now, order_azes will be ignored
-                                                                                                 # same thing for meta_title
-                                                                                                 # anyways, the usage of meta_title is strange thing
-                                                                                                 # afterall, this is single-plot mode
+        plot_image(slide, mode='single', title=title, order_axes=order_axes, **kwargs)           # for now, order_axes will be ignored
+
 
     def show_amplitude_hist(self, scaler=None, bins=50, **kwargs):
         """ Show distribution of amplitudes in `trace_container`. Optionally applies chosen `scaler`. """
@@ -364,6 +361,7 @@ class SeismicGeometry:
 
         title = f'Amplitude distribution for {self.short_name}\nMean/std: {np.mean(data):3.3}/{np.std(data):3.3}'
         plot_image(data, backend='matplotlib', bins=bins, mode='histogram', title=title, **kwargs)
+
 
 class SeismicGeometrySEGY(SeismicGeometry):
     """ Class to infer information about SEG-Y cubes and provide convenient methods of working with them.

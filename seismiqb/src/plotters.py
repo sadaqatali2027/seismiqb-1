@@ -116,14 +116,14 @@ class PlotlyPlotter:
         fig.update_layout(width=width, height=height, **label_kwargs)
         fig.show()
 
-    def plot_overlap(self, image, **kwargs):
+    def plot_overlap(self, images, **kwargs):
         """ Plot several images on one canvas using plotly: render the first one in greyscale
         and the rest ones in opaque 'rgb' channels, one channel for each image.
         Supports up to four images in total.
 
         Parameters
         ----------
-        image : list/tuple
+        images : list/tuple
             sequence of 2d-arrays for plotting. Can store up to four images.
         kwargs : dict
             max_size : int
@@ -157,14 +157,14 @@ class PlotlyPlotter:
         slc = updated['slice']
 
         # calculate canvas sizes
-        width, height = image[0].shape[1], image[0].shape[0]
+        width, height = images[0].shape[1], images[0].shape[0]
         coeff = updated['max_size'] / max(width, height)
         width = coeff * width
         height = coeff * height
 
         # manually combine first image in greyscale and the rest ones colored differently
-        combined = channelize_image(255 * image[0].T, total_channels=4, greyscale=True)
-        for img, n_channel in zip(image[1:], (0, 1, 2)):
+        combined = channelize_image(255 * images[0].T, total_channels=4, greyscale=True)
+        for img, n_channel in zip(images[1:], (0, 1, 2)):
             combined += channelize_image(255 * img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity'])
         plot_data = go.Image(z=combined[slc], **render_kwargs) # plot manually combined image
 
@@ -219,13 +219,13 @@ class PlotlyPlotter:
         fig.update_layout(width=width, height=height, **label_kwargs)
         fig.show()
 
-    def plot_separate(self, image, **kwargs):
+    def plot_separate(self, images, **kwargs):
         """ Plot several images on a row of canvases using plotly.
         TODO: add grid support.
 
         Parameters
         ----------
-        image : list/tuple
+        images : list/tuple
             sequence of 2d-arrays for plotting.
         kwargs : dict
             max_size : int
@@ -246,7 +246,7 @@ class PlotlyPlotter:
                     'coloraxis_colorbar': {'title': 'depth'},
                     'title': 'Seismic inline',
                     'max_size' : 600}
-        grid = (1, len(image))
+        grid = (1, len(images))
         updated = {**defaults, **filter_kwargs(kwargs, list(defaults.keys()))} # TODO: more args to add in here
 
         # form different groups of kwargs
@@ -259,7 +259,7 @@ class PlotlyPlotter:
         # make sure that the images are greyscale and put them each on separate canvas
         fig = make_subplots(rows=grid[0], cols=grid[1])
         for i in range(grid[1]):
-            img = channelize_image(255 * image[i].T, total_channels=4, greyscale=True, opacity=1)
+            img = channelize_image(255 * images[i].T, total_channels=4, greyscale=True, opacity=1)
             fig.add_trace(go.Image(z=img[slc], **render_kwargs), row=1, col=i + 1)
             fig.update_xaxes(row=1, col=i + 1, **xaxis_kwargs['xaxis'])
             fig.update_yaxes(row=1, col=i + 1, **yaxis_kwargs['yaxis'])
@@ -331,14 +331,14 @@ class MatplotlibPlotter:
         plt.tick_params(**tick_params)
         plt.show()
 
-    def plot_overlap(self, image, **kwargs):
+    def plot_overlap(self, images, **kwargs):
         """ Plot several images on one canvas using matplotlib: render the first one in greyscale
         and the rest ones in 'rgb' channels, one channel for each image.
         Supports up to four images in total.
 
         Parameters
         ----------
-        image : tuple or list
+        images : tuple or list
             sequence of 2d-arrays for plotting. Supports up to 4 images.
         kwargs : dict
             figsize : tuple
@@ -378,11 +378,11 @@ class MatplotlibPlotter:
 
         # channelize images and put them on a canvas
         fig, ax = plt.subplots(figsize=updated['figsize'])
-        ax.imshow(image[0].T, **render_kwargs) # note transposition in here
+        ax.imshow(images[0].T, **render_kwargs) # note transposition in here
         ax.set_xlabel(**xaxis_kwargs)
         ax.set_ylabel(**yaxis_kwargs)
 
-        for img, n_channel in zip(image[1:], (0, 1, 2)):
+        for img, n_channel in zip(images[1:], (0, 1, 2)):
             ax.imshow(channelize_image(img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity']),
                                        **render_kwargs)
         plt.title(**label_kwargs)
@@ -438,13 +438,13 @@ class MatplotlibPlotter:
         plt.tick_params(**tick_params)
         plt.show()
 
-    def plot_separate(self, image, **kwargs):
+    def plot_separate(self, images, **kwargs):
         """ Plot several images on a row of canvases using matplotlib.
         TODO: add grid support.
 
         Parameters
         ----------
-        image : tuple or list
+        images : tuple or list
             sequence of 2d-arrays for plotting. Supports up to 4 images.
         kwargs : dict
             figsize : tuple
@@ -462,7 +462,7 @@ class MatplotlibPlotter:
             other
         """
         # embedded params
-        defaults = {'figsize': (6 * len(image), 15),
+        defaults = {'figsize': (6 * len(images), 15),
                     't': 'Seismic inline',
                     'xlabel': 'xlines',
                     'ylabel': 'ilines',
@@ -478,13 +478,13 @@ class MatplotlibPlotter:
         yaxis_kwargs = filter_kwargs(updated, ['ylabel', 'fontsize', 'family', 'color'])
         titles_kwargs = filter_kwargs(updated, ['label', 'fontsize', 'family', 'color'])
 
-        grid = (1, len(image))
+        grid = (1, len(images))
         fig, ax = plt.subplots(*grid, figsize=updated['figsize'])
 
         # plot image
-        ax[0].imshow(image[0].T, **render_kwargs)
-        for i in range(1, len(image)):
-            ax[i].imshow(image[i].T, **render_kwargs) # grey colorschemes are embedded here
+        ax[0].imshow(images[0].T, **render_kwargs)
+        for i in range(1, len(images)):
+            ax[i].imshow(images[i].T, **render_kwargs) # grey colorschemes are embedded here
                                                   # might be more beautiful if red-color is in here
                                                   # if so, param for colorscheme is to be added
             ax[i].set_xlabel(**xaxis_kwargs)
