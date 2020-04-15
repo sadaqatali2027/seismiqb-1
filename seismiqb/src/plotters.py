@@ -214,7 +214,7 @@ class PlotlyPlotter:
         height = coeff * height
 
         # plot the image and set titles
-        plot_data = go.Image(z=image.T[slc], **render_kwargs)
+        plot_data = go.Image(z=np.swapaxes(image, 0, 1)[slc], **render_kwargs)
         fig = go.Figure(data=plot_data)
         fig.update_layout(width=width, height=height, **label_kwargs)
         fig.show()
