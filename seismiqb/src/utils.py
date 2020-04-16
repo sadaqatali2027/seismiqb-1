@@ -646,8 +646,8 @@ class file_cache:
         return wrapper
 
 @njit
-def find_max_overlap2(point, horizon_matrix, xlines_len, ilines_len,
-                        stride, shape, fill_value):
+def find_max_overlap(point, horizon_matrix, coverage, xlines_len, ilines_len,
+                        stride, shape, fill_value, min_empty=5, border_gap=0):
     candidates, shapes = [], []
     orders, intersections = [], []
 
@@ -655,23 +655,27 @@ def find_max_overlap2(point, horizon_matrix, xlines_len, ilines_len,
 
     ils = [point[0] - stride, point[0] - shape[1] + stride]
     for il in ils:
-        if il > 0 and il + shape[1] < ilines_len:
-            candidates.append([il, point[1], hor_height - shape[2] // 2])
-            shapes.append([shape[1], shape[0], shape[2]])
-            orders.append([0, 2, 1])
-            empty_space = np.nonzero(horizon_matrix[il: il + shape[1],
+        if il > border_gap and il + shape[1] < ilines_len - border_gap:
+            empty_space = np.nonzero(coverage[il: il + shape[1],
                             point[1]:point[1] + shape[0]] == fill_value)
-            intersections.append(shape[1] - len(empty_space[0]))
+            if len(empty_space[0]) > min_empty:
+                candidates.append([il, point[1], hor_height - shape[2] // 2])
+                shapes.append([shape[1], shape[0], shape[2]])
+                orders.append([0, 2, 1])
+                intersections.append(shape[1] - len(empty_space[0]))
+                coverage[il: il + shape[1], point[1]:point[1] + shape[0]] = 0
 
     xls = [point[1] - stride, point[1] - shape[1] + stride]
     for xl in xls:
-        if xl > 0 and xl + shape[1] < xlines_len:
-            candidates.append([point[0], xl, hor_height - shape[2] // 2])
-            shapes.append(shape)
-            orders.append([2, 0, 1])
-            empty_space = np.nonzero(horizon_matrix[point[0]:point[0] + shape[0],
+        if xl > border_gap and xl + shape[1] < xlines_len - border_gap:
+            empty_space = np.nonzero(coverage[point[0]:point[0] + shape[0],
                                                     xl: xl + shape[1]] == fill_value)
-            intersections.append(shape[1] - len(empty_space[0]))
+            if len(empty_space[0]) > min_empty:
+                candidates.append([point[0], xl, hor_height - shape[2] // 2])
+                shapes.append(shape)
+                orders.append([2, 0, 1])
+                intersections.append(shape[1] - len(empty_space[0]))
+                coverage[point[0]:point[0] + shape[0], xl: xl + shape[1]] = 0
 
     if len(candidates) == 0:
         return None
@@ -680,7 +684,6 @@ def find_max_overlap2(point, horizon_matrix, xlines_len, ilines_len,
     shapes_array = np.array(shapes)
     orders_array = np.array(orders)
     top2 = np.argsort(np.array(intersections))[:2]
-
     return (candidates_array[top2], \
                 shapes_array[top2], \
                 orders_array[top2]

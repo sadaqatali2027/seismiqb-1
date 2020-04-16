@@ -12,7 +12,7 @@ from .crop_batch import SeismicCropBatch
 
 from .horizon import Horizon, UnstructuredHorizon
 from .metrics import HorizonMetrics
-from .utils import IndexedDict, round_to_array, find_max_overlap2
+from .utils import IndexedDict, round_to_array, find_max_overlap
 from .plot_utils import show_sampler, plot_slide, plot_image
 
 
@@ -718,6 +718,7 @@ class SeismicCubeset(Dataset):
         mask : array
             optional if coords is not provided binary mask of the subset.
         """
+
         FILL_VALUE = -999999
         src_horizon = getattr(self, src)[self.indices[idx]][horizon_idx]
         src_matrix = src_horizon.matrix
@@ -737,7 +738,8 @@ class SeismicCubeset(Dataset):
         getattr(self, dst)[self.indices[0]] = [subset_horizon]
         return self
 
-    def make_expand_grid_v2(self, cube_name, crop_shape, labels_src='predicted_labels', stride=10, batch_size=16):
+    def make_expand_grid_v2(self, cube_name, crop_shape, labels_src='predicted_labels',
+                            stride=10, batch_size=16, **kwargs):
         """ Unordered crop generation
         """
         horizon = getattr(self, labels_src)[cube_name][0]
@@ -754,21 +756,20 @@ class SeismicCubeset(Dataset):
         xlines_len = horizon.geometry.xlines_len
         ilines_len = horizon.geometry.ilines_len
         fill_value = horizon.FILL_VALUE
-
+        coverage = np.copy(hor_matrix)
         for point in border_points:
 
-            result = find_max_overlap2(point, hor_matrix,
-                                                        xlines_len, ilines_len,
-                                                        stride, crop_shape, fill_value)
+            result = find_max_overlap(point, hor_matrix, coverage,
+                                      xlines_len, ilines_len,
+                                      stride, crop_shape, fill_value, **kwargs)
             if not result:
                 continue
             new_point, shape, order = result
-
-            crops.append(new_point)
+            crops.extend(new_point)
             shapes.extend(shape)
             orders.extend(order)
 
-        crops = np.asarray(crops).reshape(-1, 3)
+        crops = np.array(crops, dtype=np.object).reshape(-1, 3)
         cube_names = np.array([cube_name] * len(crops), dtype=np.object).reshape(-1, 1)
         crops = np.concatenate([cube_names, crops], axis=1)
 
@@ -783,7 +784,6 @@ class SeismicCubeset(Dataset):
         setattr(self, 'crops_gen', lambda: next(crops_gen))
         setattr(self, 'shapes_gen', lambda: next(shapes_gen))
         setattr(self, 'orders_gen', lambda: next(orders_gen))
-
 
         setattr(self, 'crops_iters', - (-len(crops) // batch_size))
         crops_info = {'cube_name': cube_name,
