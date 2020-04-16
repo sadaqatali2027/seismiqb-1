@@ -756,10 +756,9 @@ class SeismicCubeset(Dataset):
         xlines_len = horizon.geometry.xlines_len
         ilines_len = horizon.geometry.ilines_len
         fill_value = horizon.FILL_VALUE
-        coverage = np.copy(hor_matrix)
         for point in border_points:
 
-            result = find_max_overlap(point, hor_matrix, coverage,
+            result = find_max_overlap(point, hor_matrix,
                                       xlines_len, ilines_len,
                                       stride, crop_shape, fill_value, **kwargs)
             if not result:
