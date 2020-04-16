@@ -51,16 +51,60 @@ def plot_image(image, mode, backend, **kwargs):
     """ Overall plotter function, redirecting plotting task to one of the methods of backend-classes.
     """
     if backend in ('matplotlib', 'plt'):
-        getattr(MatplotlibPlotter(), 'plot_' + mode)(image, **kwargs)
+        getattr(MatplotlibPlotter(), mode)(image, **kwargs)
     elif backend in ('plotly', 'go'):
-        getattr(PlotlyPlotter(), 'plot_' + mode)(image, **kwargs)
+        getattr(PlotlyPlotter(), mode)(image, **kwargs)
     else:
         raise ValueError('{} backend is not supported!'.format(backend))
 
+def matplotlib_dec(cls):
+    """ Decorator adding savefigure-capabilities into MatplotlibPlotter.
+    """
+    names=['rgb', 'overlap', 'single', 'separate', 'histogram']
+    # update each method
+    for name in names:
+        old_ = getattr(cls, name)
+        def updated(self, old_=old_, **kwargs):
+            # pop savefig-kwarg
+            save = kwargs.pop('save')
+            plt_ = old_(self, **kwargs)
+            # save if necessary and render
+            if save is not None:
+                plt_.savefig(**save)
+            plt_.show()
+
+        # change the class-method
+        setattr(cls, name, updated)
+
+    return cls
+
+def plotly_dec(cls):
+    """ Decorator adding savefigure-capabilities into PlotlyPlotter.
+    """
+    names=['rgb', 'overlap', 'single', 'separate']
+
+    # update each method
+    for name in names:
+        old_ = getattr(cls, name)
+        def updated(self, old_=old_, **kwargs):
+            # pop savefig-kwarg
+            save = kwargs.pop('save')
+            fig = old_(self, **kwargs)
+            # save if necessary and render
+            if save is not None:
+                fig.write_image(**save)
+            fig.show()
+
+        # change the class-method
+        setattr(cls, name, updated)
+
+    return cls
+
+@plotly_dec
 class PlotlyPlotter:
     """ Plotting backend for plotly.
     """
-    def plot_single(self, image, **kwargs):
+    def single(self, image, **kwargs):
         """ Plot single image/heatmap using plotly.
 
         Parameters
@@ -114,9 +158,10 @@ class PlotlyPlotter:
         plot_data = go.Heatmap(z=image.T[slc], **render_kwargs) # note the usage of Heatmap here
         fig = go.Figure(data=plot_data)
         fig.update_layout(width=width, height=height, **label_kwargs)
-        fig.show()
 
-    def plot_overlap(self, images, **kwargs):
+        return fig
+
+    def overlap(self, images, **kwargs):
         """ Plot several images on one canvas using plotly: render the first one in greyscale
         and the rest ones in opaque 'rgb' channels, one channel for each image.
         Supports up to four images in total.
@@ -171,9 +216,10 @@ class PlotlyPlotter:
         # plot the figure
         fig = go.Figure(data=plot_data)
         fig.update_layout(width=width, height=height, **label_kwargs)
-        fig.show()
 
-    def plot_rgb(self, image, **kwargs):
+        return fig
+
+    def rgb(self, image, **kwargs):
         """ Plot one image in 'rgb' using plotly.
 
         Parameters
@@ -217,9 +263,10 @@ class PlotlyPlotter:
         plot_data = go.Image(z=np.swapaxes(image, 0, 1)[slc], **render_kwargs)
         fig = go.Figure(data=plot_data)
         fig.update_layout(width=width, height=height, **label_kwargs)
-        fig.show()
 
-    def plot_separate(self, images, **kwargs):
+        return fig
+
+    def separate(self, images, **kwargs):
         """ Plot several images on a row of canvases using plotly.
         TODO: add grid support.
 
@@ -264,13 +311,14 @@ class PlotlyPlotter:
             fig.update_xaxes(row=1, col=i + 1, **xaxis_kwargs['xaxis'])
             fig.update_yaxes(row=1, col=i + 1, **yaxis_kwargs['yaxis'])
         fig.update_layout(**label_kwargs)
-        fig.show()
 
+        return fig
 
+@matplotlib_dec
 class MatplotlibPlotter:
     """ Plotting backend for matplotlib.
     """
-    def plot_single(self, image, **kwargs):
+    def single(self, image, **kwargs):
         """ Plot single image/heatmap using matplotlib.
 
         Parameters
@@ -329,9 +377,10 @@ class MatplotlibPlotter:
         if updated['colorbar']:
             plt.colorbar(**colorbar_kwargs)
         plt.tick_params(**tick_params)
-        plt.show()
 
-    def plot_overlap(self, images, **kwargs):
+        return plt
+
+    def overlap(self, images, **kwargs):
         """ Plot several images on one canvas using matplotlib: render the first one in greyscale
         and the rest ones in 'rgb' channels, one channel for each image.
         Supports up to four images in total.
@@ -386,10 +435,11 @@ class MatplotlibPlotter:
             ax.imshow(channelize_image(img.T, total_channels=4, n_channel=n_channel, opacity=updated['opacity']),
                                        **render_kwargs)
         plt.title(**label_kwargs)
-        plt.show()
+
+        return plt
 
 
-    def plot_rgb(self, image, **kwargs):
+    def rgb(self, image, **kwargs):
         """ Plot one image in 'rgb' using matplotlib.
 
         Parameters
@@ -436,9 +486,10 @@ class MatplotlibPlotter:
         plt.xlabel(**xaxis_kwargs)
         plt.ylabel(**yaxis_kwargs)
         plt.tick_params(**tick_params)
-        plt.show()
 
-    def plot_separate(self, images, **kwargs):
+        return plt
+
+    def separate(self, images, **kwargs):
         """ Plot several images on a row of canvases using matplotlib.
         TODO: add grid support.
 
@@ -492,9 +543,10 @@ class MatplotlibPlotter:
             ax[i].set_title(**dict(titles_kwargs, **{'label': titles_kwargs['label'][i]}))
 
         fig.suptitle(y=1.1, **label_kwargs)
-        plt.show()
 
-    def plot_histogram(self, image, **kwargs):
+        return fig
+
+    def histogram(self, image, **kwargs):
         """ Plot histogram using matplotlib.
 
         Parameters
@@ -538,4 +590,4 @@ class MatplotlibPlotter:
         plt.xlim(xaxis_kwargs.get('xlim'))  # these are positional ones
         plt.ylim(yaxis_kwargs.get('ylim'))
 
-        plt.show()
+        return plt
