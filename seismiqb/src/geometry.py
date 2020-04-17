@@ -348,8 +348,7 @@ class SeismicGeometry:
         axis = self.parse_axis(axis)
         slide = self.load_slide(loc=loc, start=start, end=end, step=step, axis=axis, stable=stable)
 
-        title = f'{self.index_headers[axis]} {loc} out of {self.lens[axis]}'
-        meta_title = ''
+        title = kwargs.pop('title', f'{self.index_headers[axis]} {loc} out of {self.lens[axis]}')
         plot_image(slide, mode='single', title=title, order_axes=order_axes, **kwargs)           # for now, order_axes will be ignored
 
 
@@ -359,7 +358,8 @@ class SeismicGeometry:
         if scaler:
             data = self.scaler(data, mode=scaler)
 
-        title = f'Amplitude distribution for {self.short_name}\nMean/std: {np.mean(data):3.3}/{np.std(data):3.3}'
+        title = kwargs.pop('title',
+                f'Amplitude distribution for {self.short_name}\nMean/std: {np.mean(data):3.3}/{np.std(data):3.3}')
         plot_image(data, backend='matplotlib', bins=bins, mode='histogram', title=title, **kwargs)
 
 

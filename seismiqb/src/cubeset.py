@@ -296,27 +296,6 @@ class SeismicCubeset(Dataset):
         else:
             setattr(self, dst, sampler)
 
-    def show_sampler(self, idx=0, src_sampler='sampler', n=100000, eps=3, show_unique=False, **kwargs):
-        """ Generate a lot of points and look at their (iline, xline) positions.
-
-        Parameters
-        ----------
-        idx : str, int
-            If str, then name of cube to use.
-            If int, then number of cube in the index to use.
-        src_sampler : str
-            Name of attribute with sampler in it.
-            Must generate points in cubic coordinates, which can be achieved by `modify_sampler` method.
-        n : int
-            Number of points to generate.
-        eps : int
-            Window of painting.
-        """
-        cube_name = idx if isinstance(idx, str) else self.indices[idx]
-        geom = self.geometries[cube_name]
-        sampler = getattr(self, src_sampler)
-        show_sampler(sampler, cube_name, geom, n=n, eps=eps, show_unique=show_unique, **kwargs)
-
     def show_slices(self, idx=0, src_sampler='sampler', n=10000, normalize=False, shape=None,
                     make_slices=True, side_view=False, **kwargs):
         """ Show actually sampled slices of desired shape. """

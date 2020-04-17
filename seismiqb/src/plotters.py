@@ -64,14 +64,18 @@ def matplotlib_dec(cls):
     # update each method
     for name in names:
         old_ = getattr(cls, name)
-        def updated(self, old_=old_, **kwargs):
-            # pop savefig-kwarg
-            save = kwargs.pop('save')
-            plt_ = old_(self, **kwargs)
+        def updated(self, *args, old_=old_, **kwargs):
+            # pop savefig-kwarg and show-kwarg
+            show = kwargs.pop('show', True)
+            save = kwargs.pop('save', None)
+            plt_ = old_(self, *args, **kwargs)
             # save if necessary and render
             if save is not None:
                 plt_.savefig(**save)
-            plt_.show()
+            if show:
+                plt_.show()
+            else:
+                plt_.close()
 
         # change the class-method
         setattr(cls, name, updated)
@@ -86,14 +90,16 @@ def plotly_dec(cls):
     # update each method
     for name in names:
         old_ = getattr(cls, name)
-        def updated(self, old_=old_, **kwargs):
-            # pop savefig-kwarg
-            save = kwargs.pop('save')
-            fig = old_(self, **kwargs)
+        def updated(self, *args, old_=old_, **kwargs):
+            # pop savefig-kwarg and show-kwarg
+            show = kwargs.pop('show', True)
+            save = kwargs.pop('save', None)
+            fig = old_(self, *args, **kwargs)
             # save if necessary and render
             if save is not None:
                 fig.write_image(**save)
-            fig.show()
+            if show:
+                fig.show()
 
         # change the class-method
         setattr(cls, name, updated)

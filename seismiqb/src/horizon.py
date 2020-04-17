@@ -1527,9 +1527,13 @@ class Horizon(BaseLabel):
         else:
             matrix = copy(matrix).astype(np.float32)
 
+        # defaults for plotting if not supplied in kwargs
+        cmap = kwargs.pop('cmap', 'viridis_r')
+        title = kwargs.pop('title', 'Depth map {} of `{}` on `{}`'.format('on full'*on_full,
+                                                                          self.name, self.cube_name))
+
         matrix[matrix == fill_value] = np.nan
-        plot_image(matrix, mode='single', title='Depth map {} of `{}` on `{}`'.format('on full'*on_full, self.name, self.cube_name),
-                   cmap='viridis_r', **kwargs)
+        plot_image(matrix, mode='single', title=title, cmap=cmap, **kwargs)
 
 
     def show_amplitudes_rgb(self, width=3, channel_weights=(1, 0.5, 0.25), to_uint8=True, **kwargs):
@@ -1560,8 +1564,10 @@ class Horizon(BaseLabel):
         if to_uint8:
             amplitudes = (amplitudes * 255).astype(np.uint8)
 
-        plot_image(amplitudes, title='RGB amplitudes of {} on cube {}'.format(self.name, self.cube_name),
-                   mode='rgb', **kwargs)
+        # defaults for plotting if not supplied in kwargs
+        title = kwargs.pop('title', 'RGB amplitudes of {} on cube {}'.format(self.name, self.cube_name))
+
+        plot_image(amplitudes, title=title, mode='rgb', **kwargs)
 
 
     def show_slide(self, loc, width=3, axis='i', order_axes=None, heights=None, **kwargs):
@@ -1593,12 +1599,12 @@ class Horizon(BaseLabel):
             seismic_slide = seismic_slide[:, heights]
             mask = mask[:, heights]
 
-        # Display everything
+        # defaults for plotting if not supplied in kwargs
         header = self.geometry.index_headers[axis]
-        title = f'{header} {loc} out of {self.geometry.lens[axis]}'
-        meta_title = f'Horizon `{self.name}` on `{self.geometry.name}`'
-        plot_image([seismic_slide, mask], mode='overlap', title=title, order_axes=order_axes, meta_title=meta_title, **kwargs)
+        title = kwargs.pop('title', (f'Horizon `{self.name}` on `{self.geometry.name}`' +
+                                     f'\n {header} {loc} out of {self.geometry.lens[axis]}'))
 
+        plot_image([seismic_slide, mask], mode='overlap', title=title, order_axes=order_axes, **kwargs)
 
 
 class StructuredHorizon(Horizon):
