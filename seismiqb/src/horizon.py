@@ -645,7 +645,8 @@ class Horizon(BaseLabel):
 
 
     @staticmethod
-    def from_mask(mask, grid_info=None, geometry=None, shifts=None, threshold=0.5, minsize=0, prefix='predict', **kwargs):
+    def from_mask(mask, grid_info=None, geometry=None, shifts=None,
+                  threshold=0.5, minsize=0, prefix='predict', **kwargs):
         """ Convert mask to a list of horizons.
         Returned list is sorted on length of horizons.
 
