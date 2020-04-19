@@ -77,20 +77,20 @@ class BaseSeismicMetric(Metrics):
 
             # Get plot parameters
             # TODO: make plot functions use only needed parameters
-            plot_dict = {**plot_dict, **(plot_kwargs or {})}
-            ignore_value = plot_dict.pop('ignore_value', None)
-            spatial = plot_dict.pop('spatial', True)
-            _ = backend, plot_dict.pop('zmin', -1), plot_dict.pop('zmax', 1)
+            if plot:
+                plot_dict = {**plot_dict, **(plot_kwargs or {})}
+                ignore_value = plot_dict.pop('ignore_value', None)
+                spatial = plot_dict.pop('spatial', True)
+                _ = backend, plot_dict.pop('zmin', -1), plot_dict.pop('zmax', 1)
 
-            # np.nan allows to ignore values
-            if ignore_value is not None:
-                copy_metric = np.copy(metric_val)
-                copy_metric[copy_metric == ignore_value] = np.nan
-            else:
-                copy_metric = metric_val
+                # np.nan allows to ignore values
+                if ignore_value is not None:
+                    copy_metric = np.copy(metric_val)
+                    copy_metric[copy_metric == ignore_value] = np.nan
+                else:
+                    copy_metric = metric_val
 
             # Actual plot
-            if plot:
                 if spatial:
                     plot_image(copy_metric, savefig=savepath, show_plot=show_plot, **plot_dict)
                 else:
@@ -561,6 +561,22 @@ class HorizonMetrics(BaseSeismicMetric):
         return self._probs
 
 
+    def find_best_match(self, offset=0, **kwargs):
+        """ !!. """
+        _ = kwargs
+        if isinstance(self.horizons[1], Horizon):
+            self.horizons[1] = [self.horizons[1]]
+
+        lst = []
+        for hor in self.horizons[1]:
+            if hor.geometry.name == self.horizon.geometry.name:
+                overlap_info = Horizon.check_proximity(self.horizon, hor, offset=offset)
+                lst.append((hor, overlap_info))
+        lst.sort(key=lambda x: abs(x[1].get('mean', 999999)))
+        other, overlap_info = lst[0]
+        return (other, overlap_info), {} # actual return + fake plot dict
+
+
     def compare(self, offset=0, absolute=True, hist=True, printer=print, **kwargs):
         """ Compare horizons on against the best match from the list of horizons.
 
@@ -575,19 +591,10 @@ class HorizonMetrics(BaseSeismicMetric):
         printer : callable
             Function to print results, for example `print` or any other callable that can log data.
         """
-        _ = kwargs
         if len(self.horizons) != 2:
             raise ValueError('Can compare two horizons exactly or one to the best match from list of horizons. ')
-        if isinstance(self.horizons[1], Horizon):
-            self.horizons[1] = [self.horizons[1]]
-
-        lst = []
-        for hor in self.horizons[1]:
-            if hor.geometry.name == self.horizon.geometry.name:
-                overlap_info = Horizon.check_proximity(self.horizon, hor, offset=offset)
-                lst.append((hor, overlap_info))
-        lst.sort(key=lambda x: x[1].get('mean', 999999))
-        other, oinfo = lst[0] # the best match; `oinfo` stands for `overlap_info`
+        _ = kwargs
+        (other, oinfo), _ = self.find_best_match(offset=offset)
 
         self_full_matrix = self.horizon.full_matrix
         other_full_matrix = other.full_matrix
@@ -616,8 +623,8 @@ class HorizonMetrics(BaseSeismicMetric):
             Lengths of horizons:                 {len(self.horizon):8}
                                                  {len(other):8}
             {'—'*45}
-            Average heights of horizons:         {(offset + self.horizon.h_mean):8.4}
-                                                 {other.h_mean:8.4}
+            Average heights of horizons:         {(offset + self.horizon.h_mean):8}
+                                                 {other.h_mean:8}
             {'—'*45}
             Coverage of horizons:                {self.horizon.coverage:8.4}
                                                  {other.coverage:8.4}
@@ -636,6 +643,7 @@ class HorizonMetrics(BaseSeismicMetric):
 
         if hist:
             _ = plt.hist(metric.ravel(), bins=100)
+            plt.show()
 
         title = 'Height differences between {} and {}'.format(self.horizon.name, other.name)
         plot_dict = {

@@ -482,58 +482,11 @@ class SeismicCubeset(Dataset):
 
 
     def merge_horizons(self, src, mean_threshold=2.0, adjacency=3, minsize=50):
-        """ Iterate over a list of horizons and merge what can be merged. Can be called after
-        running a pipeline with `get_point_cloud`-action. Changes the list of horizons inplace.
-
-        Parameters
-        ----------
-        src : str or list
-            Source-horizons. Can be either a name of attribute or list itself.
-        height_margin : int
-            if adjacent horizons do not diverge for more than this distance, they can be merged together.
-        border_margin : int
-            max distance between a pair of horizon-borders when the horizons can be adjacent.
-        """
-        # fetch list of horizons
-        horizons = getattr(self, src) if isinstance(src, str) else src
-        horizons = [horizon for horizon in horizons if len(horizon) >= minsize]
-
-        # iterate over list of horizons to merge what can be merged
-        i = 0
-        flag = True
-        while flag:
-            # the procedure continues while at least a pair of horizons is mergeable
-            flag = False
-            while True:
-                if i >= len(horizons):
-                    break
-
-                j = i + 1
-                while True:
-                    # attempt to merge each horizon to i-th horizon with fixed i
-                    if j >= len(horizons):
-                        break
-
-                    merge_code, _ = Horizon.verify_merge(horizons[i], horizons[j],
-                                                         mean_threshold=mean_threshold,
-                                                         adjacency=adjacency)
-                    if merge_code == 3:
-                        merged = Horizon.overlap_merge(horizons[i], horizons[j], inplace=True)
-                    elif merge_code == 2:
-                        merged = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
-                                                        mean_threshold=mean_threshold,
-                                                        adjacency=adjacency)
-                    else:
-                        merged = False
-
-                    if merged:
-                        _ = horizons.pop(j)
-                        flag = True
-                    else:
-                        j += 1
-                i += 1
-
-        return horizons
+        """ !!. """
+        horizons = getattr(self, src)
+        horizons = Horizon.merge_list(horizons, mean_threshold=mean_threshold, adjacency=adjacency, minsize=minsize)
+        if isinstance(src, str):
+            setattr(self, src, horizons)
 
 
     def compare_to_labels(self, horizon, src_labels='labels', offset=0, absolute=True,

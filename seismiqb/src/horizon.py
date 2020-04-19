@@ -645,7 +645,7 @@ class Horizon(BaseLabel):
 
 
     @staticmethod
-    def from_mask(mask, grid_info, threshold=0.5, minsize=0, prefix='prediction', **kwargs):
+    def from_mask(mask, grid_info=None, geometry=None, shifts=None, threshold=0.5, minsize=0, prefix='predict', **kwargs):
         """ Convert mask to a list of horizons.
         Returned list is sorted on length of horizons.
 
@@ -665,8 +665,12 @@ class Horizon(BaseLabel):
             Name of horizon to use.
         """
         _ = kwargs
-        geometry = grid_info['geom']
-        shifts = np.array([item[0] for item in grid_info['range']])
+        if grid_info is not None:
+            geometry = grid_info['geom']
+            shifts = np.array([item[0] for item in grid_info['range']])
+
+        if geometry is None or shifts is None:
+            raise TypeError('Pass `grid_info` or `geometry` and `shifts` to `from_mask` method of Horizon creation.')
 
         # Labeled connected regions with an integer
         labeled = label(mask >= threshold)
@@ -823,9 +827,9 @@ class Horizon(BaseLabel):
         _ = kwargs
         default_bins = self.cube_shape // np.array([5, 20, 20])
         bins = bins if bins is not None else default_bins
-        quality_grid = self.geometry.quality_grid if quality_grid is True else quality_grid
+        quality_grid = self.geometry.quality_grid if quality_grid is True else quality_grid or None
 
-        if quality_grid is not None:
+        if isinstance(quality_grid, np.ndarray):
             points = _filtering_function(np.copy(self.points), 1 - quality_grid)
         else:
             points = self.points
@@ -1122,7 +1126,7 @@ class Horizon(BaseLabel):
 
 
     # Evaluate horizon on its own / against other(s)
-    def evaluate(self, supports=20, plot=True, savepath=None, printer=print):
+    def evaluate(self, supports=20, plot=True, savepath=None, printer=print, **kwargs):
         """ Compute crucial metrics of a horizon. """
         msg = f"""
         Number of labeled points: {len(self)}
@@ -1134,7 +1138,8 @@ class Horizon(BaseLabel):
         """
         printer(dedent(msg))
         from .metrics import HorizonMetrics
-        HorizonMetrics(self).evaluate('support_corrs', supports=supports, agg='mean', plot=plot, savepath=savepath)
+        return HorizonMetrics(self).evaluate('support_corrs', supports=supports, agg='nanmean',
+                                             plot=plot, savepath=savepath, **kwargs)
 
 
     def check_proximity(self, other, offset=0):
@@ -1360,6 +1365,49 @@ class Horizon(BaseLabel):
         return False
 
 
+    @staticmethod
+    def merge_list(horizons, mean_threshold=2.0, adjacency=3, minsize=50):
+        """ !!. """
+        horizons = [horizon for horizon in horizons if len(horizon) >= minsize]
+
+        # iterate over list of horizons to merge what can be merged
+        i = 0
+        flag = True
+        while flag:
+            # the procedure continues while at least a pair of horizons is mergeable
+            flag = False
+            while True:
+                if i >= len(horizons):
+                    break
+
+                j = i + 1
+                while True:
+                    # attempt to merge each horizon to i-th horizon with fixed i
+                    if j >= len(horizons):
+                        break
+
+                    merge_code, _ = Horizon.verify_merge(horizons[i], horizons[j],
+                                                         mean_threshold=mean_threshold,
+                                                         adjacency=adjacency)
+                    if merge_code == 3:
+                        merged = Horizon.overlap_merge(horizons[i], horizons[j], inplace=True)
+                    elif merge_code == 2:
+                        merged = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
+                                                        mean_threshold=mean_threshold,
+                                                        adjacency=adjacency)
+                    else:
+                        merged = False
+
+                    if merged:
+                        _ = horizons.pop(j)
+                        flag = True
+                    else:
+                        j += 1
+                i += 1
+        return horizons
+
+
+
     def adjacent_merge_old(self, other, mean_threshold=3.0, adjacency=3,
                            check_only=False, force_merge=False, inplace=False):
         """ Collect stats on possible adjacent merge (that is merge with some margin), and, if needed, merge horizons.
@@ -1482,7 +1530,7 @@ class Horizon(BaseLabel):
         df = pd.DataFrame(values, columns=self.COLUMNS)
         df.sort_values(['iline', 'xline'], inplace=True)
 
-        path = path if not add_height else '{}_#{}'.format(path, self.h_mean)
+        path = path if not add_height else f'{path}_#{self.h_mean}'
         df.to_csv(path, sep=' ', columns=self.COLUMNS, index=False, header=False)
 
 
